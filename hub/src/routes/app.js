@@ -10,6 +10,7 @@ const ai = require('./../ai');
 const wp = require('./../wp');
 const { PUBLIC_URL, VERSION } = require('./../config');
 const diagnostics = require('./../diagnostics');
+const images = require('./../images');
 
 const router = express.Router();
 
@@ -270,7 +271,39 @@ router.get(
       .prepare('SELECT a.*, s.name AS site_name, s.wp_status FROM articles a JOIN sites s ON s.id = a.site_id WHERE a.id = ?')
       .get(req.params.id);
     if (!article) return res.status(404).json({ error: 'Artikel nicht gefunden.' });
-    res.json(article);
+    res.json({
+      ...article,
+      images: images.forArticle(article.id).map((img) => ({
+        id: img.id, slot: img.slot, alt: img.alt, caption: img.caption, motif: img.motif,
+        status: img.status, error: img.error, bytes: img.bytes,
+        url: img.status === 'ready' ? `/media/${img.token}` : null,
+      })),
+      imagesEnabled: images.enabled(),
+    });
+  })
+);
+
+/** Bilder zu einem Artikel neu erzeugen (alte werden ersetzt). */
+router.post(
+  '/articles/:id/images',
+  wrap(async (req, res) => {
+    const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
+    if (!article) return res.status(404).json({ error: 'Artikel nicht gefunden.' });
+    if (!images.enabled()) {
+      return res.status(400).json({ error: 'Die Bildfunktion ist nicht eingerichtet. Bitte in den Einstellungen konfigurieren.' });
+    }
+
+    const briefs = db
+      .prepare('SELECT slot, motif, alt, caption FROM images WHERE article_id = ? ORDER BY slot ASC')
+      .all(article.id);
+    if (!briefs.length) {
+      return res.status(400).json({ error: 'Zu diesem Artikel gibt es keine Bildkonzepte. Bitte den Artikel neu schreiben lassen.' });
+    }
+
+    db.prepare('DELETE FROM images WHERE article_id = ?').run(article.id);
+    images.pruneOrphans();
+    await images.generateForArticle(article, briefs);
+    res.json({ ok: true, images: images.forArticle(article.id).length });
   })
 );
 
@@ -437,7 +470,15 @@ router.post(
 router.get(
   '/settings',
   wrap((req, res) => {
-    res.json({ ...settings.all(), apiKey: settings.apiKeyInfo(), models: ai.MODELS, hubUrl: PUBLIC_URL, version: VERSION });
+    res.json({
+      ...settings.all(),
+      apiKey: settings.apiKeyInfo(),
+      imageKey: settings.imageKeyInfo(),
+      imagesEnabled: images.enabled(),
+      models: ai.MODELS,
+      hubUrl: PUBLIC_URL,
+      version: VERSION,
+    });
   })
 );
 
@@ -449,7 +490,11 @@ router.put(
       settings.setApiKey(req.body.anthropic_api_key);
     }
     if (req.body.anthropic_api_key === '') settings.setApiKey('');
-    res.json({ ...settings.all(), apiKey: settings.apiKeyInfo() });
+    if (typeof req.body.image_api_key === 'string' && req.body.image_api_key.trim()) {
+      settings.setImageKey(req.body.image_api_key);
+    }
+    if (req.body.image_api_key === '') settings.setImageKey('');
+    res.json({ ...settings.all(), apiKey: settings.apiKeyInfo(), imageKey: settings.imageKeyInfo(), imagesEnabled: images.enabled() });
   })
 );
 

@@ -54,6 +54,14 @@ class Autoblog_Publisher {
             return $post_id;
         }
 
+        // Bilder zuerst: Sie muessen in der Mediathek liegen, bevor der Inhalt
+        // mit den fertigen Adressen gespeichert wird.
+        $bilder = self::import_images($post_id, isset($data['images']) ? $data['images'] : []);
+        $inhalt = self::apply_images($postarr['post_content'], $bilder, $post_id);
+        if ($inhalt !== $postarr['post_content']) {
+            wp_update_post(['ID' => $post_id, 'post_content' => $inhalt]);
+        }
+
         self::assign_category($post_id, isset($data['category']) ? $data['category'] : '');
         self::assign_tags($post_id, isset($data['tags']) ? $data['tags'] : []);
         self::store_seo($post_id, isset($data['meta']) ? $data['meta'] : []);
@@ -67,6 +75,83 @@ class Autoblog_Publisher {
             'edit_url' => get_edit_post_link($post_id, 'raw'),
             'status'   => get_post_status($post_id),
         ];
+    }
+
+    /**
+     * Laedt die Bilder des Hubs in die Mediathek.
+     *
+     * @return array slot => ['id' => int, 'alt' => string, 'caption' => string]
+     */
+    private static function import_images($post_id, $images) {
+        if (!is_array($images) || empty($images)) {
+            return [];
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        $ergebnis = [];
+        foreach ($images as $bild) {
+            $url = isset($bild['url']) ? esc_url_raw($bild['url']) : '';
+            if ($url === '') {
+                continue;
+            }
+            $slot = isset($bild['slot']) ? (int) $bild['slot'] : count($ergebnis) + 1;
+            $alt  = isset($bild['alt']) ? sanitize_text_field($bild['alt']) : '';
+
+            // media_sideload_image laedt die Datei herunter und legt sie als Anhang an.
+            $attachment_id = media_sideload_image($url, $post_id, $alt, 'id');
+            if (is_wp_error($attachment_id)) {
+                continue;
+            }
+
+            update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
+            update_post_meta($attachment_id, '_autoblog_source', $url);
+
+            $ergebnis[$slot] = [
+                'id'      => (int) $attachment_id,
+                'alt'     => $alt,
+                'caption' => isset($bild['caption']) ? sanitize_text_field($bild['caption']) : '',
+            ];
+        }
+
+        // Bild 1 ist das Beitragsbild.
+        if (isset($ergebnis[1]) && !has_post_thumbnail($post_id)) {
+            set_post_thumbnail($post_id, $ergebnis[1]['id']);
+        }
+
+        return $ergebnis;
+    }
+
+    /**
+     * Ersetzt die Platzhalter [[BILD:n]] durch das jeweilige Bild.
+     * Platzhalter ohne Bild werden entfernt, damit nie Klammertext im Beitrag steht.
+     */
+    private static function apply_images($content, $bilder, $post_id) {
+        return preg_replace_callback(
+            '/(?:<p>\s*)?\[\[BILD:(\d+)\]\](?:\s*<\/p>)?/i',
+            function ($treffer) use ($bilder) {
+                $slot = (int) $treffer[1];
+                if (empty($bilder[$slot])) {
+                    return '';
+                }
+                $bild = $bilder[$slot];
+                $img = wp_get_attachment_image($bild['id'], 'large', false, [
+                    'alt'      => $bild['alt'],
+                    'loading'  => 'lazy',
+                    'decoding' => 'async',
+                ]);
+                if (!$img) {
+                    return '';
+                }
+                $caption = $bild['caption'] !== ''
+                    ? '<figcaption>' . esc_html($bild['caption']) . '</figcaption>'
+                    : '';
+                return '<figure class="wp-block-image size-large">' . $img . $caption . '</figure>';
+            },
+            (string) $content
+        );
     }
 
     /** Kategorie zuweisen und bei Bedarf anlegen. */

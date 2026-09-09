@@ -16,6 +16,14 @@ const DEFAULTS = {
   global_prompt: '',
   article_prompt: DEFAULT_ARTICLE_PROMPT,
   topic_prompt: DEFAULT_TOPIC_PROMPT,
+  // Bilder: Anthropic erzeugt keine Bilder, daher ein eigener Dienst.
+  image_provider: 'none',                       // none | openai
+  image_base_url: 'https://api.openai.com/v1',  // jeder OpenAI-kompatible Endpunkt
+  image_model: 'gpt-image-1',
+  image_size: '1536x1024',
+  image_quality: 'high',
+  image_style: 'natural documentary photography, soft daylight, shallow depth of field, no text',
+  images_per_article: '3',
 };
 
 function all() {
@@ -32,6 +40,21 @@ function save(patch) {
   for (const [key, value] of Object.entries(patch)) {
     if (key in DEFAULTS) setSetting(key, value);
   }
+}
+
+/** Bild-API-Key, ebenfalls verschluesselt abgelegt. */
+function setImageKey(key) {
+  setSetting('image_api_key', key ? encrypt(key.trim()) : '');
+}
+
+function getImageKey() {
+  return decrypt(getSetting('image_api_key', '')) || process.env.IMAGE_API_KEY || '';
+}
+
+function imageKeyInfo() {
+  const key = getImageKey();
+  if (!key) return { configured: false, hint: '' };
+  return { configured: true, hint: `${key.slice(0, 8)}…${key.slice(-4)}` };
 }
 
 /** Der API-Key wird verschluesselt abgelegt und nie im Klartext ausgeliefert. */
@@ -60,4 +83,4 @@ function resetPrompts() {
   setSetting('topic_prompt', DEFAULTS.topic_prompt);
 }
 
-module.exports = { all, get, save, setApiKey, getApiKey, apiKeyInfo, resetPrompts, DEFAULTS };
+module.exports = { all, get, save, setApiKey, getApiKey, apiKeyInfo, setImageKey, getImageKey, imageKeyInfo, resetPrompts, DEFAULTS };

@@ -95,6 +95,27 @@ CREATE TABLE IF NOT EXISTS articles (
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Erzeugte Bilder. Die Datei liegt unter DATA_DIR/images, der Token macht sie
+-- ueber eine nicht erratbare URL fuer WordPress abrufbar.
+CREATE TABLE IF NOT EXISTS images (
+  id         TEXT PRIMARY KEY,
+  article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  site_id    TEXT,
+  slot       INTEGER NOT NULL DEFAULT 1,          -- 1 = Titelbild, ab 2 im Text
+  motif      TEXT NOT NULL DEFAULT '',
+  alt        TEXT NOT NULL DEFAULT '',
+  caption    TEXT NOT NULL DEFAULT '',
+  token      TEXT NOT NULL UNIQUE,
+  file       TEXT NOT NULL DEFAULT '',
+  mime       TEXT NOT NULL DEFAULT 'image/png',
+  bytes      INTEGER NOT NULL DEFAULT 0,
+  provider   TEXT NOT NULL DEFAULT '',
+  model      TEXT NOT NULL DEFAULT '',
+  status     TEXT NOT NULL DEFAULT 'pending',     -- pending | ready | failed
+  error      TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS logs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   ts          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -114,6 +135,7 @@ CREATE TABLE IF NOT EXISTS logs (
 CREATE INDEX IF NOT EXISTS idx_plans_site   ON plans(site_id, active);
 CREATE INDEX IF NOT EXISTS idx_articles_site ON articles(site_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_site   ON topics(site_id, status);
+CREATE INDEX IF NOT EXISTS idx_images_article ON images(article_id, slot);
 CREATE INDEX IF NOT EXISTS idx_logs_created  ON logs(id DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_level    ON logs(level, id DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_category ON logs(category, id DESC);
@@ -181,12 +203,14 @@ function log(level, message, meta = {}) {
 }
 
 /** Aeltere Protokolleintraege ausduennen, damit die Datei nicht endlos waechst. */
-function pruneLogs(days = 30) {
-  const kept = Math.max(1, Number(days) || 30);
+const LOG_RETENTION_DAYS = 7;
+
+function pruneLogs(days = LOG_RETENTION_DAYS) {
+  const kept = Math.max(1, Number(days) || LOG_RETENTION_DAYS);
   const result = db.prepare(`DELETE FROM logs WHERE created_at < datetime('now', '-${kept} days')`).run();
-  // Debug-Eintraege leben kuerzer, sie sind die mit Abstand groesste Gruppe.
-  db.prepare("DELETE FROM logs WHERE level = 'debug' AND created_at < datetime('now', '-3 days')").run();
-  return result.changes;
+  // Debug-Eintraege sind die mit Abstand groesste Gruppe und leben kuerzer.
+  const debug = db.prepare("DELETE FROM logs WHERE level = 'debug' AND created_at < datetime('now', '-2 days')").run();
+  return result.changes + debug.changes;
 }
 
-module.exports = { db, setSetting, getSetting, log, pruneLogs };
+module.exports = { db, setSetting, getSetting, log, pruneLogs, LOG_RETENTION_DAYS };

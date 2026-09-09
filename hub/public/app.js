@@ -776,6 +776,8 @@ async function renderArticle(view, articleId) {
       <button data-atab="preview" class="${tab === 'preview' ? 'active' : ''}">Vorschau</button>
       <button data-atab="edit" class="${tab === 'edit' ? 'active' : ''}">Bearbeiten</button>
       <button data-atab="seo" class="${tab === 'seo' ? 'active' : ''}">SEO</button>
+      <button data-atab="images" class="${tab === 'images' ? 'active' : ''}">Bilder${
+        article.images && article.images.length ? ` (${article.images.filter((i) => i.status === 'ready').length})` : ''}</button>
     </div>
     <div class="card">
       ${tab === 'preview' ? `<div class="preview"><h1 style="margin-top:0">${esc(article.title)}</h1>${article.content_html}</div>` : ''}
@@ -784,6 +786,33 @@ async function renderArticle(view, articleId) {
         <div class="field"><label for="excerpt">Anreißer</label><textarea id="excerpt" style="min-height:60px">${esc(article.excerpt)}</textarea></div>
         <div class="field"><label for="content_html">Inhalt (HTML)</label><textarea id="content_html" class="code">${esc(article.content_html)}</textarea></div>
         <button class="primary" id="save-article">Speichern</button>` : ''}
+      ${tab === 'images' ? (article.images && article.images.length ? `
+        <div class="grid cols-2">
+          ${article.images.map((img) => `
+            <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+              ${img.url
+                ? `<img src="${esc(img.url)}" alt="${esc(img.alt)}" style="width:100%;display:block;aspect-ratio:3/2;object-fit:cover" />`
+                : `<div class="empty" style="padding:40px 10px">${img.status === 'failed'
+                    ? `<span class="badge err">fehlgeschlagen</span><div class="hint" style="margin-top:8px">${esc(img.error || '')}</div>`
+                    : '<span class="badge warn">wird erzeugt …</span>'}</div>`}
+              <div style="padding:12px">
+                <div><span class="badge ${img.slot === 1 ? 'info' : ''}">${img.slot === 1 ? 'Beitragsbild' : `im Text: [[BILD:${img.slot}]]`}</span></div>
+                <div class="hint" style="margin-top:8px"><strong>Alt:</strong> ${esc(img.alt)}</div>
+                ${img.caption ? `<div class="hint"><strong>Unterschrift:</strong> ${esc(img.caption)}</div>` : ''}
+                <details style="margin-top:6px"><summary class="hint">Bildbeschreibung</summary>
+                  <div class="hint" style="margin-top:4px">${esc(img.motif)}</div></details>
+              </div>
+            </div>`).join('')}
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button id="regen-images">Bilder neu erzeugen</button>
+          <span class="hint">Ersetzt alle Bilder dieses Artikels. Die Bildkonzepte bleiben gleich.</span>
+        </div>` : `<div class="empty">
+          <p>Zu diesem Artikel gibt es keine Bilder.</p>
+          <p class="sub">${article.imagesEnabled
+            ? 'Der Artikel wurde erzeugt, bevor die Bildfunktion aktiv war. Schreibe ihn neu, dann entstehen Bildkonzepte.'
+            : 'Die Bildfunktion ist noch nicht eingerichtet. Das geht unter Einstellungen → Bilder.'}</p>
+        </div>`) : ''}
       ${tab === 'seo' ? `
         <div class="grid cols-2">
           <div class="field"><label for="slug">URL-Slug</label><input id="slug" value="${esc(article.slug)}" /></div>
@@ -796,6 +825,11 @@ async function renderArticle(view, articleId) {
     </div>`;
 
   on('[data-atab]', 'click', (event) => { state.data.articleTab = event.currentTarget.dataset.atab; render(); });
+  on('#regen-images', 'click', (event) => guard(event.currentTarget, async () => {
+    const result = await api(`/api/app/articles/${articleId}/images`, { method: 'POST' });
+    toast(`${result.images} Bild(er) erzeugt.`);
+    await render();
+  }));
   on('#save-article', 'click', (event) => guard(event.currentTarget, async () => {
     const body = {};
     for (const field of ['title', 'excerpt', 'content_html', 'slug', 'category', 'meta_title', 'meta_desc', 'tags']) {
@@ -881,10 +915,74 @@ async function renderSettings(view) {
     </div>
 
     <div class="card">
+      <h2>Bilder</h2>
+      <p class="sub">Claude erzeugt keine Bilder. Der Hub spricht dafür einen Bilddienst an,
+        der die OpenAI-Bildschnittstelle versteht. Die fertigen Bilder wandern beim Veröffentlichen
+        automatisch in die WordPress-Mediathek, Bild 1 wird das Beitragsbild.</p>
+      <div class="grid cols-2" style="margin-top:14px">
+        <div class="field">
+          <label for="image_provider">Bildquelle</label>
+          <select id="image_provider">
+            <option value="none" ${data.image_provider === 'none' ? 'selected' : ''}>aus, keine Bilder</option>
+            <option value="openai" ${data.image_provider === 'openai' ? 'selected' : ''}>Bild-API (OpenAI-kompatibel)</option>
+          </select>
+          <div class="hint">${data.imagesEnabled
+            ? '<span class="badge ok">aktiv</span>'
+            : 'Noch nicht aktiv. Es fehlt die Quelle oder der Schlüssel.'}</div>
+        </div>
+        <div class="field">
+          <label for="images_per_article">Bilder pro Artikel</label>
+          <select id="images_per_article">
+            ${[0, 1, 2, 3, 4].map((n) => `<option value="${n}" ${Number(data.images_per_article) === n ? 'selected' : ''}>${
+              n === 0 ? 'keine' : n === 1 ? '1 (nur Beitragsbild)' : `${n} (Beitragsbild + ${n - 1} im Text)`}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="image_api_key">Schlüssel des Bilddienstes</label>
+        <input id="image_api_key" type="password" placeholder="${data.imageKey.configured ? `hinterlegt (${esc(data.imageKey.hint)})` : 'sk-…'}" />
+        <div class="hint">${data.imageKey.configured
+          ? 'Ein Schlüssel ist hinterlegt. Feld leer lassen, um ihn zu behalten.'
+          : 'Bei OpenAI unter platform.openai.com → API keys.'}</div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label for="image_base_url">Adresse der Bild-API</label>
+          <input id="image_base_url" value="${esc(data.image_base_url)}" placeholder="https://api.openai.com/v1" />
+          <div class="hint">Jeder Dienst mit dem Endpunkt /images/generations funktioniert.</div></div>
+        <div class="field"><label for="image_model">Bildmodell</label>
+          <input id="image_model" value="${esc(data.image_model)}" placeholder="gpt-image-1" /></div>
+        <div class="field">
+          <label for="image_size">Bildformat</label>
+          <select id="image_size">
+            ${['1536x1024:quer (empfohlen für Beiträge)', '1024x1024:quadratisch', '1024x1536:hoch'].map((entry) => {
+              const [value, label] = entry.split(':');
+              return `<option value="${value}" ${data.image_size === value ? 'selected' : ''}>${label}</option>`;
+            }).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label for="image_quality">Bildqualität</label>
+          <select id="image_quality">
+            ${['high:hoch', 'medium:mittel', 'low:niedrig (günstig)', 'auto:automatisch'].map((entry) => {
+              const [value, label] = entry.split(':');
+              return `<option value="${value}" ${data.image_quality === value ? 'selected' : ''}>${label}</option>`;
+            }).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="image_style">Bildstil</label>
+        <textarea id="image_style" style="min-height:70px">${esc(data.image_style)}</textarea>
+        <div class="hint">Wird an jede Bildbeschreibung angehängt, auf Englisch. Hält den Look über alle Artikel gleich.</div>
+      </div>
+      <button class="primary" id="save-settings-3">Speichern</button>
+    </div>
+
+    <div class="card">
       <h2>Diagnose-Zugang</h2>
       <p class="sub">Erzeugt einen Link, über den sich der komplette Systemzustand samt Protokoll abrufen lässt –
         ohne Anmeldung, nur mit diesem Link. Jede Aktivierung erzeugt einen <strong>neuen</strong> Token,
-        der vorherige Link funktioniert danach nicht mehr.</p>
+        der vorherige Link funktioniert danach nicht mehr. Der Link bleibt gültig, bis du ihn deaktivierst.</p>
       <div id="diagnostics-box" class="hint" style="margin:14px 0">wird geladen …</div>
       <div class="row">
         <button class="primary" id="diag-enable">Neuen Diagnose-Link erzeugen</button>
@@ -913,12 +1011,16 @@ async function renderSettings(view) {
   const saveSettings = (event) => guard(event.currentTarget, async () => {
     const body = {};
     for (const field of ['hub_name', 'model', 'effort', 'brand_name', 'brand_description', 'default_language',
-      'default_word_count', 'default_tone', 'global_prompt', 'article_prompt', 'topic_prompt']) {
+      'default_word_count', 'default_tone', 'global_prompt', 'article_prompt', 'topic_prompt',
+      'image_provider', 'images_per_article', 'image_base_url', 'image_model', 'image_size',
+      'image_quality', 'image_style']) {
       const el = root.querySelector(`#${field}`);
       if (el) body[field] = el.value;
     }
     const key = root.querySelector('#anthropic_api_key').value.trim();
     if (key) body.anthropic_api_key = key;
+    const imageKey = root.querySelector('#image_api_key').value.trim();
+    if (imageKey) body.image_api_key = imageKey;
     await api('/api/app/settings', { method: 'PUT', body });
     state.session = null; // Hub-Name in der Seitenleiste neu laden
     toast('Gespeichert.');
@@ -926,13 +1028,14 @@ async function renderSettings(view) {
   });
   on('#save-settings', 'click', saveSettings);
   on('#save-settings-2', 'click', saveSettings);
+  on('#save-settings-3', 'click', saveSettings);
   const renderDiagnostics = async () => {
     const box = root.querySelector('#diagnostics-box');
     if (!box) return;
     const info = await api('/api/app/diagnostics');
     box.innerHTML = info.active
       ? `<div class="notice info" style="margin:0">
-           <div><strong>Aktiv bis ${fmtDate(info.expiresAt)}</strong> (${info.validHours} Stunden ab Erzeugung)</div>
+           <div><strong>Aktiv</strong> seit ${fmtDate(info.created)}. Gilt so lange, bis du ihn deaktivierst oder ersetzt.</div>
            <div class="row" style="margin-top:8px">
              <code class="pair" id="diag-url" style="font-size:13px;letter-spacing:0">${esc(info.url)}</code>
              <button class="small" id="diag-copy">Kopieren</button>
@@ -982,7 +1085,8 @@ async function renderLogs(view) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Protokoll</h1><p class="sub">Jede Anfrage und jede Aktion wird mitgeschrieben (Zeiten in UTC).</p></div>
+      <div><h1>Protokoll</h1><p class="sub">Jede Anfrage und jede Aktion wird mitgeschrieben (Zeiten in UTC).
+        Einträge werden nach 7 Tagen automatisch gelöscht, Debug-Einträge nach 2 Tagen.</p></div>
       <div class="row">
         <select id="log-level" style="width:auto">${Object.entries(levels).map(([value, label]) =>
           `<option value="${value}" ${filter.level === value ? 'selected' : ''}>${label}</option>`).join('')}</select>

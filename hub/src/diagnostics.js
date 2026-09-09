@@ -9,7 +9,6 @@ const config = require('./config');
 
 const TOKEN_KEY = 'diagnostics_token';
 const CREATED_KEY = 'diagnostics_created';
-const VALID_HOURS = 72;
 
 /**
  * Erzeugt einen neuen Diagnose-Token. Jede Aktivierung ersetzt den vorherigen -
@@ -19,10 +18,8 @@ function enable() {
   const token = crypto.randomBytes(24).toString('base64url');
   setSetting(TOKEN_KEY, token);
   setSetting(CREATED_KEY, new Date().toISOString());
-  logger.warn('diagnostics', 'enable', 'Diagnose-Zugang aktiviert (neuer Token erzeugt)', {
-    context: { valid_hours: VALID_HOURS },
-  });
-  return { token, url: buildUrl(token), created: getSetting(CREATED_KEY), validHours: VALID_HOURS };
+  logger.warn('diagnostics', 'enable', 'Diagnose-Zugang aktiviert (neuer Token erzeugt)');
+  return { token, url: buildUrl(token), created: getSetting(CREATED_KEY) };
 }
 
 function disable() {
@@ -39,24 +36,17 @@ function buildUrl(token) {
 function status() {
   const token = getSetting(TOKEN_KEY, '');
   if (!token) return { active: false };
-  const created = getSetting(CREATED_KEY, '');
-  const expiresAt = new Date(new Date(created).getTime() + VALID_HOURS * 3600 * 1000);
-  return {
-    active: expiresAt > new Date(),
-    created,
-    expiresAt: expiresAt.toISOString(),
-    url: buildUrl(token),
-    validHours: VALID_HOURS,
-  };
+  return { active: true, created: getSetting(CREATED_KEY, ''), url: buildUrl(token) };
 }
 
-/** Prueft den Token aus der URL. Laeuft nach VALID_HOURS automatisch ab. */
+/**
+ * Prueft den Token aus der URL. Der Zugang bleibt gueltig, bis er in den
+ * Einstellungen deaktiviert oder durch einen neuen Token ersetzt wird.
+ */
 function verify(token) {
   const stored = getSetting(TOKEN_KEY, '');
   if (!stored || !token) return false;
-  if (!safeEqual(stored, token)) return false;
-  const created = new Date(getSetting(CREATED_KEY, 0)).getTime();
-  return Date.now() - created <= VALID_HOURS * 3600 * 1000;
+  return safeEqual(stored, token);
 }
 
 /**
@@ -150,4 +140,4 @@ function safeParse(text) {
   }
 }
 
-module.exports = { enable, disable, status, verify, report, VALID_HOURS };
+module.exports = { enable, disable, status, verify, report };

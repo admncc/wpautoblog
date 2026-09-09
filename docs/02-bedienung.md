@@ -81,6 +81,8 @@ Jeder Artikel hat drei Reiter:
 - **Vorschau** – so wird der Beitrag aussehen
 - **Bearbeiten** – Titel, Anreißer und der Text als HTML
 - **SEO** – Slug, Kategorie, Schlagwörter, SEO-Titel und -Beschreibung
+- **Bilder** – die erzeugten Bilder mit Alt-Text, Unterschrift und Bildbeschreibung.
+  Über *Bilder neu erzeugen* entstehen zu denselben Konzepten neue Bilder
 
 **An WordPress senden** überträgt den Beitrag. Er erscheint dort mit dem Status,
 der für die Website eingestellt ist. **Neu schreiben** erzeugt zum selben Thema
@@ -128,5 +130,22 @@ Ein paar Beispiele, die sich bewährt haben:
 - Nenne bei Produkten nie Preise, sie veralten zu schnell.
 - Schreibe geschlechtsneutral.
 ```
+
+**Bilder** – Claude selbst erzeugt keine Bilder. Der Hub spricht dafür einen Bilddienst an,
+der die OpenAI-Bildschnittstelle versteht (Standard: `https://api.openai.com/v1`, Modell `gpt-image-1`;
+jeder kompatible Dienst funktioniert). Einzustellen sind Schlüssel, Modell, Format, Qualität,
+Anzahl der Bilder je Artikel (0 bis 4) und ein **Bildstil**, der an jede Bildbeschreibung angehängt wird
+und den Look über alle Artikel gleich hält.
+
+So läuft es ab: Beim Schreiben liefert Claude neben dem Text auch Bildkonzepte mit
+englischer Bildbeschreibung, Alt-Text und Bildunterschrift. Bild 1 ist immer das Beitragsbild,
+weitere Bilder setzt Claude als Platzhalter `[[BILD:2]]` an die passende Stelle im Text.
+Der Hub erzeugt die Bilder und zeigt sie im Artikel unter **Bilder**. Beim Veröffentlichen lädt
+das WordPress-Plugin sie in die Mediathek, setzt das Beitragsbild und ersetzt die Platzhalter
+durch das Bild samt Unterschrift. Platzhalter ohne Bild verschwinden rückstandslos.
+
+> Wichtig: Damit WordPress die Bilder abholen kann, muss `PUBLIC_URL` gesetzt und der Hub
+> von der WordPress-Seite aus erreichbar sein. Fehlt das, wird der Artikel ohne Bilder übertragen
+> und der Grund steht im Protokoll.
 
 **Diagnose-Zugang** – siehe [Diagnose](03-diagnose.md).

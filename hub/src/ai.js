@@ -137,8 +137,23 @@ const ARTICLE_SCHEMA = {
     tags: { type: 'array', items: { type: 'string' }, description: '3-6 Schlagwoerter' },
     category: { type: 'string', description: 'Passende WordPress-Kategorie' },
     content_html: { type: 'string', description: 'Der Artikel als HTML' },
+    images: {
+      type: 'array',
+      description: 'Bildkonzepte. Leere Liste, wenn keine Bilder angefordert wurden.',
+      items: {
+        type: 'object',
+        properties: {
+          slot: { type: 'integer', description: '1 = Titelbild, ab 2 im Text als [[BILD:n]] platziert' },
+          motif: { type: 'string', description: 'Bildbeschreibung fuer das Bildmodell, auf Englisch' },
+          alt: { type: 'string', description: 'Alternativtext in der Sprache des Artikels' },
+          caption: { type: 'string', description: 'Bildunterschrift, ein Satz, darf leer sein' },
+        },
+        required: ['slot', 'motif', 'alt', 'caption'],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ['title', 'slug', 'meta_title', 'meta_description', 'excerpt', 'tags', 'category', 'content_html'],
+  required: ['title', 'slug', 'meta_title', 'meta_description', 'excerpt', 'tags', 'category', 'content_html', 'images'],
   additionalProperties: false,
 };
 
@@ -151,14 +166,17 @@ function topicSystemPrompt() {
   return (settings.get('topic_prompt') || '').trim() || require('./prompts').DEFAULT_TOPIC_PROMPT;
 }
 
-async function generateArticle({ site, keyword, angle }) {
+async function generateArticle({ site, keyword, angle, imageCount = 0 }) {
   const wordCount = site.word_count || Number(settings.get('default_word_count')) || 1200;
   const prompt = `${siteBriefing(site)}
 
 Aufgabe: Schreibe einen vollstaendigen Blogartikel.
 Hauptkeyword / Thema: ${keyword}
-${angle ? `Gewuenschter Blickwinkel: ${angle}\n` : ''}Ziellaenge: ca. ${wordCount} Woerter (+/- 15 %).
-Sprache: ${site.language === 'en' ? 'Englisch' : site.language === 'fr' ? 'Franzoesisch' : site.language === 'es' ? 'Spanisch' : 'Deutsch'}.`;
+${angle ? `Gewuenschter Blickwinkel: ${angle}\n` : ''}Ziellaenge: ca. ${wordCount} Woerter als Richtwert.
+Sprache: ${site.language === 'en' ? 'Englisch' : site.language === 'fr' ? 'Franzoesisch' : site.language === 'es' ? 'Spanisch' : 'Deutsch'}.
+Bilder: ${imageCount > 0
+    ? `${imageCount} Bildkonzepte. Bild 1 ist das Titelbild, die uebrigen platzierst du mit [[BILD:2]] bis [[BILD:${imageCount}]] im Text.`
+    : 'keine. Gib fuer "images" eine leere Liste zurueck und setze keine Platzhalter in den Text.'}`;
 
   const { data, usage } = await runJson({
     system: articleSystemPrompt(),
@@ -169,7 +187,24 @@ Sprache: ${site.language === 'en' ? 'Englisch' : site.language === 'fr' ? 'Franz
     meta: { siteId: site.id, context: { keyword, angle, target_words: wordCount } },
   });
 
-  const contentHtml = sanitizeHtml(data.content_html);
+  const images = (Array.isArray(data.images) ? data.images : [])
+    .slice(0, Math.max(0, imageCount))
+    .map((img, index) => ({
+      slot: Number(img.slot) || index + 1,
+      motif: sanitizeText(img.motif, 2000),
+      alt: sanitizeText(img.alt, 300),
+      caption: sanitizeText(img.caption, 300),
+    }))
+    .filter((img) => img.motif);
+
+  let contentHtml = sanitizeHtml(data.content_html);
+  // Platzhalter entfernen, zu denen es kein Bildkonzept gibt - sie wuerden sonst
+  // als sichtbarer Text im Beitrag landen.
+  const known = new Set(images.map((img) => img.slot));
+  contentHtml = contentHtml.replace(/<p>\s*(\[\[BILD:(\d+)\]\])\s*<\/p>|\[\[BILD:(\d+)\]\]/g, (match, _p, a, b) => {
+    const slot = Number(a || b);
+    return known.has(slot) && slot > 1 ? `<p>[[BILD:${slot}]]</p>` : '';
+  });
   logger.debug('ai', 'sanitize', 'Artikel-HTML geprueft und bereinigt', {
     siteId: site.id,
     context: { raw_chars: String(data.content_html || '').length, clean_chars: contentHtml.length, words: countWords(contentHtml) },
@@ -188,6 +223,7 @@ Sprache: ${site.language === 'en' ? 'Englisch' : site.language === 'fr' ? 'Franz
     category: sanitizeText(data.category, 60),
     content_html: contentHtml,
     word_count: countWords(contentHtml),
+    images,
     ...usage,
   };
 }

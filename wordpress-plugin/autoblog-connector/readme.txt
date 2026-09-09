@@ -54,3 +54,4 @@ Die alte Verbindung wird sofort ungueltig. Trage den neuen Token unter "Einstell
 = 1.0.0 =
 * Erste Fassung: Verbindung per Website-Token, signierte Uebertragung, Sende- und Abholmodus,
   Kategorien, Schlagwoerter, SEO-Felder und Autorenzuweisung.
+* Bilder: Import in die Mediathek, Beitragsbild und Platzierung im Text ueber Platzhalter.

@@ -1,8 +1,9 @@
 'use strict';
 const cron = require('node-cron');
-const { pruneLogs } = require('./db');
+const { pruneLogs, LOG_RETENTION_DAYS } = require('./db');
 const { logger } = require('./logger');
 const service = require('./service');
+const images = require('./images');
 
 let running = false;
 
@@ -27,8 +28,9 @@ function start() {
 
   // Naechtliches Aufraeumen des Protokolls.
   cron.schedule('30 3 * * *', () => {
-    const removed = pruneLogs(30);
-    logger.info('scheduler', 'prune', `Protokoll aufgeraeumt (${removed} Eintraege entfernt)`);
+    const removed = pruneLogs();
+    const files = images.pruneOrphans();
+    logger.info('scheduler', 'prune', `Aufgeraeumt: ${removed} Protokolleintraege aelter als ${LOG_RETENTION_DAYS} Tage, ${files} verwaiste Bilddateien`);
   });
 
   logger.info('scheduler', 'start', 'Zeitplan aktiv: Pruefung alle 15 Minuten, Aufraeumen taeglich um 03:30 UTC');

@@ -2,6 +2,7 @@
 const express = require('express');
 const { db } = require('./../db');
 const { logger } = require('./../logger');
+const images = require('./../images');
 const { sign, safeEqual, decrypt, normalizeUrl } = require('./../util');
 const settings = require('./../settings');
 const { VERSION } = require('./../config');
@@ -158,6 +159,7 @@ router.post('/pending', verifySignature, (req, res) => {
       tags: a.tags ? a.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
       author_id: req.site.wp_author_id || 0,
       meta: { title: a.meta_title, description: a.meta_desc },
+      images: images.forDelivery(a.id),
     })),
   });
 });

@@ -53,6 +53,7 @@ dass eine mitgeschnittene Anfrage später wiederholt werden kann.
 | `topics` | Themenliste je Website (`open` / `used`), manuell oder von der KI |
 | `plans` | Wiederkehrende Posts: Themenbereiche, Takt, nächster Termin |
 | `articles` | Artikel mit Inhalt, SEO-Feldern, Status, Token-Verbrauch und WordPress-Bezug |
+| `images` | Erzeugte Bilder mit Bildbeschreibung, Alt-Text, Unterschrift, Datei und Abrufe-Token |
 | `logs` | Protokoll mit Stufe, Bereich, Aktion, Dauer, HTTP-Status und Kontext als JSON |
 
 ## Ablauf einer Artikelerzeugung
@@ -65,7 +66,14 @@ dass eine mitgeschnittene Anfrage später wiederholt werden kann.
 3. Aufruf der Anthropic Messages API im Streaming-Modus mit `output_config.format`
    (JSON-Schema), damit Titel, Slug, SEO-Felder, Schlagwörter und HTML sauber getrennt zurückkommen.
 4. Das HTML wird bereinigt, die Wortzahl bestimmt, alles gespeichert; Status wird `draft`.
-5. Beim Veröffentlichen geht der Artikel an das Plugin, das daraus einen Beitrag anlegt.
+5. Enthält die Antwort Bildkonzepte, ruft der Hub anschließend den Bilddienst auf
+   (OpenAI-kompatibler Endpunkt `/images/generations`), legt die Dateien unter `data/images`
+   ab und macht sie über `/media/<token>` abrufbar. Fehler dabei sind nicht kritisch:
+   Der Artikel bleibt nutzbar, das einzelne Bild wird als `failed` vermerkt.
+6. Beim Veröffentlichen geht der Artikel an das Plugin, das daraus einen Beitrag anlegt.
+   Das Plugin lädt die Bilder über ihre Adresse in die Mediathek (`media_sideload_image`),
+   setzt Bild 1 als Beitragsbild und ersetzt die Platzhalter `[[BILD:n]]` im Text durch
+   `<figure>` mit Bild und Unterschrift. Platzhalter ohne Bild werden entfernt.
 
 ## Übertragungswege
 
@@ -103,9 +111,16 @@ Alle Endpunkte unter `/api/app/*` setzen eine Anmeldung voraus:
 `plans`, `plans/:id/run`, `articles`, `articles/:id/publish`, `articles/:id/regenerate`,
 `settings`, `settings/reset-prompts`, `diagnostics`, `diagnostics/enable`, `logs`.
 
-### Diagnose (nur mit gültigem Einmal-Token in der URL)
+### Bilder
+
+`GET /media/:token` liefert ein erzeugtes Bild aus. Der Token ist zufällig und nicht erratbar,
+damit WordPress das Bild ohne Anmeldung abholen kann.
+
+### Diagnose (nur mit gültigem Token in der URL)
 
 `GET /diagnose/:token`, `/diagnose/:token/report.json`, `/diagnose/:token/logs.txt`
+
+Der Token gilt, bis er in den Einstellungen deaktiviert oder durch einen neuen ersetzt wird.
 
 ## Zeitsteuerung
 
@@ -128,11 +143,12 @@ hub/
     prompts.js        Mitgeliefertes Prompt-Framework
     ai.js             Anthropic-Anbindung, JSON-Schemata
     sanitize.js       HTML-Positivliste
+    images.js         Bildgenerierung, Ablage und Ausliefer-Adressen
     wp.js             Signierte Aufrufe an WordPress
     service.js        Artikelerzeugung, Veröffentlichung, Pläne
     scheduler.js      Zeitsteuerung
     diagnostics.js    Diagnosebericht und Einmal-Token
-    routes/           app.js (Oberfläche), plugin.js (WordPress), diagnostics.js
+    routes/           app.js (Oberfläche), plugin.js (WordPress), diagnostics.js, media.js
   public/             Oberfläche (ohne Build-Schritt: index.html, app.js, styles.css)
 
 wordpress-plugin/autoblog-connector/

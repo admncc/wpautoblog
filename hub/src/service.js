@@ -3,6 +3,7 @@ const { db } = require('./db');
 const { logger } = require('./logger');
 const ai = require('./ai');
 const wp = require('./wp');
+const images = require('./images');
 const { randomId } = require('./util');
 
 const getSite = (id) => db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
@@ -39,8 +40,8 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
   });
 
   const promise = ai
-    .generateArticle({ site, keyword: cleanKeyword, angle })
-    .then((result) => {
+    .generateArticle({ site, keyword: cleanKeyword, angle, imageCount: images.plannedCount() })
+    .then(async (result) => {
       touchArticle(id, {
         title: result.title,
         slug: result.slug,
@@ -62,6 +63,13 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
         articleId: id,
         context: { title: result.title, words: result.word_count, model: result.model, tokens_out: result.tokens_out },
       });
+
+      // Bilder danach: Ein Fehler hier darf den fertigen Artikel nicht entwerten.
+      if (result.images && result.images.length) {
+        await images.generateForArticle(getArticle(id), result.images).catch((err) =>
+          logger.error('image', 'generate', `Bilder fehlgeschlagen: ${err.message || err}`, { siteId, articleId: id })
+        );
+      }
       return getArticle(id);
     })
     .catch((err) => {

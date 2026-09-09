@@ -2,6 +2,7 @@
 const { sign, decrypt } = require('./util');
 const { PUBLIC_URL, VERSION } = require('./config');
 const { logger, excerpt } = require('./logger');
+const images = require('./images');
 
 const TIMEOUT_MS = 45000;
 
@@ -88,6 +89,8 @@ async function publishArticle(site, article) {
     tags: article.tags ? article.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
     author_id: site.wp_author_id || 0,
     meta: { title: article.meta_title, description: article.meta_desc },
+    // WordPress laedt die Bilder ueber diese Adressen selbst herunter.
+    images: images.forDelivery(article.id),
   });
 }
 

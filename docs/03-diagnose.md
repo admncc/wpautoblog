@@ -25,8 +25,8 @@ Dafür gibt es unter **Einstellungen → Diagnose-Zugang** einen Link:
 
 1. Auf **Neuen Diagnose-Link erzeugen** klicken.
 2. Es entsteht ein **neuer Token** – der vorher erzeugte Link funktioniert ab diesem Moment nicht mehr.
-3. Der Link ist **72 Stunden** gültig und läuft dann von selbst ab.
-   Mit **Zugang deaktivieren** endet er sofort.
+3. Der Link bleibt gültig, bis du ihn selbst beendest: entweder mit **Zugang deaktivieren**
+   oder indem du einen neuen Link erzeugst, der den alten ersetzt.
 
 Der Link führt auf drei Ansichten:
 
@@ -65,9 +65,12 @@ alle fehlgeschlagenen Artikel mit Fehlermeldung und das Protokoll.
 | `ai/article: 429` | Das Limit bei Anthropic ist erreicht – später erneut versuchen. |
 | `ai/article: Antwort wurde durch max_tokens abgeschnitten` | Die gewünschte Artikellänge ist zu groß. Länge reduzieren. |
 | `plan/run: kein Thema verfügbar` | Der Plan hat keine Themenbereiche und die Themenliste ist leer. |
+| `image/generate: Bilddienst meldet einen Fehler` | Schlüssel, Modell oder Format des Bilddienstes prüfen. Der Artikel bleibt trotzdem nutzbar. |
+| `image/deliver: PUBLIC_URL ist nicht gesetzt` | Ohne öffentliche Hub-Adresse kann WordPress die Bilder nicht abholen. |
 
 ## Aufbewahrung
 
-Protokolleinträge werden 30 Tage aufbewahrt, Debug-Einträge 3 Tage.
-Das Aufräumen läuft täglich um 03:30 UTC. Alles liegt in der Datei
+Protokolleinträge werden 7 Tage aufbewahrt, Debug-Einträge 2 Tage.
+Das Aufräumen läuft täglich um 03:30 UTC und entfernt dabei auch Bilddateien,
+deren Artikel gelöscht wurde. Alles liegt in der Datei
 `data/autoblog.sqlite` – für eine Sicherung reicht es, den Ordner `data/` zu kopieren.

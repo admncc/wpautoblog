@@ -43,6 +43,8 @@ WordPress-Seiten veröffentlicht.
 - **Posts → Wiederkehrende Posts:** Themenbereiche festlegen, Takt festlegen, der Rest läuft automatisch
 - **Posts → Gezielte Posts:** vorbereitet für die Keyword-Recherche (nächste Ausbaustufe)
 - **Einstellungen:** Anthropic API-Key, Modellwahl und das komplette **Prompt-Framework** frei bearbeitbar
+- **Bilder:** Beitragsbild und Bilder im Text über einen frei wählbaren Bilddienst,
+  automatisch in die WordPress-Mediathek
 - Artikel im Browser prüfen, bearbeiten, SEO-Felder anpassen und dann veröffentlichen
 - Sehr ausführliches Protokoll und eine **Diagnose-URL** mit Einmal-Token
 
@@ -50,6 +52,7 @@ WordPress-Seiten veröffentlicht.
 - Verbindung mit einem einzigen Token, keine Passwörter, kein Anwendungspasswort
 - Jede Übertragung signiert (HMAC-SHA256) und zeitlich begrenzt gültig
 - Legt Beiträge mit Kategorie, Schlagwörtern, Slug, Auszug und SEO-Feldern an (Yoast/Rank Math werden erkannt)
+- Lädt die Bilder in die Mediathek, setzt das Beitragsbild und platziert Bilder im Text
 - Zwei Wege: Hub sendet an WordPress **oder** WordPress holt selbst ab (für Seiten hinter einer Firewall)
 
 ## Loslegen

@@ -11,6 +11,7 @@ const settings = require('./settings');
 const appRoutes = require('./routes/app');
 const pluginRoutes = require('./routes/plugin');
 const diagnosticsRoutes = require('./routes/diagnostics');
+const mediaRoutes = require('./routes/media');
 const scheduler = require('./scheduler');
 
 const app = express();
@@ -83,6 +84,7 @@ function cookieOptions(req) {
 
 // ------------------------------------------------------------------ Routen
 
+app.use('/media', mediaRoutes);               // erzeugte Bilder (Token in der Adresse)
 app.use('/diagnose', diagnosticsRoutes);      // Diagnose per Einmal-Token (ohne Anmeldung)
 app.use('/api/plugin', pluginRoutes);          // Schnittstelle fuer das WordPress-Plugin
 app.use('/api/app', auth.requireAuth, appRoutes); // Oberflaeche (nur angemeldet)

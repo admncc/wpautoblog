@@ -9,6 +9,8 @@
 - Themenvorschläge durch die KI
 - Frei bearbeitbares Prompt-Framework, Modellwahl, Markenvorgaben
 - Artikel prüfen, bearbeiten, SEO-Felder pflegen
+- Bildgenerierung über einen frei wählbaren Bilddienst: Beitragsbild und Bilder im Text,
+  automatisch in die WordPress-Mediathek
 - Ausführliches Protokoll und Diagnose-URL mit Einmal-Token
 
 ## Als Nächstes: Gezielte Posts
@@ -28,7 +30,7 @@ die Recherche liefert später genau diese beiden Angaben automatisch.
 
 | Idee | Nutzen |
 |---|---|
-| Beitragsbilder | Automatisch erzeugtes oder ausgewähltes Titelbild je Beitrag |
+| Interne Verlinkung | Der Hub kennt alle veröffentlichten Beiträge einer Website und kann passende Links vorschlagen |
 | Search-Console-Anbindung | Sehen, welche Beiträge tatsächlich Besucher bringen, und nachsteuern |
 | Bestehende Beiträge aktualisieren | Ältere Artikel gezielt überarbeiten statt immer neue schreiben |
 | Freigabe per Mail | Benachrichtigung, wenn ein Entwurf auf Freigabe wartet |
