@@ -16,8 +16,13 @@ services:
       # Nach dem ersten Start den erzeugten Wert aus data/.app_secret hier eintragen,
       # damit er bei einem Umzug erhalten bleibt.
       APP_SECRET: ${APP_SECRET:-}
+      # Austauschordner mit dem Update-Helfer auf dem Server.
+      CONTROL_DIR: /control
     volumes:
       - autoblog-data:/data
+      # Der Hub fordert hier Updates an und liest den Stand des Helfers.
+      # Er bekommt dadurch keinen Zugriff auf Docker oder den Server selbst.
+      - ./ops/control:/control
 
 volumes:
   autoblog-data:

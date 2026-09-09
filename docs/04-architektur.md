@@ -122,6 +122,28 @@ damit WordPress das Bild ohne Anmeldung abholen kann.
 
 Der Token gilt, bis er in den Einstellungen deaktiviert oder durch einen neuen ersetzt wird.
 
+## System-Update
+
+Der Hub läuft im Container und darf den Server bewusst nicht selbst steuern. Ein Update
+läuft deshalb über einen Dateiaustausch mit einem kleinen Helfer-Dienst auf dem Host
+(`ops/autoblog-update-runner.sh`, als systemd-Dienst eingerichtet):
+
+| Datei in `ops/control` | Wer schreibt sie | Inhalt |
+|---|---|---|
+| `update-request` | der Hub | die Anforderung, ausgelöst durch den Knopf in der Oberfläche |
+| `state.json` | der Helfer | Lebenszeichen, aktueller und entfernter Commit, Rückstand, letztes Ergebnis |
+| `version.json` | der Helfer | Commit, Commit-Nachricht und Zeitpunkt des Aufspielens |
+
+Der Helfer prüft regelmäßig per `git fetch`, ob es eine neue Version gibt, und meldet das
+über `state.json` an den Hub. Bei einer Anforderung führt er `git merge --ff-only` aus
+und startet den Hub neu (`docker compose up -d --build`, alternativ `systemctl restart autoblog`).
+Nur Vorwärts-Merges sind erlaubt, damit lokale Änderungen auf dem Server niemals still
+überschrieben werden. Schlägt der Neustart fehl, setzt der Helfer auf den vorherigen Commit
+zurück und startet erneut.
+
+Der Hub bekommt dadurch keinerlei Zugriff auf Docker oder den Server, sondern nur auf
+einen Ordner mit drei Dateien.
+
 ## Zeitsteuerung
 
 Im Hub läuft ein Cron-Job alle 15 Minuten und arbeitet fällige Pläne ab
@@ -148,8 +170,14 @@ hub/
     service.js        Artikelerzeugung, Veröffentlichung, Pläne
     scheduler.js      Zeitsteuerung
     diagnostics.js    Diagnosebericht und Einmal-Token
+    update.js         Stand des Systems und Anforderung eines Updates
     routes/           app.js (Oberfläche), plugin.js (WordPress), diagnostics.js, media.js
   public/             Oberfläche (ohne Build-Schritt: index.html, app.js, styles.css)
+
+ops/
+  autoblog-update-runner.sh   Update-Helfer, laeuft auf dem Server
+  install-updater.sh          richtet ihn einmalig als Dienst ein
+  control/                    Austauschordner zwischen Hub und Helfer
 
 wordpress-plugin/autoblog-connector/
   autoblog-connector.php

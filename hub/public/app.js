@@ -118,8 +118,8 @@ async function render() {
           <a href="#/logs" class="${route === 'logs' ? 'active' : ''}">Protokoll</a>
         </nav>
         <div class="sidebar-foot">
-          <button class="small" id="logout">Abmelden</button>
-          <div style="margin-top:8px">Version ${esc(state.session.version || '')}</div>
+          <div id="update-box"></div>
+          <button class="small" id="logout" style="margin-top:10px">Abmelden</button>
         </div>
       </aside>
       <main class="main" id="view"><div class="empty">Lädt …</div></main>
@@ -132,11 +132,102 @@ async function render() {
     await render();
   });
 
+  renderUpdateBox();
+
   try {
     await ROUTES[route].render(document.getElementById('view'), param);
   } catch (err) {
     document.getElementById('view').innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
   }
+}
+
+// ----------------------------------------------------------- System-Update
+
+async function renderUpdateBox() {
+  const box = document.getElementById('update-box');
+  if (!box) return;
+
+  let info;
+  try {
+    info = await api('/api/app/update');
+  } catch {
+    return;
+  }
+  state.data.update = info;
+
+  const stand = info.deployedAt
+    ? `aufgespielt ${fmtDate(info.deployedAt)}`
+    : `gestartet ${fmtDate(info.startedAt)}`;
+
+  box.innerHTML = `
+    <div style="border-top:1px solid var(--border);padding-top:10px">
+      <button class="small ${info.updateAvailable ? 'primary' : ''}" id="do-update" style="width:100%"
+        ${info.busy ? 'disabled' : ''}>
+        ${info.busy ? 'Update läuft …' : 'System-Update'}
+      </button>
+      ${info.updateAvailable
+        ? `<div class="hint" style="margin-top:6px;color:var(--accent)">Neue Version verfügbar${
+            info.behind ? ` (${info.behind} Änderung${info.behind === 1 ? '' : 'en'})` : ''}</div>`
+        : ''}
+      ${info.lastResult === 'failed' && info.lastError
+        ? `<div class="hint" style="margin-top:6px;color:var(--red)">Letztes Update fehlgeschlagen: ${esc(info.lastError)}</div>`
+        : ''}
+      <div class="hint" style="margin-top:8px;line-height:1.45">
+        Version ${esc(info.version)}${info.commitShort ? ` · ${esc(info.commitShort)}` : ''}<br />
+        ${esc(stand)}
+        ${info.runnerInstalled ? '' : '<br /><span style="color:var(--amber)">Update-Helfer nicht eingerichtet</span>'}
+      </div>
+    </div>`;
+
+  on('#do-update', 'click', async () => {
+    if (!confirm(
+      'System jetzt aktualisieren?\n\nDer Hub lädt den neuesten Stand aus dem Repository und startet neu. ' +
+      'Das dauert ein bis zwei Minuten, in denen die Oberfläche nicht erreichbar ist. ' +
+      'Deine Daten bleiben erhalten.'
+    )) return;
+
+    try {
+      await api('/api/app/update', { method: 'POST' });
+      waitForRestart();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  });
+}
+
+/** Wartet, bis der Hub nach dem Neustart wieder antwortet, und lädt die Seite neu. */
+function waitForRestart() {
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-backdrop" id="update-overlay">
+      <div class="modal" style="text-align:center">
+        <h2>System wird aktualisiert</h2>
+        <p class="sub" id="update-step">Neuester Stand wird geladen …</p>
+        <p class="hint">Der Hub startet dabei neu. Diese Seite lädt sich von selbst neu, sobald er wieder da ist.</p>
+      </div>
+    </div>`);
+
+  const gestartet = Date.now();
+  const step = document.getElementById('update-step');
+  let warOffline = false;
+
+  const timer = setInterval(async () => {
+    const sekunden = Math.round((Date.now() - gestartet) / 1000);
+    try {
+      const response = await fetch('/health', { cache: 'no-store' });
+      if (!response.ok) throw new Error('nicht bereit');
+      // Erst wenn der Hub zwischendurch weg war, ist der Neustart wirklich passiert.
+      if (warOffline || sekunden > 150) {
+        clearInterval(timer);
+        step.textContent = 'Fertig. Seite wird neu geladen …';
+        setTimeout(() => location.reload(), 1200);
+        return;
+      }
+      step.textContent = `Neuer Stand wird gebaut … (${sekunden} s)`;
+    } catch {
+      warOffline = true;
+      step.textContent = `Hub startet neu … (${sekunden} s)`;
+    }
+  }, 3000);
 }
 
 // -------------------------------------------------------------- Anmeldung

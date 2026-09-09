@@ -47,6 +47,8 @@ WordPress-Seiten veröffentlicht.
   automatisch in die WordPress-Mediathek
 - Artikel im Browser prüfen, bearbeiten, SEO-Felder anpassen und dann veröffentlichen
 - Sehr ausführliches Protokoll und eine **Diagnose-URL** mit Einmal-Token
+- **System-Update per Knopfdruck**: holt den neuesten Stand aus dem Repository und startet neu,
+  mit Anzeige der laufenden Version und des Aufspieldatums
 
 **WordPress-Plugin**
 - Verbindung mit einem einzigen Token, keine Passwörter, kein Anwendungspasswort

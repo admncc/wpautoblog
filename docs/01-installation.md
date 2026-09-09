@@ -68,6 +68,29 @@ Erwartete Antwort: `{"ok":true,"version":"1.0.0"}`
 Der Hub lauscht bewusst nur auf `127.0.0.1` – aus dem Internet ist er erst über den
 Reverse Proxy im nächsten Schritt erreichbar.
 
+## 5b. Update-Helfer einrichten (einmalig)
+
+Damit sich der Hub später per Knopfdruck selbst aktualisieren kann:
+
+```bash
+cd /opt/wpautoblog
+sudo ./ops/install-updater.sh
+docker compose up -d
+```
+
+Das richtet einen kleinen Dienst auf dem Server ein, der auf Anforderungen des Hubs wartet.
+Der Hub selbst bekommt dabei **keinen** Zugriff auf Docker oder den Server: Er legt lediglich
+eine Datei im Ordner `ops/control` ab, den Rest erledigt der Helfer.
+
+Prüfen:
+
+```bash
+systemctl status autoblog-updater
+```
+
+Ab jetzt steht unten links in der Oberfläche die laufende Version mit Aufspieldatum,
+und der Knopf **System-Update** holt den neuesten Stand aus dem Repository und startet den Hub neu.
+
 ## 6. HTTPS einrichten (Caddy)
 
 Caddy holt das Zertifikat automatisch von Let's Encrypt.
@@ -174,13 +197,19 @@ docker compose restart
 
 **Update auf eine neue Version**
 
+Am einfachsten über den Knopf **System-Update** unten links in der Oberfläche.
+Er zieht den neuesten Stand aus dem Repository, baut das Image neu und startet den Hub.
+Von Hand geht es genauso:
+
 ```bash
 cd /opt/wpautoblog
 git pull
 docker compose up -d --build
 ```
 
-Die Daten überleben das Update – sie liegen im Docker-Volume `autoblog-data`, nicht im Container.
+Die Daten überleben das Update, sie liegen im Docker-Volume `autoblog-data`, nicht im Container.
+Bricht ein Update ab, weil auf dem Server Dateien verändert wurden, meldet der Hub das
+im Klartext und lässt den alten Stand unangetastet. Nachsehen mit `git status` im Repository.
 
 **Sicherung**
 
@@ -219,6 +248,8 @@ docker compose exec hub node scripts/reset-password.js deine@mail.de neuesPasswo
 | „WordPress nicht erreichbar" | Ist die WordPress-Seite öffentlich erreichbar? Sonst im Hub auf „WordPress holt selbst ab" umstellen |
 | „Zeitstempel abgelaufen" | Uhrzeit der Server vergleichen: `timedatectl` |
 | Artikel schlägt fehl | Im Hub unter **Protokoll** die Fehlermeldung lesen – dort steht die Ursache im Klartext |
+| „Update-Helfer nicht eingerichtet" | `sudo ./ops/install-updater.sh` ausführen, danach `docker compose up -d` |
+| Update bleibt hängen | `journalctl -u autoblog-updater -f` zeigt, woran es liegt |
 
 Mehr dazu in [Diagnose](03-diagnose.md).
 

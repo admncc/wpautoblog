@@ -11,6 +11,7 @@ const wp = require('./../wp');
 const { PUBLIC_URL, VERSION } = require('./../config');
 const diagnostics = require('./../diagnostics');
 const images = require('./../images');
+const update = require('./../update');
 
 const router = express.Router();
 
@@ -504,6 +505,27 @@ router.post(
     settings.resetPrompts();
     logger.info('settings', 'reset', 'Prompt-Framework auf Standard zurueckgesetzt', { requestId: req.requestId });
     res.json(settings.all());
+  })
+);
+
+// ----------------------------------------------------------- System-Update
+
+router.get(
+  '/update',
+  wrap((req, res) => {
+    res.json(update.status());
+  })
+);
+
+/** Stoesst das Update an. Der Hub startet dabei neu. */
+router.post(
+  '/update',
+  wrap((req, res) => {
+    try {
+      res.json({ ...update.request(req.user && req.user.email), status: update.status() });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   })
 );
 
