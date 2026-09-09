@@ -66,6 +66,7 @@ class Autoblog_Rest {
             'wp_version'     => get_bloginfo('version'),
             'plugin_version' => AUTOBLOG_VERSION,
             'delivery'       => Autoblog_Settings::get('delivery', 'push'),
+            'categories'     => Autoblog_Settings::categories(),
         ]);
     }
 

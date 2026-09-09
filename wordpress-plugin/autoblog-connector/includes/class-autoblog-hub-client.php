@@ -79,6 +79,7 @@ class Autoblog_Hub_Client {
             'site_url'       => home_url('/'),
             'wp_version'     => get_bloginfo('version'),
             'plugin_version' => AUTOBLOG_VERSION,
+            'categories'     => Autoblog_Settings::categories(),
         ], false);
 
         if (is_wp_error($result)) {
@@ -98,7 +99,10 @@ class Autoblog_Hub_Client {
 
     /** Lebenszeichen an den Hub. */
     public static function heartbeat() {
-        return self::request('heartbeat', ['site_url' => home_url('/')]);
+        return self::request('heartbeat', [
+            'site_url'   => home_url('/'),
+            'categories' => Autoblog_Settings::categories(),
+        ]);
     }
 
     /** Abhol-Modus: wartende Artikel holen. */

@@ -511,6 +511,17 @@ async function renderSite(view, siteId) {
       </div>
 
       <div class="card">
+        <h2>Kategorien</h2>
+        ${site.categories && site.categories.length
+          ? `<p class="sub">${site.categories.length} Kategorien von WordPress gemeldet (${fmtDate(site.categories_at)}).
+               Die KI wählt für jeden Beitrag die passendste davon aus und legt nie eine neue an.</p>
+             <div class="row" style="margin-top:10px">${site.categories.slice(0, 40).map((k) =>
+               `<span class="badge">${esc(k.name)}${k.count ? ` · ${k.count}` : ''}</span>`).join('')}</div>`
+          : `<p class="sub">Noch keine Kategorien gemeldet. Klick oben auf <strong>Verbindung testen</strong>
+               oder warte auf das nächste Lebenszeichen des Plugins.</p>`}
+      </div>
+
+      <div class="card">
         <h2>Übertragungsweg</h2>
         <div class="grid cols-2">
           <div class="field">
@@ -574,7 +585,20 @@ async function renderSite(view, siteId) {
           <textarea id="extra_prompt" placeholder="z. B. Immer eine Checkliste am Ende ergänzen. Keine Preisangaben nennen.">${esc(site.extra_prompt)}</textarea>
         </div>
         <div class="grid cols-2">
-          <div class="field"><label for="wp_category">Standard-Kategorie in WordPress</label><input id="wp_category" value="${esc(site.wp_category)}" placeholder="wird bei Bedarf angelegt" /></div>
+          <div class="field">
+            <label for="wp_category">Kategorie in WordPress</label>
+            ${site.categories && site.categories.length ? `
+              <select id="wp_category">
+                <option value="" ${!site.wp_category ? 'selected' : ''}>KI wählt die passendste (empfohlen)</option>
+                ${site.categories.map((k) => `<option value="${esc(k.name)}" ${site.wp_category === k.name ? 'selected' : ''}>${
+                  esc(k.name)}${k.count ? ` (${k.count})` : ''}</option>`).join('')}
+              </select>
+              <div class="hint">${site.categories.length} Kategorien von WordPress gemeldet,
+                zuletzt ${fmtDate(site.categories_at)}. Es werden nie neue angelegt.</div>`
+            : `<input id="wp_category" value="${esc(site.wp_category)}" placeholder="noch keine Kategorien bekannt" />
+               <div class="hint">Die Kategorien deiner Website sind noch nicht gemeldet.
+                 Klick oben auf <strong>Verbindung testen</strong>, danach steht hier eine Auswahlliste.</div>`}
+          </div>
           <div class="field"><label for="wp_author_id">Autor-ID in WordPress (optional)</label><input id="wp_author_id" type="number" min="0" value="${site.wp_author_id || 0}" /></div>
         </div>
         <button class="primary" data-save-site>Speichern</button>

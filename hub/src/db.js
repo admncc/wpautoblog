@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS sites (
   wp_category    TEXT NOT NULL DEFAULT '',
   wp_author_id   INTEGER,
   delivery       TEXT NOT NULL DEFAULT 'push',      -- push: Hub ruft WordPress | pull: WordPress holt ab
+  categories     TEXT,                              -- von WordPress gemeldet, als JSON
+  categories_at  TEXT,                              -- wann zuletzt gemeldet
   wp_version     TEXT,
   plugin_version TEXT,
   last_seen_at   TEXT,
@@ -151,6 +153,8 @@ function ensureColumn(table, column, definition) {
   if (!columns.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 ensureColumn('sites', 'delivery', "TEXT NOT NULL DEFAULT 'push'");
+ensureColumn('sites', 'categories', 'TEXT');
+ensureColumn('sites', 'categories_at', 'TEXT');
 ensureColumn('topics', 'plan_id', 'TEXT');
 ensureColumn('articles', 'plan_id', 'TEXT');
 ensureColumn('articles', 'archived', 'INTEGER NOT NULL DEFAULT 0');

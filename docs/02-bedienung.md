@@ -26,6 +26,13 @@ Unter **Websites → [Name öffnen]** gibt es vier Reiter:
 **Inhalt & Stil** – das Briefing, das in jeden Artikel dieser Website einfließt:
 Sprache, Artikellänge, Zielgruppe, Tonalität, Themenschwerpunkte und zusätzliche Anweisungen.
 
+Dort steht auch die **Kategorie**. Das Plugin meldet dem Hub, welche Kategorien es auf der
+Website tatsächlich gibt, und genau diese Liste bekommt die KI zur Auswahl vorgelegt.
+Standard ist „KI wählt die passendste": Für jeden Beitrag wird die am besten passende
+vorhandene Kategorie gewählt. Alternativ legst du eine feste Kategorie für alle Beiträge fest.
+**Neue Kategorien werden nie angelegt.** Passt am Ende doch nichts, landet der Beitrag in der
+Standardkategorie von WordPress, und am Artikel steht ein Hinweis.
+
 > Je konkreter die Zielgruppe, desto besser die Texte.
 > „Einsteiger, die sich gerade ihre erste Espressomaschine gekauft haben" ist deutlich
 > nützlicher als „Kaffeeliebhaber".

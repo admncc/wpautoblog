@@ -23,8 +23,12 @@ const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, 
  */
 function publicSite(site) {
   if (!site) return null;
-  const { secret, pair_code, ...rest } = site;
-  return { ...rest, token: decrypt(secret), connected: site.status === 'connected' };
+  const { secret, pair_code, categories, ...rest } = site;
+  let liste = [];
+  try {
+    liste = JSON.parse(categories || '[]');
+  } catch { /* noch nichts gemeldet */ }
+  return { ...rest, token: decrypt(secret), connected: site.status === 'connected', categories: liste };
 }
 
 // ---------------------------------------------------------------- Uebersicht
@@ -185,7 +189,19 @@ router.post(
       const result = await wp.ping(site);
       db.prepare("UPDATE sites SET status = 'connected', last_seen_at = datetime('now'), wp_version = ? WHERE id = ?")
         .run(String(result.wp_version || ''), site.id);
-      res.json({ ok: true, message: `Verbunden mit WordPress ${result.wp_version || ''} (${result.site_name || site.url}).`, details: result });
+
+      let kategorien = 0;
+      if (Array.isArray(result.categories)) {
+        kategorien = result.categories.length;
+        db.prepare("UPDATE sites SET categories = ?, categories_at = datetime('now') WHERE id = ?")
+          .run(JSON.stringify(result.categories.slice(0, 200)), site.id);
+      }
+      res.json({
+        ok: true,
+        message: `Verbunden mit WordPress ${result.wp_version || ''} (${result.site_name || site.url}).`
+          + (kategorien ? ` ${kategorien} Kategorien uebernommen.` : ''),
+        details: result,
+      });
     } catch (err) {
       db.prepare("UPDATE sites SET status = 'error' WHERE id = ?").run(site.id);
       // Der signierte Aufruf ist gescheitert - jetzt herausfinden, woran es liegt.

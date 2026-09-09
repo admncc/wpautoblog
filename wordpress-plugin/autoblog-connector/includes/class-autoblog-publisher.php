@@ -66,7 +66,7 @@ class Autoblog_Publisher {
             wp_update_post(['ID' => $post_id, 'post_content' => $inhalt]);
         }
 
-        self::assign_category($post_id, isset($data['category']) ? $data['category'] : '');
+        $kategorie = self::assign_category($post_id, isset($data['category']) ? $data['category'] : '');
         self::assign_tags($post_id, isset($data['tags']) ? $data['tags'] : []);
         self::store_seo($post_id, isset($data['meta']) ? $data['meta'] : []);
 
@@ -80,6 +80,8 @@ class Autoblog_Publisher {
             'status'          => get_post_status($post_id),
             'images_imported' => count($import['bilder']),
             'image_errors'    => $import['fehler'],
+            'category'        => $kategorie['name'],
+            'category_note'   => $kategorie['hinweis'],
         ];
     }
 
@@ -238,20 +240,48 @@ class Autoblog_Publisher {
         );
     }
 
-    /** Kategorie zuweisen und bei Bedarf anlegen. */
+    /**
+     * Ordnet den Beitrag einer BESTEHENDEN Kategorie zu.
+     * Es wird bewusst keine neue Kategorie angelegt: Passt nichts, bleibt es bei
+     * der Standardkategorie von WordPress, und der Hub bekommt einen Hinweis.
+     *
+     * @return array ['name' => string, 'hinweis' => string]
+     */
     private static function assign_category($post_id, $category) {
-        $category = sanitize_text_field((string) $category);
-        if ($category === '') { return; }
-
-        $term = get_term_by('name', $category, 'category');
-        if (!$term) {
-            $created = wp_insert_term($category, 'category');
-            if (is_wp_error($created)) { return; }
-            $term_id = (int) $created['term_id'];
-        } else {
-            $term_id = (int) $term->term_id;
+        $gesucht = trim(sanitize_text_field((string) $category));
+        if ($gesucht === '') {
+            return ['name' => '', 'hinweis' => ''];
         }
-        wp_set_post_categories($post_id, [$term_id], false);
+
+        // Erst exakt ueber Name oder Slug, dann ohne Ruecksicht auf Gross- und Kleinschreibung.
+        $begriff = get_term_by('name', $gesucht, 'category');
+        if (!$begriff) {
+            $begriff = get_term_by('slug', sanitize_title($gesucht), 'category');
+        }
+        if (!$begriff) {
+            foreach (get_categories(['hide_empty' => false, 'number' => 200]) as $vorhanden) {
+                if (function_exists('mb_strtolower')
+                    ? mb_strtolower($vorhanden->name) === mb_strtolower($gesucht)
+                    : strtolower($vorhanden->name) === strtolower($gesucht)) {
+                    $begriff = $vorhanden;
+                    break;
+                }
+            }
+        }
+
+        if (!$begriff) {
+            return [
+                'name'    => '',
+                /* translators: %s: gewuenschte Kategorie */
+                'hinweis' => sprintf(
+                    __('Die Kategorie "%s" gibt es auf dieser Website nicht. Der Beitrag liegt in der Standardkategorie.', 'autoblog-connector'),
+                    $gesucht
+                ),
+            ];
+        }
+
+        wp_set_post_categories($post_id, [(int) $begriff->term_id], false);
+        return ['name' => $begriff->name, 'hinweis' => ''];
     }
 
     private static function assign_tags($post_id, $tags) {

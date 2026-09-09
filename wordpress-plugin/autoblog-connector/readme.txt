@@ -51,6 +51,14 @@ Die alte Verbindung wird sofort ungueltig. Trage den neuen Token unter "Einstell
 
 == Changelog ==
 
+= 1.2.0 =
+* Kategorien: Die Website meldet ihre vorhandenen Kategorien an den Hub. Der Beitrag wird
+  ausschliesslich einer davon zugeordnet, es wird nie eine neue angelegt.
+
+= 1.1.0 =
+* Bildimport ohne media_sideload_image, damit der Hub auch auf einem eigenen Port erreichbar ist.
+* Fehlgeschlagene Bilder werden mit Grund an den Hub zurueckgemeldet statt uebersprungen.
+
 = 1.0.0 =
 * Erste Fassung: Verbindung per Website-Token, signierte Uebertragung, Sende- und Abholmodus,
   Kategorien, Schlagwoerter, SEO-Felder und Autorenzuweisung.

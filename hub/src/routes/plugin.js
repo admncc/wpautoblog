@@ -9,6 +9,22 @@ const { VERSION } = require('./../config');
 
 const router = express.Router();
 
+/** Uebernimmt die von WordPress gemeldeten Kategorien. */
+function speichereKategorien(siteId, kategorien) {
+  if (!Array.isArray(kategorien)) return;
+  const sauber = kategorien
+    .filter((k) => k && k.name)
+    .map((k) => ({
+      id: Number(k.id) || 0,
+      name: String(k.name).slice(0, 120),
+      slug: String(k.slug || '').slice(0, 140),
+      count: Number(k.count) || 0,
+    }))
+    .slice(0, 200);
+  db.prepare("UPDATE sites SET categories = ?, categories_at = datetime('now') WHERE id = ?")
+    .run(JSON.stringify(sauber), siteId);
+}
+
 /** Sucht die Website zu einem Token (Tokens liegen verschluesselt in der Datenbank). */
 function findSiteByToken(token) {
   for (const site of db.prepare("SELECT * FROM sites WHERE secret IS NOT NULL AND secret != ''").all()) {
@@ -94,6 +110,7 @@ router.post('/connect', (req, res) => {
     site.id
   );
 
+  speichereKategorien(site.id, req.body.categories);
   logger.info('plugin', 'connect', `WordPress verbunden: ${siteUrl || site.url}`, {
     siteId: site.id,
     requestId: req.requestId,
@@ -117,6 +134,7 @@ router.post('/heartbeat', verifySignature, (req, res) => {
   if (req.body.site_url) {
     db.prepare("UPDATE sites SET url = ? WHERE id = ?").run(normalizeUrl(req.body.site_url), req.site.id);
   }
+  speichereKategorien(req.site.id, req.body.categories);
   logger.debug('plugin', 'heartbeat', `Lebenszeichen von ${req.site.name}`, {
     siteId: req.site.id,
     requestId: req.requestId,

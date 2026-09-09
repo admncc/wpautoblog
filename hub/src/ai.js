@@ -129,6 +129,25 @@ function replaceEmDash(text) {
 
 const countEmDash = (text) => (String(text || '').match(/—/g) || []).length;
 
+/**
+ * Gleicht die gelieferte Kategorie gegen die vorhandenen ab.
+ * Zweite Absicherung neben der Vorgabe im Schema: Es wird nie ein Wert
+ * weitergereicht, den die Website nicht kennt.
+ */
+function waehleKategorie(gewaehlt, vorhanden) {
+  const wert = sanitizeText(gewaehlt, 60);
+  if (!vorhanden.length) return wert;
+  if (vorhanden.includes(wert)) return wert;
+
+  const treffer = vorhanden.find((name) => name.toLowerCase() === wert.toLowerCase());
+  if (treffer) return treffer;
+
+  logger.warn('ai', 'category', `Kategorie "${wert}" ist auf der Website unbekannt, sie bleibt offen`, {
+    context: { gewaehlt: wert, vorhanden },
+  });
+  return '';
+}
+
 function siteBriefing(site) {
   const global = settings.all();
   const lines = [
@@ -143,6 +162,22 @@ function siteBriefing(site) {
   if (global.global_prompt) lines.push(`Grundsaetzliche Vorgaben: ${global.global_prompt}`);
   if (site.extra_prompt) lines.push(`Zusaetzliche Vorgaben fuer diese Website: ${site.extra_prompt}`);
   return lines.join('\n');
+}
+
+/**
+ * Baut das Antwortschema. Kennt der Hub die Kategorien der Website, wird das Feld
+ * auf genau diese Werte eingegrenzt. Dann kann Claude keine neue erfinden.
+ */
+function articleSchema(kategorien = []) {
+  const schema = JSON.parse(JSON.stringify(ARTICLE_SCHEMA));
+  if (kategorien.length) {
+    schema.properties.category = {
+      type: 'string',
+      enum: kategorien,
+      description: 'Die am besten passende der vorhandenen Kategorien. Keine andere ist zulaessig.',
+    };
+  }
+  return schema;
 }
 
 const ARTICLE_SCHEMA = {
@@ -185,22 +220,27 @@ function topicSystemPrompt() {
   return (settings.get('topic_prompt') || '').trim() || require('./prompts').DEFAULT_TOPIC_PROMPT;
 }
 
-async function generateArticle({ site, keyword, angle, imageCount = 0 }) {
+async function generateArticle({ site, keyword, angle, imageCount = 0, categories = [] }) {
   const wordCount = site.word_count || Number(settings.get('default_word_count')) || 1200;
+  const kategorien = categories.map((c) => (typeof c === 'string' ? c : c.name)).filter(Boolean);
   const prompt = `${siteBriefing(site)}
 
 Aufgabe: Schreibe einen vollstaendigen Blogartikel.
 Hauptkeyword / Thema: ${keyword}
 ${angle ? `Gewuenschter Blickwinkel: ${angle}\n` : ''}Ziellaenge: ca. ${wordCount} Woerter als Richtwert.
 Sprache: ${site.language === 'en' ? 'Englisch' : site.language === 'fr' ? 'Franzoesisch' : site.language === 'es' ? 'Spanisch' : 'Deutsch'}.
-Bilder: ${imageCount > 0
+${kategorien.length
+    ? `Kategorie: Waehle GENAU EINE aus den vorhandenen Kategorien dieser Website. `
+      + `Lege keine neue an und weiche nicht ab. Passt keine gut, nimm die am wenigsten unpassende.\n`
+      + `Vorhandene Kategorien: ${kategorien.join(' | ')}\n`
+    : ''}Bilder: ${imageCount > 0
     ? `${imageCount} Bildkonzepte. Bild 1 ist das Titelbild, die uebrigen platzierst du mit [[BILD:2]] bis [[BILD:${imageCount}]] im Text.`
     : 'keine. Gib fuer "images" eine leere Liste zurueck und setze keine Platzhalter in den Text.'}`;
 
   const { data, usage } = await runJson({
     system: articleSystemPrompt(),
     prompt,
-    schema: ARTICLE_SCHEMA,
+    schema: articleSchema(kategorien),
     maxTokens: 32000,
     kind: 'article',
     meta: { siteId: site.id, context: { keyword, angle, target_words: wordCount } },
@@ -247,7 +287,7 @@ Bilder: ${imageCount > 0
     meta_desc: replaceEmDash(sanitizeText(data.meta_description, 200)),
     excerpt: replaceEmDash(sanitizeText(data.excerpt, 400)),
     tags: (Array.isArray(data.tags) ? data.tags : []).map((t) => sanitizeText(t, 40)).filter(Boolean).slice(0, 8).join(', '),
-    category: sanitizeText(data.category, 60),
+    category: waehleKategorie(data.category, kategorien),
     content_html: contentHtml,
     word_count: countWords(contentHtml),
     images,

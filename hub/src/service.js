@@ -40,8 +40,13 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
     context: { keyword: cleanKeyword, angle, origin, plan_id: planId, topic_id: topicId },
   });
 
+  let kategorien = [];
+  try {
+    kategorien = JSON.parse(site.categories || '[]');
+  } catch { /* noch keine gemeldet */ }
+
   const promise = ai
-    .generateArticle({ site, keyword: cleanKeyword, angle, imageCount: images.plannedCount() })
+    .generateArticle({ site, keyword: cleanKeyword, angle, imageCount: images.plannedCount(), categories: kategorien })
     .then(async (result) => {
       touchArticle(id, {
         title: result.title,
@@ -51,7 +56,7 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
         meta_title: result.meta_title,
         meta_desc: result.meta_desc,
         tags: result.tags,
-        category: result.category || site.wp_category || '',
+        category: site.wp_category || result.category || '',
         word_count: result.word_count,
         model: result.model,
         tokens_in: result.tokens_in,
@@ -106,6 +111,9 @@ async function publish(articleId) {
     const result = await wp.publishArticle(site, article);
     // Erfolgreich uebergeben: Der Artikel bleibt vollstaendig hier gespeichert,
     // verschwindet aber aus der Arbeitsliste.
+    const hinweise = [];
+    if (result.category_note) hinweise.push(String(result.category_note));
+
     // Bilder sind nicht kritisch: Der Beitrag steht, aber der Hinweis muss sichtbar sein.
     const bildFehler = Array.isArray(result.image_errors) ? result.image_errors : [];
     const erwartet = images.forArticle(articleId).filter((img) => img.status === 'ready').length;
@@ -121,6 +129,10 @@ async function publish(articleId) {
         articleId,
         context: { erwartet, uebernommen, fehler: bildFehler },
       });
+      hinweise.push(hinweis);
+    }
+    if (result.category) {
+      logger.debug('article', 'category', `Kategorie in WordPress: ${result.category}`, { siteId: site.id, articleId });
     }
 
     touchArticle(articleId, {
@@ -131,7 +143,7 @@ async function publish(articleId) {
       archived: 1,
       archived_at: new Date().toISOString(),
       error: null,
-      notice: hinweis,
+      notice: hinweise.length ? hinweise.join(' ') : null,
     });
     db.prepare("UPDATE sites SET last_seen_at = datetime('now'), status = 'connected' WHERE id = ?").run(site.id);
     logger.info('article', 'publish', `Veroeffentlicht auf ${site.name}: ${result.url || result.post_id}`, {
