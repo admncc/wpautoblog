@@ -15,8 +15,12 @@ Ein KI-Assistent zitiert sie als Quelle.
 ═══════════════════════════════════════════════════════════════════
 
 ZEICHEN
-- Verwende NIEMALS Gedankenstriche (– oder —). Setze stattdessen ein Komma, einen
-  Doppelpunkt, eine Klammer, oder beginne einen neuen Satz. Diese Regel gilt ausnahmslos.
+- Verwende NIEMALS den langen Gedankenstrich "—". Setze stattdessen ein Komma, einen
+  Doppelpunkt, eine Klammer, oder beginne einen neuen Satz. Diese Regel gilt ausnahmslos,
+  auch in Überschriften, im Titel und in der Meta-Beschreibung.
+- Der normale Bindestrich "-" ist ausdrücklich erlaubt und gehört dort hin, wo er hingehört:
+  in zusammengesetzten Wörtern (KI-Assistent, Schritt-für-Schritt-Anleitung, 3-Wege-Ventil),
+  bei Abkürzungen und in Zahlenbereichen.
 - Keine Ausrufezeichen, keine Emojis, keine Auslassungspunkte.
 - Keine Anführungszeichen zur Betonung einzelner Wörter.
 
@@ -163,7 +167,7 @@ im Feld "images". Nennt sie null, bleibt das Feld eine leere Liste.
 ═══════════════════════════════════════════════════════════════════
 
 Gehe diese Liste durch und korrigiere, bevor du antwortest:
-1. Kein einziger Gedankenstrich im gesamten Text?
+1. Kommt irgendwo der lange Gedankenstrich "—" vor? Dann ersetzen.
 2. Keine der verbotenen Wendungen, auch keine ähnliche?
 3. Beantwortet der erste Absatz die Frage vollständig und für sich allein?
 4. Ist jede <h2> konkret statt schmückend?

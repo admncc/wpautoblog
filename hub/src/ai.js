@@ -110,6 +110,25 @@ async function runJson({ system, prompt, schema, maxTokens, kind, meta = {} }) {
   };
 }
 
+/**
+ * Sicherheitsnetz fuer den langen Gedankenstrich.
+ * Das Prompt-Framework verbietet ihn, Modelle setzen ihn trotzdem gelegentlich.
+ * Der normale Bindestrich bleibt selbstverstaendlich unangetastet.
+ */
+function replaceEmDash(text) {
+  return String(text || '')
+    // Am Ende eines Absatzes oder vor einem Tag: ersatzlos streichen.
+    .replace(/\s*—\s*(?=<|$)/g, '')
+    // Am Anfang eines Absatzes: ebenfalls streichen.
+    .replace(/(^|>)\s*—\s*/g, '$1')
+    // Direkt zwischen zwei Woertern oder Zahlen war ein Bindestrich gemeint.
+    .replace(/(\w)—(\w)/g, '$1-$2')
+    // Sonst steht im Deutschen an derselben Stelle ein Komma.
+    .replace(/\s*—\s*/g, ', ');
+}
+
+const countEmDash = (text) => (String(text || '').match(/—/g) || []).length;
+
 function siteBriefing(site) {
   const global = settings.all();
   const lines = [
@@ -197,7 +216,15 @@ Bilder: ${imageCount > 0
     }))
     .filter((img) => img.motif);
 
-  let contentHtml = sanitizeHtml(data.content_html);
+  const emDashes = countEmDash(data.content_html) + countEmDash(data.title) + countEmDash(data.meta_description);
+  if (emDashes) {
+    logger.warn('ai', 'emdash', `${emDashes} lange Gedankenstriche ersetzt`, {
+      siteId: site.id,
+      context: { keyword, count: emDashes },
+    });
+  }
+
+  let contentHtml = replaceEmDash(sanitizeHtml(data.content_html));
   // Platzhalter entfernen, zu denen es kein Bildkonzept gibt - sie wuerden sonst
   // als sichtbarer Text im Beitrag landen.
   const known = new Set(images.map((img) => img.slot));
@@ -214,11 +241,11 @@ Bilder: ${imageCount > 0
   }
 
   return {
-    title: sanitizeText(data.title, 200),
+    title: replaceEmDash(sanitizeText(data.title, 200)),
     slug: slugify(data.slug || data.title),
-    meta_title: sanitizeText(data.meta_title, 80),
-    meta_desc: sanitizeText(data.meta_description, 200),
-    excerpt: sanitizeText(data.excerpt, 400),
+    meta_title: replaceEmDash(sanitizeText(data.meta_title, 80)),
+    meta_desc: replaceEmDash(sanitizeText(data.meta_description, 200)),
+    excerpt: replaceEmDash(sanitizeText(data.excerpt, 400)),
     tags: (Array.isArray(data.tags) ? data.tags : []).map((t) => sanitizeText(t, 40)).filter(Boolean).slice(0, 8).join(', '),
     category: sanitizeText(data.category, 60),
     content_html: contentHtml,

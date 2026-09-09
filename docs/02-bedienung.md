@@ -122,6 +122,11 @@ Der Hub ergänzt automatisch das Briefing der jeweiligen Website und das konkret
 dieses Regelwerk bestimmt das *Wie*. Mit **Standard wiederherstellen** kommt jederzeit die
 mitgelieferte Fassung zurück.
 
+Zwei Regeln sind fest eingebaut, damit sie nicht durchrutschen: Der lange Gedankenstrich „—"
+wird nach der Erzeugung auch im Code entfernt (je nach Stelle wird daraus ein Komma oder ein
+Bindestrich), und das Artikel-HTML wird gegen eine Positivliste erlaubter Tags geprüft.
+Der normale Bindestrich bleibt davon unberührt.
+
 Ein paar Beispiele, die sich bewährt haben:
 
 ```
