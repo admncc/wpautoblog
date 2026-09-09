@@ -188,7 +188,14 @@ router.post(
       res.json({ ok: true, message: `Verbunden mit WordPress ${result.wp_version || ''} (${result.site_name || site.url}).`, details: result });
     } catch (err) {
       db.prepare("UPDATE sites SET status = 'error' WHERE id = ?").run(site.id);
-      res.status(400).json({ ok: false, error: err.message });
+      // Der signierte Aufruf ist gescheitert - jetzt herausfinden, woran es liegt.
+      const schritte = await wp.diagnose(site).catch(() => []);
+      logger.warn('site', 'test', `Verbindungstest fehlgeschlagen: ${err.message}`, {
+        siteId: site.id,
+        requestId: req.requestId,
+        context: { schritte },
+      });
+      res.status(400).json({ ok: false, error: err.message, schritte });
     }
   })
 );

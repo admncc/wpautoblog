@@ -99,6 +99,93 @@ function erklaereAntwort(raw, status, url) {
     + `Antwort: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
 }
 
+/**
+ * Sucht die Ursache, wenn der signierte Aufruf scheitert.
+ * Prueft der Reihe nach: Ist die Website erreichbar? Antwortet die REST-API von
+ * WordPress? Ist das Plugin registriert? Daraus ergibt sich, wo das Problem sitzt.
+ */
+async function diagnose(site) {
+  const schritte = [];
+  const holen = async (pfad) => {
+    const ziel = `${site.url}${pfad}`;
+    try {
+      const antwort = await fetch(ziel, {
+        headers: { 'User-Agent': `WPAutoblogHub/${VERSION}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(20000),
+      });
+      const text = (await antwort.text()).slice(0, 4000);
+      return { ziel, status: antwort.status, text, typ: antwort.headers.get('content-type') || '' };
+    } catch (err) {
+      return { ziel, fehler: err.message };
+    }
+  };
+
+  const istDbFehler = (text) => /Datenbankverbindung|database connection/i.test(text || '');
+
+  // 1. Die Website selbst
+  const start = await holen('/');
+  if (start.fehler) {
+    schritte.push({ ok: false, text: `Die Adresse ${site.url} ist vom Hub aus nicht erreichbar (${start.fehler}).` });
+    return schritte;
+  }
+  schritte.push(
+    istDbFehler(start.text)
+      ? { ok: false, text: `Die Startseite meldet bereits einen Datenbankfehler (HTTP ${start.status}).` }
+      : { ok: true, text: `Startseite antwortet (HTTP ${start.status}).` }
+  );
+
+  // 2. Die REST-API von WordPress
+  const rest = await holen('/wp-json/');
+  if (rest.fehler) {
+    schritte.push({ ok: false, text: `Die REST-API ist nicht erreichbar (${rest.fehler}).` });
+    return schritte;
+  }
+  if (istDbFehler(rest.text)) {
+    schritte.push({
+      ok: false,
+      text: `Die REST-API meldet einen Datenbankfehler, obwohl die Startseite laeuft. `
+        + `Typisch, wenn die Startseite aus einem Seiten-Cache kommt und die Datenbank in Wahrheit `
+        + `nicht erreichbar oder ueberlastet ist. Zu pruefen: Datenbankdienst, Verbindungsgrenze `
+        + `(max_connections) und die Zugangsdaten in der wp-config.php.`,
+    });
+    return schritte;
+  }
+
+  let daten = null;
+  try {
+    daten = JSON.parse(rest.text);
+  } catch { /* kein JSON */ }
+
+  if (!daten) {
+    schritte.push({
+      ok: false,
+      text: `Unter ${rest.ziel} kommt kein JSON zurueck (HTTP ${rest.status}, ${rest.typ}). `
+        + `Meist ist die REST-API durch ein Sicherheits-Plugin oder die Firewall gesperrt.`,
+    });
+    return schritte;
+  }
+
+  schritte.push({ ok: true, text: `REST-API antwortet (WordPress-Seite "${daten.name || ''}").` });
+
+  const namensraeume = Array.isArray(daten.namespaces) ? daten.namespaces : [];
+  schritte.push(
+    namensraeume.includes('wp-autoblog/v1')
+      ? { ok: true, text: 'Das Plugin "Autoblog Connector" ist aktiv und registriert.' }
+      : { ok: false, text: 'Das Plugin "Autoblog Connector" ist auf dieser Website nicht aktiv. Bitte unter Plugins aktivieren.' }
+  );
+
+  // 3. Weist die Website auf eine andere Adresse?
+  if (daten.home && daten.home.replace(/\/+$/, '') !== site.url) {
+    schritte.push({
+      ok: false,
+      text: `WordPress nennt als eigene Adresse ${daten.home}, hinterlegt ist aber ${site.url}. `
+        + `Bitte die Adresse der Website im Hub angleichen.`,
+    });
+  }
+
+  return schritte;
+}
+
 async function ping(site) {
   return callSite(site, 'ping', { hub_version: VERSION });
 }
@@ -121,4 +208,4 @@ async function publishArticle(site, article) {
   });
 }
 
-module.exports = { WpError, ping, publishArticle, callSite };
+module.exports = { WpError, ping, diagnose, publishArticle, callSite };

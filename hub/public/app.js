@@ -13,7 +13,12 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || data.message || `Fehler ${response.status}`);
+  if (!response.ok) {
+    const fehler = new Error(data.error || data.message || `Fehler ${response.status}`);
+    fehler.data = data;     // Zusatzangaben des Servers, etwa die Prüfschritte
+    fehler.status = response.status;
+    throw fehler;
+  }
   return data;
 }
 
@@ -658,11 +663,38 @@ async function renderSite(view, siteId) {
     state.data.siteTab = event.currentTarget.dataset.tab;
     render();
   });
-  on('#test-connection', 'click', (event) => guard(event.currentTarget, async () => {
-    const result = await api(`/api/app/sites/${siteId}/test`, { method: 'POST' });
-    toast(result.message || 'Verbindung steht.', result.ok ? 'ok' : 'err');
-    await render();
-  }));
+  on('#test-connection', 'click', async (event) => {
+    const knopf = event.currentTarget;
+    const beschriftung = knopf.textContent;
+    knopf.disabled = true;
+    knopf.textContent = 'Wird geprüft …';
+    try {
+      const result = await api(`/api/app/sites/${siteId}/test`, { method: 'POST' });
+      toast(result.message || 'Verbindung steht.', 'ok');
+      await render();
+    } catch (err) {
+      // Der Server liefert die einzelnen Prüfschritte am Fehler mit.
+      const schritte = (err.data && err.data.schritte) || [];
+
+      document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal-backdrop" id="test-overlay">
+          <div class="modal">
+            <h2>Verbindung konnte nicht aufgebaut werden</h2>
+            <div class="notice err">${esc(err.message)}</div>
+            ${schritte.length ? `<h3 style="margin-top:16px">Was der Hub geprüft hat</h3>
+              <div>${schritte.map((s) => `<div class="logline">
+                <span>${s.ok ? '<span class="badge ok">ok</span>' : '<span class="badge err">Problem</span>'}</span>
+                <span>${esc(s.text)}</span></div>`).join('')}</div>` : ''}
+            <button id="test-close" style="margin-top:16px">Schließen</button>
+          </div>
+        </div>`);
+      document.getElementById('test-close').addEventListener('click', () =>
+        document.getElementById('test-overlay').remove());
+    } finally {
+      knopf.disabled = false;
+      knopf.textContent = beschriftung;
+    }
+  });
   on('#delete-site', 'click', async () => {
     if (!confirm(`„${site.name}“ mit allen Artikeln löschen?`)) return;
     await api(`/api/app/sites/${siteId}`, { method: 'DELETE' });
