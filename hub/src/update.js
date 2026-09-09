@@ -17,6 +17,7 @@ const CONTROL_DIR = process.env.CONTROL_DIR || '/control';
 const REQUEST_FILE = path.join(CONTROL_DIR, 'update-request');
 const STATE_FILE = path.join(CONTROL_DIR, 'state.json');
 const VERSION_FILE = path.join(CONTROL_DIR, 'version.json');
+const LOG_FILE = path.join(CONTROL_DIR, 'last-update.log');
 
 // Meldet sich der Helfer laenger nicht, gilt er als nicht eingerichtet.
 const RUNNER_TIMEOUT_MS = 5 * 60 * 1000;
@@ -65,7 +66,18 @@ function status() {
     lastResult: state.status || null,
     lastError: state.error || null,
     finishedAt: state.finished_at || null,
+    // Die letzten Zeilen des Update-Laufs, damit ein Fehler sofort sichtbar ist.
+    log: tailLog(40),
   };
+}
+
+/** Letzte Zeilen des Update-Protokolls. */
+function tailLog(lines = 40) {
+  try {
+    return fs.readFileSync(LOG_FILE, 'utf8').trim().split('\n').slice(-lines).join('\n');
+  } catch {
+    return '';
+  }
 }
 
 /** Legt die Anforderung ab. Der Helfer holt sie sich innerhalb weniger Sekunden. */

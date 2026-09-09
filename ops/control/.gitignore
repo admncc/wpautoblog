@@ -1,4 +1,5 @@
 state.json
 version.json
 update-request
+last-update.log
 *.tmp

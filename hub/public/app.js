@@ -169,8 +169,10 @@ async function renderUpdateBox() {
         ? `<div class="hint" style="margin-top:6px;color:var(--accent)">Neue Version verfügbar${
             info.behind ? ` (${info.behind} Änderung${info.behind === 1 ? '' : 'en'})` : ''}</div>`
         : ''}
-      ${info.lastResult === 'failed' && info.lastError
-        ? `<div class="hint" style="margin-top:6px;color:var(--red)">Letztes Update fehlgeschlagen: ${esc(info.lastError)}</div>`
+      ${info.lastResult === 'failed'
+        ? `<div class="hint" style="margin-top:6px;color:var(--red)">Letztes Update fehlgeschlagen:
+             ${esc(info.lastError || 'siehe Protokoll')}
+             ${info.log ? '<a href="#" id="show-update-log" style="display:block;margin-top:4px">Protokoll ansehen</a>' : ''}</div>`
         : ''}
       <div class="hint" style="margin-top:8px;line-height:1.45">
         Version ${esc(info.version)}${info.commitShort ? ` · ${esc(info.commitShort)}` : ''}<br />
@@ -178,6 +180,21 @@ async function renderUpdateBox() {
         ${info.runnerInstalled ? '' : '<br /><span style="color:var(--amber)">Update-Helfer nicht eingerichtet</span>'}
       </div>
     </div>`;
+
+  on('#show-update-log', 'click', (event) => {
+    event.preventDefault();
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-backdrop" id="log-overlay">
+        <div class="modal" style="max-width:760px">
+          <h2>Protokoll des letzten Updates</h2>
+          <pre style="background:var(--panel-2);padding:10px;border-radius:8px;font-size:12px;
+            max-height:60vh;overflow:auto;white-space:pre-wrap">${esc(state.data.update.log)}</pre>
+          <button id="log-close" style="margin-top:12px">Schließen</button>
+        </div>
+      </div>`);
+    document.getElementById('log-close').addEventListener('click', () =>
+      document.getElementById('log-overlay').remove());
+  });
 
   on('#do-update', 'click', async () => {
     if (!confirm(
@@ -195,37 +212,100 @@ async function renderUpdateBox() {
   });
 }
 
-/** Wartet, bis der Hub nach dem Neustart wieder antwortet, und lädt die Seite neu. */
-function waitForRestart() {
+/**
+ * Begleitet das Update.
+ * Der Neustart wird an der Kennung aus /health erkannt, nicht daran, dass der Hub
+ * kurz nicht antwortet. Fehler des Update-Helfers werden angezeigt statt verschluckt.
+ */
+async function waitForRestart() {
+  let bootVorher = null;
+  try {
+    bootVorher = (await (await fetch('/health', { cache: 'no-store' })).json()).boot;
+  } catch { /* nicht schlimm, dann zaehlt allein der Status des Helfers */ }
+
   document.body.insertAdjacentHTML('beforeend', `
     <div class="modal-backdrop" id="update-overlay">
-      <div class="modal" style="text-align:center">
-        <h2>System wird aktualisiert</h2>
+      <div class="modal">
+        <h2 id="update-title">System wird aktualisiert</h2>
         <p class="sub" id="update-step">Neuester Stand wird geladen …</p>
-        <p class="hint">Der Hub startet dabei neu. Diese Seite lädt sich von selbst neu, sobald er wieder da ist.</p>
+        <pre id="update-log" hidden style="background:var(--panel-2);padding:10px;border-radius:8px;
+          font-size:12px;max-height:220px;overflow:auto;white-space:pre-wrap"></pre>
+        <div class="row" style="margin-top:14px">
+          <button id="update-close">Fenster schließen</button>
+          <button class="primary" id="update-reload">Seite neu laden</button>
+        </div>
       </div>
     </div>`);
 
+  const schritt = document.getElementById('update-step');
+  const titel = document.getElementById('update-title');
+  const protokoll = document.getElementById('update-log');
   const gestartet = Date.now();
-  const step = document.getElementById('update-step');
-  let warOffline = false;
+  let fertig = false;
+
+  const beenden = () => {
+    fertig = true;
+    clearInterval(timer);
+    const overlay = document.getElementById('update-overlay');
+    if (overlay) overlay.remove();
+  };
+  document.getElementById('update-close').addEventListener('click', beenden);
+  document.getElementById('update-reload').addEventListener('click', () => location.reload());
 
   const timer = setInterval(async () => {
+    if (fertig) return;
     const sekunden = Math.round((Date.now() - gestartet) / 1000);
+
+    // 1. Ist der Hub schon mit einer neuen Kennung zurück? Dann ist das Update durch.
     try {
-      const response = await fetch('/health', { cache: 'no-store' });
-      if (!response.ok) throw new Error('nicht bereit');
-      // Erst wenn der Hub zwischendurch weg war, ist der Neustart wirklich passiert.
-      if (warOffline || sekunden > 150) {
+      const health = await (await fetch('/health', { cache: 'no-store' })).json();
+      if (bootVorher && health.boot && health.boot !== bootVorher) {
+        fertig = true;
         clearInterval(timer);
-        step.textContent = 'Fertig. Seite wird neu geladen …';
-        setTimeout(() => location.reload(), 1200);
+        titel.textContent = 'Update abgeschlossen';
+        schritt.textContent = 'Der Hub ist neu gestartet. Die Seite wird neu geladen …';
+        setTimeout(() => location.reload(), 1500);
         return;
       }
-      step.textContent = `Neuer Stand wird gebaut … (${sekunden} s)`;
     } catch {
-      warOffline = true;
-      step.textContent = `Hub startet neu … (${sekunden} s)`;
+      schritt.textContent = `Der Hub startet neu … (${sekunden} s)`;
+      return; // Solange er weg ist, gibt es auch keinen Status abzufragen.
+    }
+
+    // 2. Was meldet der Update-Helfer?
+    try {
+      const info = await api('/api/app/update');
+      if (info.log) { protokoll.hidden = false; protokoll.textContent = info.log; protokoll.scrollTop = protokoll.scrollHeight; }
+
+      if (info.lastResult === 'failed') {
+        fertig = true;
+        clearInterval(timer);
+        titel.textContent = 'Update fehlgeschlagen';
+        schritt.innerHTML = `<span style="color:var(--red)">${esc(info.lastError || 'Unbekannter Fehler')}</span>`;
+        return;
+      }
+      if (info.busy) {
+        schritt.textContent = `Neuer Stand wird gebaut … (${sekunden} s)`;
+      } else if (info.upToDate) {
+        fertig = true;
+        clearInterval(timer);
+        titel.textContent = 'Bereits aktuell';
+        schritt.textContent = 'Es gab nichts Neues zu holen, der Hub läuft unverändert weiter.';
+        return;
+      } else {
+        schritt.textContent = `Update wird vorbereitet … (${sekunden} s)`;
+      }
+    } catch {
+      schritt.textContent = `Der Hub startet neu … (${sekunden} s)`;
+    }
+
+    // 3. Notbremse: nach zehn Minuten nicht weiter warten.
+    if (sekunden > 600) {
+      fertig = true;
+      clearInterval(timer);
+      titel.textContent = 'Dauert länger als erwartet';
+      schritt.innerHTML = 'Der Hub hat sich nicht zurückgemeldet. Auf dem Server nachsehen:<br />' +
+        '<code>journalctl -u autoblog-updater -n 50</code>';
     }
   }, 3000);
 }

@@ -14,6 +14,10 @@ const diagnosticsRoutes = require('./routes/diagnostics');
 const mediaRoutes = require('./routes/media');
 const scheduler = require('./scheduler');
 
+// Wechselt bei jedem Start. Daran erkennt die Oberflaeche zuverlaessig,
+// dass der Hub nach einem Update wirklich neu gestartet ist.
+const BOOT_ID = require('crypto').randomBytes(8).toString('hex');
+
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -89,7 +93,9 @@ app.use('/diagnose', diagnosticsRoutes);      // Diagnose per Einmal-Token (ohne
 app.use('/api/plugin', pluginRoutes);          // Schnittstelle fuer das WordPress-Plugin
 app.use('/api/app', auth.requireAuth, appRoutes); // Oberflaeche (nur angemeldet)
 
-app.get('/health', (req, res) => res.json({ ok: true, version: config.VERSION }));
+app.get('/health', (req, res) =>
+  res.json({ ok: true, version: config.VERSION, boot: BOOT_ID, uptime: Math.round(process.uptime()) })
+);
 
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
 app.get('*', (req, res) => {

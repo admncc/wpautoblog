@@ -249,7 +249,8 @@ docker compose exec hub node scripts/reset-password.js deine@mail.de neuesPasswo
 | „Zeitstempel abgelaufen" | Uhrzeit der Server vergleichen: `timedatectl` |
 | Artikel schlägt fehl | Im Hub unter **Protokoll** die Fehlermeldung lesen – dort steht die Ursache im Klartext |
 | „Update-Helfer nicht eingerichtet" | `sudo ./ops/install-updater.sh` ausführen, danach `docker compose up -d` |
-| Update bleibt hängen | `journalctl -u autoblog-updater -f` zeigt, woran es liegt |
+| Update schlägt fehl | Das Fenster zeigt das Protokoll des Bauvorgangs direkt an. Ausführlicher: `journalctl -u autoblog-updater -n 50` |
+| Update meldet sich nicht zurück | Nach zehn Minuten bricht die Anzeige von selbst ab. Der Hub läuft in dem Fall unverändert weiter, denn der Helfer setzt bei einem fehlgeschlagenen Neustart automatisch zurück |
 
 Mehr dazu in [Diagnose](03-diagnose.md).
 

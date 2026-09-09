@@ -17,7 +17,12 @@ FETCH_EVERY="${FETCH_EVERY:-15}"  # nur jeder n-te Durchlauf fragt beim Repo nac
 mkdir -p "$CONTROL"
 cd "$REPO" || { echo "Repository nicht gefunden: $REPO" >&2; exit 1; }
 
+LOGFILE="$CONTROL/last-update.log"
+
 log() { echo "[$(date -u +%FT%TZ)] $*"; }
+
+# Schreibt zusaetzlich in die Datei, die der Hub anzeigt.
+protokoll() { echo "[$(date -u +%FT%TZ)] $*" | tee -a "$LOGFILE"; }
 
 json_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))' 2>/dev/null || printf '""'; }
 
@@ -64,17 +69,22 @@ JSON
 }
 
 # Startet den Hub neu: bevorzugt ueber Docker, sonst ueber systemd.
+# Die Ausgabe landet im Protokoll, damit ein fehlgeschlagener Build sichtbar wird.
+# Das Zeitlimit verhindert, dass ein haengender Build den Helfer blockiert.
 neu_starten() {
+  local limit="${BUILD_TIMEOUT:-900}"
   if [ -f "$REPO/docker-compose.yml" ] && command -v docker >/dev/null 2>&1; then
-    log "Docker-Image bauen und Container ersetzen"
-    docker compose -f "$REPO/docker-compose.yml" up -d --build
+    protokoll "Docker-Image bauen und Container ersetzen (Zeitlimit ${limit}s)"
+    timeout "$limit" docker compose -f "$REPO/docker-compose.yml" up -d --build 2>&1 | tee -a "$LOGFILE"
+    return "${PIPESTATUS[0]}"
   elif systemctl list-unit-files 2>/dev/null | grep -q '^autoblog\.service'; then
-    log "Abhaengigkeiten aktualisieren und Dienst neu starten"
-    ( cd "$REPO/hub" && npm install --omit=dev ) && systemctl restart autoblog
-  else
-    log "Kein bekannter Startmechanismus gefunden"
-    return 1
+    protokoll "Abhaengigkeiten aktualisieren und Dienst neu starten"
+    ( cd "$REPO/hub" && timeout "$limit" npm install --omit=dev ) 2>&1 | tee -a "$LOGFILE"
+    systemctl restart autoblog 2>&1 | tee -a "$LOGFILE"
+    return 0
   fi
+  protokoll "Kein bekannter Startmechanismus gefunden (weder docker-compose.yml noch autoblog.service)"
+  return 1
 }
 
 # Merkt Ergebnis und Zeitpunkt und schreibt den Stand fuer den Hub.
@@ -93,36 +103,37 @@ fuehre_update_aus() {
   LETZTER_FEHLER=""
   FINISHED_AT=""
   schreibe_state "running"
-  log "Update gestartet (Branch $branch, Stand ${vorher:0:7})"
+  : > "$LOGFILE"   # Protokoll des vorherigen Laufs verwerfen
+  protokoll "Update gestartet (Branch $branch, Stand ${vorher:0:7})"
 
-  if ! git fetch origin "$branch"; then
+  if ! timeout 120 git fetch origin "$branch" 2>&1 | tee -a "$LOGFILE"; then
     abschluss "failed" "Repository nicht erreichbar (git fetch)"
     return 1
   fi
 
   # Nur vorwaerts, damit lokale Aenderungen niemals still ueberschrieben werden.
-  if ! git merge --ff-only "origin/$branch"; then
+  if ! git merge --ff-only "origin/$branch" 2>&1 | tee -a "$LOGFILE"; then
     abschluss "failed" "Lokale Aenderungen im Repository verhindern das Update. Auf dem Server pruefen: git status"
     return 1
   fi
 
   if [ "$(git rev-parse HEAD)" = "$vorher" ]; then
-    log "Bereits auf dem neuesten Stand, kein Neustart noetig"
+    protokoll "Bereits auf dem neuesten Stand, kein Neustart noetig"
     abschluss "aktuell"
     return 0
   fi
 
   if ! neu_starten; then
-    log "Neustart fehlgeschlagen, alter Stand wird wiederhergestellt"
-    git reset --hard "$vorher"
+    protokoll "Neustart fehlgeschlagen, alter Stand wird wiederhergestellt"
+    git reset --hard "$vorher" 2>&1 | tee -a "$LOGFILE"
     neu_starten
-    abschluss "failed" "Neustart fehlgeschlagen, alter Stand wiederhergestellt"
+    abschluss "failed" "Der Neustart ist fehlgeschlagen. Der vorherige Stand laeuft weiter, Einzelheiten im Protokoll."
     return 1
   fi
 
   schreibe_version
   abschluss "success"
-  log "Update abgeschlossen: $(git rev-parse --short HEAD)"
+  protokoll "Update abgeschlossen: $(git rev-parse --short HEAD)"
 }
 
 log "Update-Helfer gestartet fuer $REPO"
