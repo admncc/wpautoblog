@@ -1,0 +1,216 @@
+'use strict';
+const { db } = require('./db');
+const { logger } = require('./logger');
+const ai = require('./ai');
+const wp = require('./wp');
+const { randomId } = require('./util');
+
+const getSite = (id) => db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
+const getArticle = (id) => db.prepare('SELECT * FROM articles WHERE id = ?').get(id);
+
+function touchArticle(id, patch) {
+  const keys = Object.keys(patch);
+  if (!keys.length) return;
+  const setClause = keys.map((k) => `${k} = @${k}`).join(', ');
+  db.prepare(`UPDATE articles SET ${setClause}, updated_at = datetime('now') WHERE id = @id`).run({ ...patch, id });
+}
+
+/**
+ * Legt einen Artikel im Status "generating" an und startet die Erzeugung im Hintergrund.
+ * Die Oberflaeche pollt anschliessend den Status.
+ */
+function startGeneration({ siteId, keyword, angle = '', topicId = null, planId = null, origin = 'manual' }) {
+  const site = getSite(siteId);
+  if (!site) throw new Error('Website nicht gefunden.');
+  const cleanKeyword = String(keyword || '').trim();
+  if (!cleanKeyword) throw new Error('Bitte ein Thema oder Keyword angeben.');
+
+  const id = randomId('art');
+  db.prepare(
+    `INSERT INTO articles (id, site_id, topic_id, plan_id, keyword, title, status, origin)
+     VALUES (?, ?, ?, ?, ?, ?, 'generating', ?)`
+  ).run(id, siteId, topicId, planId, cleanKeyword, cleanKeyword, origin);
+
+  if (topicId) db.prepare("UPDATE topics SET status = 'used' WHERE id = ?").run(topicId);
+  const timer = logger.start('article', 'generate', `Artikel wird erzeugt: "${cleanKeyword}"`, {
+    siteId,
+    articleId: id,
+    context: { keyword: cleanKeyword, angle, origin, plan_id: planId, topic_id: topicId },
+  });
+
+  const promise = ai
+    .generateArticle({ site, keyword: cleanKeyword, angle })
+    .then((result) => {
+      touchArticle(id, {
+        title: result.title,
+        slug: result.slug,
+        excerpt: result.excerpt,
+        content_html: result.content_html,
+        meta_title: result.meta_title,
+        meta_desc: result.meta_desc,
+        tags: result.tags,
+        category: result.category || site.wp_category || '',
+        word_count: result.word_count,
+        model: result.model,
+        tokens_in: result.tokens_in,
+        tokens_out: result.tokens_out,
+        status: 'draft',
+        error: null,
+      });
+      timer.ok(`Artikel fertig: "${result.title}" (${result.word_count} Woerter)`, {
+        siteId,
+        articleId: id,
+        context: { title: result.title, words: result.word_count, model: result.model, tokens_out: result.tokens_out },
+      });
+      return getArticle(id);
+    })
+    .catch((err) => {
+      touchArticle(id, { status: 'failed', error: String(err.message || err) });
+      timer.fail(`Artikel fehlgeschlagen ("${cleanKeyword}"): ${err.message || err}`, { siteId, articleId: id });
+      return getArticle(id);
+    });
+
+  return { article: getArticle(id), promise };
+}
+
+/** Schiebt einen fertigen Artikel ueber das Plugin nach WordPress. */
+async function publish(articleId) {
+  const article = getArticle(articleId);
+  if (!article) throw new Error('Artikel nicht gefunden.');
+  if (article.status === 'generating') throw new Error('Der Artikel wird gerade noch erzeugt.');
+  if (!article.content_html) throw new Error('Der Artikel hat noch keinen Inhalt.');
+
+  const site = getSite(article.site_id);
+  touchArticle(articleId, { status: 'publishing', error: null });
+
+  // Abhol-Modus: Der Artikel bleibt in der Warteschlange, bis das Plugin ihn holt.
+  if (site.delivery === 'pull') {
+    logger.info('article', 'queue', `Artikel in Warteschlange fuer ${site.name} (Abhol-Modus)`, {
+      siteId: site.id,
+      articleId,
+      context: { title: article.title },
+    });
+    return getArticle(articleId);
+  }
+
+  try {
+    const result = await wp.publishArticle(site, article);
+    touchArticle(articleId, {
+      status: 'published',
+      wp_post_id: result.post_id || null,
+      wp_url: result.url || null,
+      published_at: new Date().toISOString(),
+      error: null,
+    });
+    db.prepare("UPDATE sites SET last_seen_at = datetime('now'), status = 'connected' WHERE id = ?").run(site.id);
+    logger.info('article', 'publish', `Veroeffentlicht auf ${site.name}: ${result.url || result.post_id}`, {
+      siteId: site.id,
+      articleId,
+      context: { post_id: result.post_id, url: result.url, wp_status: result.status || site.wp_status },
+    });
+    return getArticle(articleId);
+  } catch (err) {
+    touchArticle(articleId, { status: 'failed', error: String(err.message || err) });
+    logger.error('article', 'publish', `Veroeffentlichen fehlgeschlagen: ${err.message || err}`, {
+      siteId: site.id,
+      articleId,
+      context: { site_url: site.url, delivery: site.delivery },
+    });
+    throw err;
+  }
+}
+
+/** Naechsten Termin eines Plans aus "Artikel pro Woche" berechnen. */
+function computeNextRun(plan, from = new Date()) {
+  const perWeek = Math.max(1, Math.min(14, plan.per_week || 2));
+  const intervalHours = (7 * 24) / perWeek;
+  const next = new Date(from.getTime() + intervalHours * 3600 * 1000);
+  // Auf die gewuenschte Uhrzeit legen, aber nie in die Vergangenheit rutschen.
+  const hour = Math.max(0, Math.min(23, plan.publish_hour ?? 9));
+  next.setMinutes(0, 0, 0);
+  next.setHours(hour);
+  while (next <= from) next.setTime(next.getTime() + 24 * 3600 * 1000);
+  return next.toISOString();
+}
+
+function scheduleNextRun(planId) {
+  const plan = db.prepare('SELECT * FROM plans WHERE id = ?').get(planId);
+  if (!plan) return;
+  db.prepare('UPDATE plans SET next_run_at = ? WHERE id = ?').run(computeNextRun(plan), planId);
+}
+
+/** Naechstes Thema fuer einen Plan: offene Themen zuerst, sonst neue von der KI. */
+async function nextTopicForPlan(plan, site) {
+  const pick = () =>
+    db.prepare("SELECT * FROM topics WHERE site_id = ? AND status = 'open' ORDER BY created_at ASC LIMIT 1").get(site.id);
+
+  let topic = pick();
+  if (topic) return topic;
+
+  const areas = String(plan.areas || '').split('\n').map((a) => a.trim()).filter(Boolean);
+  const existing = db.prepare('SELECT keyword FROM topics WHERE site_id = ?').all(site.id).map((r) => r.keyword);
+  const briefingSite = areas.length ? { ...site, topic_focus: areas.join(', ') } : site;
+
+  const suggestions = await ai.suggestTopics({ site: briefingSite, count: 5, existing });
+  const insert = db.prepare(
+    "INSERT INTO topics (id, site_id, plan_id, keyword, angle, source) VALUES (?, ?, ?, ?, ?, 'ai')"
+  );
+  for (const item of suggestions) insert.run(randomId('top'), site.id, plan.id, item.keyword, item.angle);
+  if (suggestions.length) {
+    logger.info('plan', 'topics', `${suggestions.length} neue Themen fuer Plan "${plan.name}" ergaenzt`, {
+      siteId: site.id,
+      context: { plan: plan.name, keywords: suggestions.map((t) => t.keyword) },
+    });
+  }
+  return pick();
+}
+
+/** Ein Durchlauf der wiederkehrenden Posts: faellige Plaene abarbeiten. */
+async function runRecurring() {
+  const runTimer = logger.start('plan', 'cycle', 'Durchlauf der wiederkehrenden Posts gestartet');
+  const due = db
+    .prepare("SELECT * FROM plans WHERE active = 1 AND (next_run_at IS NULL OR next_run_at <= datetime('now'))")
+    .all();
+
+  let produced = 0;
+  for (const plan of due) {
+    const site = getSite(plan.site_id);
+    try {
+      if (!site) continue;
+      const topic = await nextTopicForPlan(plan, site);
+      if (!topic) {
+        logger.warn('plan', 'run', `Plan "${plan.name}": kein Thema verfuegbar`, { siteId: plan.site_id });
+        continue;
+      }
+
+      const { promise } = startGeneration({
+        siteId: site.id,
+        keyword: topic.keyword,
+        angle: topic.angle,
+        topicId: topic.id,
+        planId: plan.id,
+        origin: 'recurring',
+      });
+      const article = await promise;
+      if (article.status === 'draft') produced += 1;
+
+      if (article.status === 'draft' && plan.auto_publish) {
+        await publish(article.id);
+      }
+    } catch (err) {
+      logger.error('plan', 'run', `Fehler im Plan "${plan.name}": ${err.message || err}`, {
+        siteId: plan.site_id,
+        context: { plan: plan.name, stack: String(err.stack || '').slice(0, 1200) },
+      });
+    } finally {
+      db.prepare("UPDATE plans SET last_run_at = datetime('now') WHERE id = ?").run(plan.id);
+      scheduleNextRun(plan.id);
+    }
+  }
+  runTimer.ok(`Durchlauf beendet: ${due.length} Plan/Plaene geprueft, ${produced} Post(s) erzeugt`, {
+    context: { due: due.length, produced },
+  });
+  return { plans: due.length, produced };
+}
+
+module.exports = { startGeneration, publish, runRecurring, computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle };

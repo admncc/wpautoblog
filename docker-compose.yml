@@ -1,0 +1,21 @@
+services:
+  hub:
+    build: ./hub
+    container_name: autoblog-hub
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      # Adresse, unter der der Hub erreichbar ist - wird im WordPress-Plugin eingetragen.
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4000}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-claude-opus-5}
+      # Optional: Der API-Key kann auch in der Oberflaeche hinterlegt werden.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Nach dem ersten Start den erzeugten Wert aus data/.app_secret hier eintragen,
+      # damit er bei einem Umzug erhalten bleibt.
+      APP_SECRET: ${APP_SECRET:-}
+    volumes:
+      - autoblog-data:/data
+
+volumes:
+  autoblog-data:

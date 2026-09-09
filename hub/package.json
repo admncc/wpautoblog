@@ -1,0 +1,22 @@
+{
+  "name": "wpautoblog-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Autoblog Hub - Web-Interface zum Generieren und Veroeffentlichen von Blogartikeln auf WordPress-Seiten",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "reset-password": "node scripts/reset-password.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^12.4.1",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.3",
+    "express": "^4.22.2",
+    "node-cron": "^4.2.1"
+  }
+}

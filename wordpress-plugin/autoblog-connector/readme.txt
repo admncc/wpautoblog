@@ -1,0 +1,56 @@
+=== Autoblog Connector ===
+Contributors: autoblog
+Tags: automation, blogging, ai, content
+Requires at least: 6.0
+Tested up to: 6.7
+Requires PHP: 7.4
+Stable tag: 1.0.0
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+
+Verbindet diese WordPress-Seite mit dem Autoblog Hub. Der Hub erzeugt Blogartikel und legt sie hier als Beitrag an.
+
+== Description ==
+
+Der Autoblog Connector ist die WordPress-Seite eines zweiteiligen Systems:
+
+* Der **Autoblog Hub** (eigene Weboberflaeche) plant und erzeugt die Artikel.
+* Dieses **Plugin** empfaengt die fertigen Artikel und legt sie als Beitrag an.
+
+Es gibt zwei Uebertragungswege, umschaltbar im Hub:
+
+1. **Der Hub sendet** an diese Website (Standard). Voraussetzung: Die Website ist aus dem Internet erreichbar.
+2. **WordPress holt ab.** Ein WP-Cron-Auftrag fragt alle 15 Minuten beim Hub nach wartenden Artikeln.
+   Geeignet fuer Installationen hinter einer Firewall oder im Aufbau.
+
+Sicherheit: Jede Uebertragung wird mit HMAC-SHA256 signiert und traegt einen Zeitstempel,
+der maximal fuenf Minuten alt sein darf. Ohne gueltige Signatur wird jede Anfrage abgewiesen.
+Es werden keine Passwoerter und keine WordPress-Anwendungspasswoerter uebertragen.
+
+== Installation ==
+
+1. Ordner `autoblog-connector` nach `wp-content/plugins/` hochladen (oder ZIP ueber "Plugins -> Installieren" einspielen).
+2. Plugin aktivieren.
+3. Im Autoblog Hub die Website anlegen und den Website-Token kopieren.
+4. In WordPress unter "Einstellungen -> Autoblog" die Hub-Adresse und den Token eintragen und auf "Verbinden" klicken.
+
+== Frequently Asked Questions ==
+
+= Werden Beitraege sofort veroeffentlicht? =
+
+Nein, das steuerst du im Hub. Standard ist "Entwurf" - die Beitraege warten dann in WordPress auf deine Freigabe.
+
+= Wo landen die SEO-Angaben? =
+
+Titel und Beschreibung werden in eigenen Feldern gespeichert und zusaetzlich, falls vorhanden,
+in die Felder von Yoast SEO oder Rank Math geschrieben.
+
+= Was passiert, wenn der Token neu erzeugt wird? =
+
+Die alte Verbindung wird sofort ungueltig. Trage den neuen Token unter "Einstellungen -> Autoblog" ein.
+
+== Changelog ==
+
+= 1.0.0 =
+* Erste Fassung: Verbindung per Website-Token, signierte Uebertragung, Sende- und Abholmodus,
+  Kategorien, Schlagwoerter, SEO-Felder und Autorenzuweisung.
