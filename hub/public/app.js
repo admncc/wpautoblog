@@ -992,6 +992,7 @@ async function renderArticle(view, articleId) {
       </div>
     </div>
     ${article.error ? `<div class="notice err">${esc(article.error)}</div>` : ''}
+    ${article.notice ? `<div class="notice" style="background:var(--amber-soft);color:var(--amber)">${esc(article.notice)}</div>` : ''}
 
     <div class="tabs">
       <button data-atab="preview" class="${tab === 'preview' ? 'active' : ''}">Vorschau</button>

@@ -158,7 +158,10 @@ das WordPress-Plugin sie in die Mediathek, setzt das Beitragsbild und ersetzt di
 durch das Bild samt Unterschrift. Platzhalter ohne Bild verschwinden rückstandslos.
 
 > Wichtig: Damit WordPress die Bilder abholen kann, muss `PUBLIC_URL` gesetzt und der Hub
-> von der WordPress-Seite aus erreichbar sein. Fehlt das, wird der Artikel ohne Bilder übertragen
-> und der Grund steht im Protokoll.
+> **von der WordPress-Seite aus** erreichbar sein, nicht nur von deinem Browser. Klappt das nicht,
+> wird der Beitrag trotzdem angelegt, und am Artikel steht ein gelber Hinweis mit der genauen
+> Fehlermeldung aus WordPress, etwa „Bild 1: Hub nicht erreichbar (Connection refused)".
+> Läuft der Hub auf einem eigenen Port wie 4000, muss der WordPress-Hoster ausgehende
+> Verbindungen dorthin zulassen.
 
 **Diagnose-Zugang** – siehe [Diagnose](03-diagnose.md).

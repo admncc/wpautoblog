@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS articles (
   wp_url        TEXT,
   error         TEXT,
   origin        TEXT NOT NULL DEFAULT 'manual',
+  notice        TEXT,                               -- nicht kritischer Hinweis, z. B. zu Bildern
   archived      INTEGER NOT NULL DEFAULT 0,         -- 1 = erledigt, aus der Arbeitsliste geraeumt
   archived_at   TEXT,     -- manual | autopilot
   published_at  TEXT,
@@ -154,6 +155,7 @@ ensureColumn('topics', 'plan_id', 'TEXT');
 ensureColumn('articles', 'plan_id', 'TEXT');
 ensureColumn('articles', 'archived', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('articles', 'archived_at', 'TEXT');
+ensureColumn('articles', 'notice', 'TEXT');
 
 const setSettingStmt = db.prepare(
   `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))

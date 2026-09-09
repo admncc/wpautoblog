@@ -5,6 +5,7 @@ const ai = require('./ai');
 const wp = require('./wp');
 const images = require('./images');
 const { randomId } = require('./util');
+const { PUBLIC_URL } = require('./config');
 
 const getSite = (id) => db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
 const getArticle = (id) => db.prepare('SELECT * FROM articles WHERE id = ?').get(id);
@@ -89,7 +90,7 @@ async function publish(articleId) {
   if (!article.content_html) throw new Error('Der Artikel hat noch keinen Inhalt.');
 
   const site = getSite(article.site_id);
-  touchArticle(articleId, { status: 'publishing', error: null });
+  touchArticle(articleId, { status: 'publishing', error: null, notice: null });
 
   // Abhol-Modus: Der Artikel bleibt in der Warteschlange, bis das Plugin ihn holt.
   if (site.delivery === 'pull') {
@@ -105,6 +106,23 @@ async function publish(articleId) {
     const result = await wp.publishArticle(site, article);
     // Erfolgreich uebergeben: Der Artikel bleibt vollstaendig hier gespeichert,
     // verschwindet aber aus der Arbeitsliste.
+    // Bilder sind nicht kritisch: Der Beitrag steht, aber der Hinweis muss sichtbar sein.
+    const bildFehler = Array.isArray(result.image_errors) ? result.image_errors : [];
+    const erwartet = images.forArticle(articleId).filter((img) => img.status === 'ready').length;
+    const uebernommen = Number(result.images_imported) || 0;
+    let hinweis = null;
+
+    if (erwartet && uebernommen < erwartet) {
+      hinweis = `Nur ${uebernommen} von ${erwartet} Bildern wurden in WordPress angelegt.`
+        + (bildFehler.length ? ` ${bildFehler.join(' ')}` : '')
+        + ` Kann WordPress die Adresse ${PUBLIC_URL || 'des Hubs'} erreichen?`;
+      logger.warn('article', 'images', hinweis, {
+        siteId: site.id,
+        articleId,
+        context: { erwartet, uebernommen, fehler: bildFehler },
+      });
+    }
+
     touchArticle(articleId, {
       status: 'published',
       wp_post_id: result.post_id || null,
@@ -113,6 +131,7 @@ async function publish(articleId) {
       archived: 1,
       archived_at: new Date().toISOString(),
       error: null,
+      notice: hinweis,
     });
     db.prepare("UPDATE sites SET last_seen_at = datetime('now'), status = 'connected' WHERE id = ?").run(site.id);
     logger.info('article', 'publish', `Veroeffentlicht auf ${site.name}: ${result.url || result.post_id}`, {

@@ -56,8 +56,12 @@ class Autoblog_Publisher {
 
         // Bilder zuerst: Sie muessen in der Mediathek liegen, bevor der Inhalt
         // mit den fertigen Adressen gespeichert wird.
-        $bilder = self::import_images($post_id, isset($data['images']) ? $data['images'] : []);
-        $inhalt = self::apply_images($postarr['post_content'], $bilder, $post_id);
+        $import = self::import_images(
+            $post_id,
+            isset($data['images']) ? $data['images'] : [],
+            isset($data['slug']) ? sanitize_title($data['slug']) : ''
+        );
+        $inhalt = self::apply_images($postarr['post_content'], $import['bilder'], $post_id);
         if ($inhalt !== $postarr['post_content']) {
             wp_update_post(['ID' => $post_id, 'post_content' => $inhalt]);
         }
@@ -70,58 +74,138 @@ class Autoblog_Publisher {
         update_post_meta($post_id, '_autoblog_created', current_time('mysql'));
 
         return [
-            'post_id'  => (int) $post_id,
-            'url'      => get_permalink($post_id),
-            'edit_url' => get_edit_post_link($post_id, 'raw'),
-            'status'   => get_post_status($post_id),
+            'post_id'         => (int) $post_id,
+            'url'             => get_permalink($post_id),
+            'edit_url'        => get_edit_post_link($post_id, 'raw'),
+            'status'          => get_post_status($post_id),
+            'images_imported' => count($import['bilder']),
+            'image_errors'    => $import['fehler'],
         ];
     }
 
     /**
      * Laedt die Bilder des Hubs in die Mediathek.
      *
-     * @return array slot => ['id' => int, 'alt' => string, 'caption' => string]
+     * Bewusst ohne media_sideload_image: Jenes laedt ueber download_url, und das
+     * prueft die Adresse mit wp_http_validate_url, die nur die Ports 80, 443 und
+     * 8080 zulaesst. Ein Hub auf einem eigenen Port waere damit nicht erreichbar.
+     * Fehler werden gesammelt und an den Hub zurueckgemeldet, nicht verschluckt.
+     *
+     * @return array ['bilder' => slot => [...], 'fehler' => string[]]
      */
-    private static function import_images($post_id, $images) {
+    private static function import_images($post_id, $images, $slug = '') {
         if (!is_array($images) || empty($images)) {
-            return [];
+            return ['bilder' => [], 'fehler' => []];
         }
 
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/media.php';
         require_once ABSPATH . 'wp-admin/includes/image.php';
 
-        $ergebnis = [];
+        $bilder = [];
+        $fehler = [];
+
         foreach ($images as $bild) {
             $url = isset($bild['url']) ? esc_url_raw($bild['url']) : '';
             if ($url === '') {
                 continue;
             }
-            $slot = isset($bild['slot']) ? (int) $bild['slot'] : count($ergebnis) + 1;
-            $alt  = isset($bild['alt']) ? sanitize_text_field($bild['alt']) : '';
+            $slot    = isset($bild['slot']) ? (int) $bild['slot'] : count($bilder) + 1;
+            $alt     = isset($bild['alt']) ? sanitize_text_field($bild['alt']) : '';
+            $caption = isset($bild['caption']) ? sanitize_text_field($bild['caption']) : '';
 
-            // media_sideload_image laedt die Datei herunter und legt sie als Anhang an.
-            $attachment_id = media_sideload_image($url, $post_id, $alt, 'id');
-            if (is_wp_error($attachment_id)) {
+            // Wurde dasselbe Bild schon einmal importiert, wird es wiederverwendet.
+            // Sonst entstuenden bei jedem erneuten Senden Dubletten in der Mediathek.
+            $vorhanden = get_posts([
+                'post_type'      => 'attachment',
+                'post_status'    => 'inherit',
+                'posts_per_page' => 1,
+                'fields'         => 'ids',
+                'meta_key'       => '_autoblog_source',
+                'meta_value'     => $url,
+            ]);
+            if (!empty($vorhanden[0])) {
+                $bilder[$slot] = ['id' => (int) $vorhanden[0], 'alt' => $alt, 'caption' => $caption];
                 continue;
             }
 
+            $antwort = wp_remote_get($url, [
+                'timeout'     => 60,
+                'redirection' => 3,
+                'user-agent'  => 'AutoblogConnector/' . AUTOBLOG_VERSION,
+            ]);
+
+            if (is_wp_error($antwort)) {
+                /* translators: 1: Bildnummer, 2: Fehlermeldung */
+                $fehler[] = sprintf(__('Bild %1$d: Hub nicht erreichbar (%2$s)', 'autoblog-connector'), $slot, $antwort->get_error_message());
+                continue;
+            }
+
+            $code = (int) wp_remote_retrieve_response_code($antwort);
+            if ($code !== 200) {
+                /* translators: 1: Bildnummer, 2: HTTP-Statuscode */
+                $fehler[] = sprintf(__('Bild %1$d: Hub antwortete mit HTTP %2$d', 'autoblog-connector'), $slot, $code);
+                continue;
+            }
+
+            $daten = wp_remote_retrieve_body($antwort);
+            if ($daten === '') {
+                /* translators: %d: Bildnummer */
+                $fehler[] = sprintf(__('Bild %d: leere Antwort vom Hub', 'autoblog-connector'), $slot);
+                continue;
+            }
+
+            $typ  = strtok((string) wp_remote_retrieve_header($antwort, 'content-type'), ';');
+            $typ  = $typ ? trim($typ) : 'image/png';
+            $name = sanitize_file_name(($slug !== '' ? $slug : 'beitrag') . '-' . $slot . '.' . self::extension_for($typ));
+
+            $datei = wp_upload_bits($name, null, $daten);
+            if (!empty($datei['error'])) {
+                /* translators: 1: Bildnummer, 2: Fehlermeldung */
+                $fehler[] = sprintf(__('Bild %1$d: konnte nicht gespeichert werden (%2$s)', 'autoblog-connector'), $slot, $datei['error']);
+                continue;
+            }
+
+            $attachment_id = wp_insert_attachment([
+                'post_mime_type' => $typ,
+                'post_title'     => $alt !== '' ? $alt : $name,
+                'post_excerpt'   => $caption,   // wird in WordPress zur Bildunterschrift
+                'post_content'   => '',
+                'post_status'    => 'inherit',
+            ], $datei['file'], $post_id, true);
+
+            if (is_wp_error($attachment_id) || !$attachment_id) {
+                $meldung = is_wp_error($attachment_id) ? $attachment_id->get_error_message() : __('unbekannter Fehler', 'autoblog-connector');
+                /* translators: 1: Bildnummer, 2: Fehlermeldung */
+                $fehler[] = sprintf(__('Bild %1$d: nicht in die Mediathek eingetragen (%2$s)', 'autoblog-connector'), $slot, $meldung);
+                continue;
+            }
+
+            // Erzeugt die Bildgroessen, die das Theme spaeter ausliefert.
+            wp_update_attachment_metadata($attachment_id, wp_generate_attachment_metadata($attachment_id, $datei['file']));
             update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
             update_post_meta($attachment_id, '_autoblog_source', $url);
 
-            $ergebnis[$slot] = [
-                'id'      => (int) $attachment_id,
-                'alt'     => $alt,
-                'caption' => isset($bild['caption']) ? sanitize_text_field($bild['caption']) : '',
-            ];
+            $bilder[$slot] = ['id' => (int) $attachment_id, 'alt' => $alt, 'caption' => $caption];
         }
 
         // Bild 1 ist das Beitragsbild.
-        if (isset($ergebnis[1]) && !has_post_thumbnail($post_id)) {
-            set_post_thumbnail($post_id, $ergebnis[1]['id']);
+        if (isset($bilder[1]) && !has_post_thumbnail($post_id)) {
+            set_post_thumbnail($post_id, $bilder[1]['id']);
         }
 
-        return $ergebnis;
+        return ['bilder' => $bilder, 'fehler' => $fehler];
+    }
+
+    /** Dateiendung zum gelieferten Bildtyp. */
+    private static function extension_for($mime) {
+        $karte = [
+            'image/jpeg' => 'jpg',
+            'image/jpg'  => 'jpg',
+            'image/png'  => 'png',
+            'image/webp' => 'webp',
+            'image/avif' => 'avif',
+            'image/gif'  => 'gif',
+        ];
+        return isset($karte[$mime]) ? $karte[$mime] : 'png';
     }
 
     /**
