@@ -3,7 +3,7 @@
  * Plugin Name:       Autoblog Connector
  * Plugin URI:        https://github.com/admncc/wpautoblog
  * Description:       Verbindet diese WordPress-Seite mit dem Autoblog Hub. Der Hub erzeugt Blogartikel und legt sie hier als Beitrag an.
- * Version:           1.3.0
+ * Version:           1.3.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Autoblog
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
     exit; // Direkter Aufruf nicht erlaubt.
 }
 
-define('AUTOBLOG_VERSION', '1.3.0');
+define('AUTOBLOG_VERSION', '1.3.1');
 define('AUTOBLOG_FILE', __FILE__);
 define('AUTOBLOG_PATH', plugin_dir_path(__FILE__));
 

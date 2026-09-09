@@ -39,8 +39,16 @@ class Autoblog_Hub_Client {
         ]);
 
         if (is_wp_error($response)) {
-            Autoblog_Settings::update(['last_error' => $response->get_error_message()]);
-            return $response;
+            $meldung = $response->get_error_message();
+            if (strpos($meldung, 'timed out') !== false || strpos($meldung, 'Connection refused') !== false) {
+                $meldung .= '. ' . sprintf(
+                    /* translators: %s: Hub-Adresse */
+                    __('Diese Website erreicht %s nicht. Laeuft der Hub, und laesst dein Hoster ausgehende Verbindungen auf diesen Port zu?', 'autoblog-connector'),
+                    $hub_url
+                );
+            }
+            Autoblog_Settings::update(['last_error' => $meldung]);
+            return new WP_Error($response->get_error_code(), $meldung);
         }
 
         $code = wp_remote_retrieve_response_code($response);
@@ -66,12 +74,17 @@ class Autoblog_Hub_Client {
         return $data;
     }
 
-    /** Verbindung herstellen: Hub-Adresse und Website-Token pruefen. */
+    /**
+     * Verbindung herstellen: Hub-Adresse und Website-Token pruefen.
+     * Scheitert der Versuch, bleibt eine bestehende Verbindung erhalten. Ein
+     * kurzer Ausfall des Hubs darf die Website nicht abmelden.
+     */
     public static function connect($hub_url, $token) {
+        $vorher = Autoblog_Settings::all();
+
         Autoblog_Settings::update([
             'hub_url'    => Autoblog_Settings::clean_url($hub_url),
             'site_token' => trim($token),
-            'site_id'    => '',
         ]);
 
         $result = self::request('connect', [
@@ -83,7 +96,12 @@ class Autoblog_Hub_Client {
         ], false);
 
         if (is_wp_error($result)) {
-            Autoblog_Settings::update(['site_id' => '', 'connected_at' => '']);
+            // Nur zuruecksetzen, wenn sich Adresse oder Token geaendert haben.
+            $gleich = $vorher['hub_url'] === Autoblog_Settings::clean_url($hub_url)
+                && $vorher['site_token'] === trim($token);
+            if (!$gleich) {
+                Autoblog_Settings::update(['site_id' => '', 'connected_at' => '']);
+            }
             return $result;
         }
 
