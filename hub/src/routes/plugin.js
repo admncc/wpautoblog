@@ -184,7 +184,8 @@ router.post('/result', verifySignature, (req, res) => {
 
   db.prepare(
     `UPDATE articles SET status = 'published', wp_post_id = ?, wp_url = ?, error = NULL,
-       published_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+       published_at = datetime('now'), archived = 1, archived_at = datetime('now'),
+       updated_at = datetime('now') WHERE id = ?`
   ).run(Number(req.body.post_id) || null, String(req.body.url || '') || null, article.id);
   logger.info('plugin', 'result', `Veroeffentlicht (Abhol-Modus): ${req.body.url || req.body.post_id}`, {
     siteId: req.site.id,

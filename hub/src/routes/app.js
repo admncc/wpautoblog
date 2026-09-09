@@ -81,7 +81,9 @@ router.get(
       topics: db.prepare('SELECT * FROM topics WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
       plans: db.prepare('SELECT * FROM plans WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
       articles: db
-        .prepare('SELECT id, title, keyword, status, word_count, wp_url, created_at, published_at, origin FROM articles WHERE site_id = ? ORDER BY created_at DESC LIMIT 50')
+        .prepare(`SELECT id, title, keyword, status, word_count, wp_url, created_at, published_at, origin,
+                         archived, archived_at
+                  FROM articles WHERE site_id = ? ORDER BY archived ASC, created_at DESC LIMIT 60`)
         .all(site.id),
     });
   })
@@ -253,15 +255,23 @@ router.get(
     const params = {};
     if (req.query.site) { filters.push('a.site_id = @site'); params.site = req.query.site; }
     if (req.query.status) { filters.push('a.status = @status'); params.status = req.query.status; }
+    // Standardmaessig zeigt die Liste die offene Arbeit; das Archiv ist eine eigene Ansicht.
+    if (req.query.archived === '1') filters.push('a.archived = 1');
+    else if (req.query.archived !== 'all') filters.push('a.archived = 0');
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-    res.json(
-      db.prepare(
+
+    res.json({
+      articles: db.prepare(
         `SELECT a.id, a.site_id, a.title, a.keyword, a.status, a.word_count, a.wp_url, a.origin,
-                a.created_at, a.published_at, a.error, s.name AS site_name
+                a.created_at, a.published_at, a.error, a.archived, a.archived_at, s.name AS site_name
          FROM articles a JOIN sites s ON s.id = a.site_id
          ${where} ORDER BY a.created_at DESC LIMIT 200`
-      ).all(params)
-    );
+      ).all(params),
+      counts: {
+        offen: db.prepare('SELECT COUNT(*) AS n FROM articles WHERE archived = 0').get().n,
+        archiv: db.prepare('SELECT COUNT(*) AS n FROM articles WHERE archived = 1').get().n,
+      },
+    });
   })
 );
 
@@ -344,6 +354,19 @@ router.patch(
 
     service.touchArticle(article.id, patch);
     res.json(db.prepare('SELECT * FROM articles WHERE id = ?').get(article.id));
+  })
+);
+
+/** Von Hand archivieren oder zurueckholen. Der Inhalt bleibt in beiden Faellen erhalten. */
+router.post(
+  '/articles/:id/archive',
+  wrap((req, res) => {
+    const archived = req.body.archived === false ? 0 : 1;
+    const result = db
+      .prepare("UPDATE articles SET archived = ?, archived_at = CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END, updated_at = datetime('now') WHERE id = ?")
+      .run(archived, archived, req.params.id);
+    if (!result.changes) return res.status(404).json({ error: 'Artikel nicht gefunden.' });
+    res.json(db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id));
   })
 );
 

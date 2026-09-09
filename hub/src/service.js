@@ -103,11 +103,15 @@ async function publish(articleId) {
 
   try {
     const result = await wp.publishArticle(site, article);
+    // Erfolgreich uebergeben: Der Artikel bleibt vollstaendig hier gespeichert,
+    // verschwindet aber aus der Arbeitsliste.
     touchArticle(articleId, {
       status: 'published',
       wp_post_id: result.post_id || null,
       wp_url: result.url || null,
       published_at: new Date().toISOString(),
+      archived: 1,
+      archived_at: new Date().toISOString(),
       error: null,
     });
     db.prepare("UPDATE sites SET last_seen_at = datetime('now'), status = 'connected' WHERE id = ?").run(site.id);

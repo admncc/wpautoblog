@@ -56,9 +56,7 @@ async function callSite(site, path, payload) {
       status: response.status,
       context: { url, response: excerpt(raw, 800), content_type: response.headers.get('content-type') },
     });
-    throw new WpError(
-      `Unerwartete Antwort von WordPress (HTTP ${response.status}). Ist das Plugin aktiviert und die URL korrekt? Antwort: ${raw.slice(0, 200)}`
-    );
+    throw new WpError(erklaereAntwort(raw, response.status, url));
   }
   if (!response.ok || data.ok === false) {
     timer.fail(data.message || `HTTP ${response.status}`, { status: response.status, context: { url, response: excerpt(raw, 800) } });
@@ -70,6 +68,35 @@ async function callSite(site, path, payload) {
     context: { url, response: excerpt(raw, 500) },
   });
   return data;
+}
+
+/** Uebersetzt typische WordPress-Fehlerseiten in eine verstaendliche Meldung. */
+function erklaereAntwort(raw, status, url) {
+  const text = String(raw || '');
+
+  if (/Datenbankverbindung|database connection/i.test(text)) {
+    return `Die WordPress-Seite selbst hat ein Problem: Sie erreicht ihre eigene Datenbank nicht `
+      + `("Fehler beim Aufbau einer Datenbankverbindung"). Das liegt nicht am Hub und nicht am Plugin. `
+      + `Bitte ${url.replace(/\/wp-json.*/, '')} im Browser aufrufen; zeigt die Seite denselben Fehler, `
+      + `muss der Hoster oder der Datenbankdienst geprueft werden. Danach hier erneut senden.`;
+  }
+  if (/rest_no_route|No route was found/i.test(text)) {
+    return 'WordPress kennt die Empfangsadresse nicht. Ist das Plugin "Autoblog Connector" aktiviert?';
+  }
+  if (/rest_disabled|REST API.*(disabled|deaktiviert)/i.test(text)) {
+    return 'Die REST-API von WordPress ist gesperrt, meist durch ein Sicherheits-Plugin. Bitte dort freigeben.';
+  }
+  if (status === 403) {
+    return 'WordPress hat die Anfrage abgewiesen (403). Haeufige Ursache: eine Firewall oder ein Sicherheits-Plugin vor der REST-API.';
+  }
+  if (status === 404) {
+    return `Unter ${url} ist nichts erreichbar (404). Bitte Adresse der Website und Aktivierung des Plugins pruefen.`;
+  }
+  if (status >= 500) {
+    return `WordPress meldet einen internen Fehler (HTTP ${status}). Antwort: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
+  }
+  return `Unerwartete Antwort von WordPress (HTTP ${status}). Ist das Plugin aktiviert und die URL korrekt? `
+    + `Antwort: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
 }
 
 async function ping(site) {

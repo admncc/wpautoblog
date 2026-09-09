@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS articles (
   wp_post_id    INTEGER,
   wp_url        TEXT,
   error         TEXT,
-  origin        TEXT NOT NULL DEFAULT 'manual',     -- manual | autopilot
+  origin        TEXT NOT NULL DEFAULT 'manual',
+  archived      INTEGER NOT NULL DEFAULT 0,         -- 1 = erledigt, aus der Arbeitsliste geraeumt
+  archived_at   TEXT,     -- manual | autopilot
   published_at  TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -150,6 +152,8 @@ function ensureColumn(table, column, definition) {
 ensureColumn('sites', 'delivery', "TEXT NOT NULL DEFAULT 'push'");
 ensureColumn('topics', 'plan_id', 'TEXT');
 ensureColumn('articles', 'plan_id', 'TEXT');
+ensureColumn('articles', 'archived', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('articles', 'archived_at', 'TEXT');
 
 const setSettingStmt = db.prepare(
   `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))

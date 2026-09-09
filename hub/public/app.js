@@ -637,6 +637,7 @@ async function renderSite(view, siteId) {
       </div>
       <div class="card">
         <h2>Artikel dieser Website</h2>
+        <p class="sub">Offene zuerst, darunter das Archiv.</p>
         ${articles.length ? articleTable(articles) : '<div class="empty">Noch keine Artikel.</div>'}
       </div>`;
 
@@ -882,7 +883,8 @@ function articleTable(articles) {
     ${articles.map((a) => `<tr class="clickable" data-article="${esc(a.id)}">
       <td><strong>${esc(a.title || a.keyword)}</strong>
         ${a.site_name ? `<div class="hint">${esc(a.site_name)}</div>` : ''}
-        ${a.origin === 'recurring' ? '<span class="badge info">wiederkehrend</span>' : ''}</td>
+        ${a.origin === 'recurring' ? '<span class="badge info">wiederkehrend</span>' : ''}
+        ${a.archived ? '<span class="badge">archiviert</span>' : ''}</td>
       <td>${statusBadge(a.status)}</td>
       <td>${a.word_count || '–'}</td>
       <td>${fmtDate(a.created_at)}</td>
@@ -891,14 +893,16 @@ function articleTable(articles) {
 }
 
 async function renderArticles(view) {
-  const [articles, sites] = await Promise.all([
-    api(`/api/app/articles${state.data.filterSite ? `?site=${state.data.filterSite}` : ''}`),
-    api('/api/app/sites'),
-  ]);
+  const archiv = state.data.showArchive ? '1' : '0';
+  const query = new URLSearchParams({ archived: archiv });
+  if (state.data.filterSite) query.set('site', state.data.filterSite);
+
+  const [data, sites] = await Promise.all([api(`/api/app/articles?${query}`), api('/api/app/sites')]);
+  const { articles, counts } = data;
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Artikel</h1><p class="sub">Alle erzeugten Beiträge über alle Websites.</p></div>
+      <div><h1>Artikel</h1><p class="sub">Alle Beiträge bleiben hier gespeichert, auch nach dem Senden an WordPress.</p></div>
       <div class="row">
         <select id="filter-site" style="width:auto">
           <option value="">Alle Websites</option>
@@ -906,7 +910,19 @@ async function renderArticles(view) {
         </select>
       </div>
     </div>
-    <div class="card">${articles.length ? articleTable(articles) : '<div class="empty">Noch keine Artikel erzeugt.</div>'}</div>`;
+    <div class="tabs">
+      <button data-arch="0" class="${state.data.showArchive ? '' : 'active'}">In Arbeit (${counts.offen})</button>
+      <button data-arch="1" class="${state.data.showArchive ? 'active' : ''}">Archiv (${counts.archiv})</button>
+    </div>
+    <div class="card">${articles.length ? articleTable(articles) : `<div class="empty">${
+      state.data.showArchive
+        ? 'Noch nichts im Archiv. Beiträge landen hier, sobald sie erfolgreich an WordPress übergeben wurden.'
+        : 'Keine offenen Beiträge.'}</div>`}</div>`;
+
+  on('[data-arch]', 'click', (event) => {
+    state.data.showArchive = event.currentTarget.dataset.arch === '1';
+    render();
+  });
 
   on('#filter-site', 'change', (event) => { state.data.filterSite = event.target.value; render(); });
   on('[data-article]', 'click', (event) => navigate('article', event.currentTarget.dataset.article));
@@ -933,11 +949,13 @@ async function renderArticle(view, articleId) {
       <div>
         <h1>${esc(article.title || article.keyword)}</h1>
         <p class="sub">${esc(article.site_name)} · ${statusBadge(article.status)} · ${article.word_count} Wörter ·
-          ${esc(article.model || '')} ${article.wp_url ? `· <a href="${esc(article.wp_url)}" target="_blank" rel="noopener">in WordPress ansehen</a>` : ''}</p>
+          ${esc(article.model || '')} ${article.wp_url ? `· <a href="${esc(article.wp_url)}" target="_blank" rel="noopener">in WordPress ansehen</a>` : ''}
+          ${article.archived ? `· <span class="badge">archiviert ${fmtDate(article.archived_at)}</span>` : ''}</p>
       </div>
       <div class="row">
         ${article.status !== 'published' ? '<button class="primary" id="publish">An WordPress senden</button>' : '<button id="publish">Erneut senden</button>'}
         <button id="regenerate">Neu schreiben</button>
+        <button id="toggle-archive">${article.archived ? 'Aus dem Archiv holen' : 'Archivieren'}</button>
         <button class="danger" id="delete-article">Löschen</button>
       </div>
     </div>
@@ -1013,7 +1031,14 @@ async function renderArticle(view, articleId) {
   }));
   on('#publish', 'click', (event) => guard(event.currentTarget, async () => {
     const result = await api(`/api/app/articles/${articleId}/publish`, { method: 'POST' });
-    toast(result.status === 'published' ? 'An WordPress übertragen.' : 'In die Warteschlange gelegt – WordPress holt den Artikel ab.');
+    toast(result.status === 'published'
+      ? 'An WordPress übertragen und hier ins Archiv gelegt.'
+      : 'In die Warteschlange gelegt, WordPress holt den Artikel ab.');
+    await render();
+  }));
+  on('#toggle-archive', 'click', (event) => guard(event.currentTarget, async () => {
+    await api(`/api/app/articles/${articleId}/archive`, { method: 'POST', body: { archived: !article.archived } });
+    toast(article.archived ? 'Zurück in die Arbeitsliste.' : 'Archiviert. Der Beitrag bleibt vollständig gespeichert.');
     await render();
   }));
   on('#regenerate', 'click', (event) => guard(event.currentTarget, async () => {

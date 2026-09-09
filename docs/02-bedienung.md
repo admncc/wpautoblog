@@ -88,6 +88,14 @@ Jeder Artikel hat drei Reiter:
 der für die Website eingestellt ist. **Neu schreiben** erzeugt zum selben Thema
 einen frischen Artikel, der alte bleibt erhalten.
 
+**Alles bleibt im Panel gespeichert.** Der vollständige Text, die SEO-Felder und die Bilder
+liegen weiter im Hub, auch nachdem der Beitrag in WordPress angekommen ist. Damit die Arbeitsliste
+übersichtlich bleibt, wandert ein Beitrag nach der erfolgreichen Übergabe automatisch ins **Archiv**.
+
+Unter **Artikel** gibt es dafür zwei Ansichten: **In Arbeit** zeigt alles, was noch Aufmerksamkeit
+braucht, **Archiv** alles Erledigte. Über *Archivieren* und *Aus dem Archiv holen* lässt sich das
+jederzeit von Hand ändern, zum Beispiel wenn ein Beitrag doch noch überarbeitet werden soll.
+
 Statusbedeutungen:
 
 | Status | Bedeutung |
