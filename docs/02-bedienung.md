@@ -17,7 +17,10 @@
 
 Unter **Websites → [Name öffnen]** gibt es vier Reiter:
 
-**Verbindung** – Hub-Adresse und Website-Token zum Kopieren ins Plugin. Hier wird auch festgelegt:
+**Verbindung** – Hub-Adresse und Website-Token zum Kopieren ins Plugin. Dort steht auch der
+Stand des WordPress-Plugins: welche Version installiert ist, welche der Hub bereithält, und
+ein Knopf, der das Update sofort einspielt. Das Plugin meldet neue Versionen außerdem selbst
+unter „Plugins" in WordPress und aktualisiert sich auf Wunsch automatisch. Hier wird auch festgelegt:
 
 - *Übertragungsweg:* „Hub sendet an WordPress" (Standard) oder „WordPress holt selbst ab".
 - *Beitragsstatus:* mit welchem Status Beiträge in WordPress ankommen.

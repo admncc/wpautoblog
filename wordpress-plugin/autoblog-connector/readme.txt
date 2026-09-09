@@ -45,11 +45,22 @@ Nein, das steuerst du im Hub. Standard ist "Entwurf" - die Beitraege warten dann
 Titel und Beschreibung werden in eigenen Feldern gespeichert und zusaetzlich, falls vorhanden,
 in die Felder von Yoast SEO oder Rank Math geschrieben.
 
+= Wie wird das Plugin aktualisiert? =
+
+Vom Hub. Der Hub haelt immer das Archiv bereit, das zu seinem eigenen Stand passt.
+Das Plugin fragt regelmaessig nach und meldet ein Update unter "Plugins" wie jedes andere.
+Mit dem Haken "Automatische Updates" spielt WordPress es selbstaendig ein. Zusaetzlich laesst
+sich das Update im Hub per Knopfdruck fuer jede Website ausloesen.
+
 = Was passiert, wenn der Token neu erzeugt wird? =
 
 Die alte Verbindung wird sofort ungueltig. Trage den neuen Token unter "Einstellungen -> Autoblog" ein.
 
 == Changelog ==
+
+= 1.3.0 =
+* Updates kommen jetzt direkt vom Autoblog Hub: Sie erscheinen unter "Plugins" wie gewohnt,
+  lassen sich automatisch einspielen und koennen vom Hub aus angestossen werden.
 
 = 1.2.0 =
 * Kategorien: Die Website meldet ihre vorhandenen Kategorien an den Hub. Der Beitrag wird

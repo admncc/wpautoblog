@@ -11,6 +11,7 @@ const wp = require('./../wp');
 const { PUBLIC_URL, VERSION } = require('./../config');
 const diagnostics = require('./../diagnostics');
 const images = require('./../images');
+const pack = require('./../pluginpack');
 const update = require('./../update');
 
 const router = express.Router();
@@ -62,6 +63,7 @@ router.get(
       apiKey: settings.apiKeyInfo(),
       hubUrl: PUBLIC_URL,
       version: VERSION,
+      pluginVersion: pack.verfuegbar() ? pack.version() : null,
     });
   })
 );
@@ -81,6 +83,7 @@ router.get(
     const site = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
     if (!site) return res.status(404).json({ error: 'Website nicht gefunden.' });
     res.json({
+      pluginVersion: pack.verfuegbar() ? pack.version() : null,
       site: publicSite(site),
       topics: db.prepare('SELECT * FROM topics WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
       plans: db.prepare('SELECT * FROM plans WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
@@ -168,6 +171,28 @@ router.post(
     if (!result.changes) return res.status(404).json({ error: 'Website nicht gefunden.' });
     logger.warn('site', 'token', 'Website-Token neu erzeugt - alte Verbindung ist ungueltig', { siteId: req.params.id, requestId: req.requestId });
     res.json({ token, hub_url: PUBLIC_URL });
+  })
+);
+
+/** Stoesst das Plugin-Update auf einer Website an. */
+router.post(
+  '/sites/:id/update-plugin',
+  wrap(async (req, res) => {
+    const site = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    if (!site) return res.status(404).json({ error: 'Website nicht gefunden.' });
+    if (!pack.verfuegbar()) return res.status(400).json({ error: 'Der Hub haelt kein Plugin-Archiv bereit.' });
+
+    try {
+      const ergebnis = await wp.updatePlugin(site);
+      db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run(String(ergebnis.version || ''), site.id);
+      logger.info('site', 'plugin-update', `Plugin aktualisiert: ${ergebnis.from || '?'} auf ${ergebnis.version || '?'}`, {
+        siteId: site.id,
+        requestId: req.requestId,
+      });
+      res.json({ ok: true, ...ergebnis });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   })
 );
 

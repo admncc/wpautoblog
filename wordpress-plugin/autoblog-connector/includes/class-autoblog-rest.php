@@ -23,6 +23,9 @@ class Autoblog_Rest {
         register_rest_route(self::NAMESPACE_, '/publish', array_merge($args, [
             'callback' => [__CLASS__, 'handle_publish'],
         ]));
+        register_rest_route(self::NAMESPACE_, '/update', array_merge($args, [
+            'callback' => [__CLASS__, 'handle_update'],
+        ]));
     }
 
     /**
@@ -68,6 +71,18 @@ class Autoblog_Rest {
             'delivery'       => Autoblog_Settings::get('delivery', 'push'),
             'categories'     => Autoblog_Settings::categories(),
         ]);
+    }
+
+    /** Der Hub stoesst das Plugin-Update an. */
+    public static function handle_update(WP_REST_Request $request) {
+        $daten  = (array) $request->get_json_params();
+        $quelle = isset($daten['download_url']) ? esc_url_raw($daten['download_url']) : '';
+
+        $ergebnis = Autoblog_Updater::jetzt_aktualisieren($quelle);
+        if (is_wp_error($ergebnis)) {
+            return new WP_REST_Response(['ok' => false, 'message' => $ergebnis->get_error_message()], 400);
+        }
+        return rest_ensure_response(array_merge(['ok' => true], $ergebnis));
     }
 
     public static function handle_publish(WP_REST_Request $request) {

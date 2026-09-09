@@ -3,6 +3,7 @@ const express = require('express');
 const { db } = require('./../db');
 const { logger } = require('./../logger');
 const images = require('./../images');
+const pack = require('./../pluginpack');
 const { sign, safeEqual, decrypt, normalizeUrl } = require('./../util');
 const settings = require('./../settings');
 const { VERSION } = require('./../config');
@@ -146,6 +147,31 @@ router.post('/heartbeat', verifySignature, (req, res) => {
     hub_name: settings.get('hub_name'),
     delivery: req.site.delivery,
     pending,
+  });
+});
+
+/**
+ * Update-Pruefung des Plugins. WordPress fragt hier regelmaessig nach und
+ * bekommt Version und Download-Adresse des Archivs zurueck, das der Hub baut.
+ */
+router.post('/update-check', verifySignature, (req, res) => {
+  if (!pack.verfuegbar()) {
+    return res.json({ ok: true, version: null, message: 'Der Hub haelt kein Plugin-Archiv bereit.' });
+  }
+  const version = pack.version();
+  logger.debug('plugin-paket', 'check', `Update-Pruefung von ${req.site.name}`, {
+    siteId: req.site.id,
+    requestId: req.requestId,
+    context: { installiert: req.body.installed_version, verfuegbar: version },
+  });
+  res.json({
+    ok: true,
+    version,
+    download_url: pack.downloadUrl(req.site.id),
+    requires: '6.0',
+    requires_php: '7.4',
+    tested: '6.9',
+    slug: 'autoblog-connector',
   });
 });
 

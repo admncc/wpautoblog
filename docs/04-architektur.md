@@ -93,6 +93,7 @@ Geeignet für Seiten hinter einer Firewall oder ohne öffentliche Adresse.
 |---|---|
 | `POST /wp-json/wp-autoblog/v1/ping` | Verbindungstest, meldet WordPress- und Plugin-Version |
 | `POST /wp-json/wp-autoblog/v1/publish` | Beitrag anlegen oder aktualisieren |
+| `POST /wp-json/wp-autoblog/v1/update` | Plugin sofort auf den Stand des Hubs bringen |
 
 ### WordPress → Hub
 
@@ -144,6 +145,24 @@ zurück und startet erneut.
 Der Hub bekommt dadurch keinerlei Zugriff auf Docker oder den Server, sondern nur auf
 einen Ordner mit drei Dateien.
 
+## Plugin-Updates
+
+Der Hub ist zugleich die Update-Quelle für das WordPress-Plugin. Da die Plugin-Quellen im
+selben Repository liegen und mit ins Docker-Image wandern, passt das ausgelieferte Archiv
+immer zum Stand des Hubs. Ein Hub-Update aktualisiert also mittelbar auch alle Plugins.
+
+1. Das Plugin fragt signiert bei `POST /api/plugin/update-check` nach und bekommt Version
+   und eine Download-Adresse zurück.
+2. Die Adresse enthält eine mit `APP_SECRET` signierte Kennung aus Website-ID und Ablaufzeit
+   und gilt 30 Minuten. Damit lädt WordPress ohne Anmeldung.
+3. Der Hub baut das ZIP-Archiv bei Bedarf selbst (`src/zip.js`, `src/pluginpack.js`) und hält
+   es zwischengespeichert, solange sich keine Datei geändert hat.
+4. Im Plugin hängt sich `Autoblog_Updater` in `pre_set_site_transient_update_plugins` ein.
+   Das Update erscheint dadurch unter „Plugins" wie jedes andere und kann über
+   `auto_update_plugin` automatisch eingespielt werden.
+5. Zusätzlich kann der Hub das Update sofort auslösen: `POST /wp-json/wp-autoblog/v1/update`
+   führt im Plugin einen `Plugin_Upgrader` mit dem Archiv des Hubs aus.
+
 ## Zeitsteuerung
 
 Im Hub läuft ein Cron-Job alle 15 Minuten und arbeitet fällige Pläne ab
@@ -166,6 +185,8 @@ hub/
     ai.js             Anthropic-Anbindung, JSON-Schemata
     sanitize.js       HTML-Positivliste
     images.js         Bildgenerierung, Ablage und Ausliefer-Adressen
+    zip.js            kleiner ZIP-Schreiber ohne Fremdbibliothek
+    pluginpack.js     baut das Plugin-Archiv und signiert die Download-Adressen
     wp.js             Signierte Aufrufe an WordPress
     service.js        Artikelerzeugung, Veröffentlichung, Pläne
     scheduler.js      Zeitsteuerung

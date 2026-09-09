@@ -44,7 +44,10 @@ class Autoblog_Admin {
             $hub_url = isset($_POST['hub_url']) ? sanitize_text_field(wp_unslash($_POST['hub_url'])) : '';
             $token   = isset($_POST['site_token']) ? sanitize_text_field(wp_unslash($_POST['site_token'])) : '';
             $author  = isset($_POST['default_author']) ? (int) $_POST['default_author'] : 0;
-            Autoblog_Settings::update(['default_author' => $author]);
+            Autoblog_Settings::update([
+                'default_author' => $author,
+                'auto_update'    => isset($_POST['auto_update']) ? 1 : 0,
+            ]);
 
             $result = Autoblog_Hub_Client::connect($hub_url, $token);
             if (is_wp_error($result)) {
@@ -72,6 +75,21 @@ class Autoblog_Admin {
                         (int) $result['pending']
                     );
                 }
+            }
+        } elseif ($action === 'update') {
+            $ergebnis = Autoblog_Updater::jetzt_aktualisieren();
+            if (is_wp_error($ergebnis)) {
+                $notice = $ergebnis->get_error_message();
+                $type   = 'error';
+            } else {
+                $notice = $ergebnis['from'] === $ergebnis['version']
+                    ? __('Das Plugin ist bereits auf dem neuesten Stand.', 'autoblog-connector')
+                    : sprintf(
+                        /* translators: 1: alte Version, 2: neue Version */
+                        __('Plugin von %1$s auf %2$s aktualisiert.', 'autoblog-connector'),
+                        $ergebnis['from'],
+                        $ergebnis['version']
+                    );
             }
         } elseif ($action === 'poll') {
             Autoblog_Cron::run();
@@ -166,6 +184,24 @@ class Autoblog_Admin {
                             <p class="description"><?php esc_html_e('Autor, dem automatisch erstellte Beitraege zugeordnet werden.', 'autoblog-connector'); ?></p>
                         </td>
                     </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e('Automatische Updates', 'autoblog-connector'); ?></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="auto_update" value="1" <?php checked((int) $settings['auto_update'], 1); ?> />
+                                <?php esc_html_e('Plugin automatisch aktualisieren, sobald der Hub eine neuere Fassung bereithaelt', 'autoblog-connector'); ?>
+                            </label>
+                            <p class="description">
+                                <?php
+                                printf(
+                                    /* translators: %s: installierte Version */
+                                    esc_html__('Installiert ist Version %s. Das Archiv kommt von deinem Hub, nicht aus dem WordPress-Verzeichnis.', 'autoblog-connector'),
+                                    esc_html(AUTOBLOG_VERSION)
+                                );
+                                ?>
+                            </p>
+                        </td>
+                    </tr>
                 </table>
 
                 <?php submit_button($connected ? __('Verbindung aktualisieren', 'autoblog-connector') : __('Verbinden', 'autoblog-connector')); ?>
@@ -195,6 +231,7 @@ class Autoblog_Admin {
                 <p style="margin-top:16px">
                     <?php foreach ([
                         'test'       => __('Verbindung testen', 'autoblog-connector'),
+                        'update'     => __('Jetzt nach Plugin-Update suchen', 'autoblog-connector'),
                         'poll'       => __('Wartende Artikel jetzt abrufen', 'autoblog-connector'),
                         'disconnect' => __('Verbindung trennen', 'autoblog-connector'),
                     ] as $value => $label) : ?>

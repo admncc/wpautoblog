@@ -6,14 +6,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+COPY hub/package.json hub/package-lock.json* ./
 RUN npm install --omit=dev
 
-COPY src ./src
-COPY public ./public
-COPY scripts ./scripts
+COPY hub/src ./src
+COPY hub/public ./public
+COPY hub/scripts ./scripts
 
-ENV NODE_ENV=production PORT=4000 DATA_DIR=/data
+# Die Plugin-Quellen liegen mit im Image: Der Hub baut daraus das Archiv,
+# mit dem sich das WordPress-Plugin selbst aktualisiert.
+COPY wordpress-plugin ./wordpress-plugin
+
+ENV NODE_ENV=production PORT=4000 DATA_DIR=/data PLUGIN_DIR=/app/wordpress-plugin/autoblog-connector
 VOLUME ["/data"]
 EXPOSE 4000
 

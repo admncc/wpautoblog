@@ -463,7 +463,7 @@ async function renderSites(view) {
 }
 
 async function renderSite(view, siteId) {
-  const { site, topics, articles, plans } = await api(`/api/app/sites/${siteId}`);
+  const { site, topics, articles, plans, pluginVersion } = await api(`/api/app/sites/${siteId}`);
   const tab = state.data.siteTab || 'connect';
   const hubUrl = location.origin;
 
@@ -511,6 +511,24 @@ async function renderSite(view, siteId) {
       </div>
 
       <div class="card">
+        <h2>WordPress-Plugin</h2>
+        <div class="row">
+          <div style="flex:1">
+            <p class="sub" style="margin:0">
+              Installiert: <strong>${esc(site.plugin_version || 'unbekannt')}</strong>${
+                pluginVersion ? ` · im Hub bereit: <strong>${esc(pluginVersion)}</strong>` : ''}
+              ${pluginVersion && site.plugin_version && pluginVersion !== site.plugin_version
+                ? '<span class="badge warn">Update verfügbar</span>'
+                : pluginVersion && site.plugin_version ? '<span class="badge ok">aktuell</span>' : ''}
+            </p>
+            <div class="hint" style="margin-top:4px">Das Plugin aktualisiert sich selbst aus dem Hub.
+              Der Knopf spielt das Update sofort ein, ohne Umweg über WordPress.</div>
+          </div>
+          <button id="update-plugin">Plugin aktualisieren</button>
+        </div>
+      </div>
+
+      <div class="card">
         <h2>Kategorien</h2>
         ${site.categories && site.categories.length
           ? `<p class="sub">${site.categories.length} Kategorien von WordPress gemeldet (${fmtDate(site.categories_at)}).
@@ -548,6 +566,13 @@ async function renderSite(view, siteId) {
       navigator.clipboard.writeText(root.querySelector(`#${event.currentTarget.dataset.copy}`).textContent.trim());
       toast('In die Zwischenablage kopiert.');
     });
+    on('#update-plugin', 'click', (event) => guard(event.currentTarget, async () => {
+      const ergebnis = await api(`/api/app/sites/${siteId}/update-plugin`, { method: 'POST' });
+      toast(ergebnis.from === ergebnis.version
+        ? `Das Plugin ist bereits auf ${ergebnis.version}.`
+        : `Plugin von ${ergebnis.from} auf ${ergebnis.version} aktualisiert.`);
+      await render();
+    }));
     on('#new-token', 'click', async (event) => {
       if (!confirm('Neuen Token erzeugen? Die bestehende Verbindung wird sofort ungültig.')) return;
       await guard(event.currentTarget, async () => {

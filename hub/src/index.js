@@ -12,6 +12,7 @@ const appRoutes = require('./routes/app');
 const pluginRoutes = require('./routes/plugin');
 const diagnosticsRoutes = require('./routes/diagnostics');
 const mediaRoutes = require('./routes/media');
+const pluginFileRoutes = require('./routes/pluginfile');
 const scheduler = require('./scheduler');
 
 // Wechselt bei jedem Start. Daran erkennt die Oberflaeche zuverlaessig,
@@ -88,6 +89,7 @@ function cookieOptions(req) {
 
 // ------------------------------------------------------------------ Routen
 
+app.use('/plugin', pluginFileRoutes);         // Plugin-Archiv fuer WordPress-Updates
 app.use('/media', mediaRoutes);               // erzeugte Bilder (Token in der Adresse)
 app.use('/diagnose', diagnosticsRoutes);      // Diagnose per Einmal-Token (ohne Anmeldung)
 app.use('/api/plugin', pluginRoutes);          // Schnittstelle fuer das WordPress-Plugin

@@ -1,0 +1,5 @@
+hub/node_modules
+hub/data
+ops/control
+.git
+*.log

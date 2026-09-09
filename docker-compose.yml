@@ -1,6 +1,9 @@
 services:
   hub:
-    build: ./hub
+    build:
+      # Kontext ist das Repository, damit die Plugin-Quellen mit ins Image wandern.
+      context: .
+      dockerfile: hub/Dockerfile
     container_name: autoblog-hub
     restart: unless-stopped
     ports:

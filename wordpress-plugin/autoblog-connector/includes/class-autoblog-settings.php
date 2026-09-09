@@ -18,6 +18,7 @@ class Autoblog_Settings {
             'last_contact' => '',
             'last_error'   => '',
             'default_author' => 0,
+            'auto_update'    => 1,
         ];
     }
 

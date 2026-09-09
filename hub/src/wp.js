@@ -190,6 +190,11 @@ async function ping(site) {
   return callSite(site, 'ping', { hub_version: VERSION });
 }
 
+/** Stoesst das Plugin-Update auf der WordPress-Seite an. */
+async function updatePlugin(site) {
+  return callSite(site, 'update', { download_url: require('./pluginpack').downloadUrl(site.id) });
+}
+
 async function publishArticle(site, article) {
   return callSite(site, 'publish', {
     article_id: article.id,
@@ -208,4 +213,4 @@ async function publishArticle(site, article) {
   });
 }
 
-module.exports = { WpError, ping, diagnose, publishArticle, callSite };
+module.exports = { WpError, ping, diagnose, updatePlugin, publishArticle, callSite };
