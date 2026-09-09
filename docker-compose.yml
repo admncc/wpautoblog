@@ -4,7 +4,9 @@ services:
     container_name: autoblog-hub
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      # Standard: nur lokal erreichbar - davor gehoert ein Reverse Proxy mit HTTPS.
+      # Zum Testen ohne Proxy: BIND_ADDR=0.0.0.0 setzen.
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-4000}:4000"
     environment:
       # Adresse, unter der der Hub erreichbar ist - wird im WordPress-Plugin eingetragen.
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4000}

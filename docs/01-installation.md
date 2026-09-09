@@ -1,104 +1,264 @@
-# Installation
+# Installation auf einem Server
 
-Zwei Teile werden installiert: der **Hub** (die Weboberfläche, einmal) und das
-**WordPress-Plugin** (auf jeder Seite, die beliefert werden soll).
+Alles hier ist zum Kopieren ins Terminal gedacht. Getestet mit Ubuntu 22.04/24.04
+und Debian 12; auf anderen Systemen unterscheiden sich nur die Paketbefehle.
+
+**Was du brauchst**
+- Einen Server mit Root-Zugang (1 GB RAM reicht)
+- Eine Domain oder Subdomain, deren A-Record auf die IP des Servers zeigt (z. B. `autoblog.deinedomain.de`)
+- Einen Anthropic API-Key von [console.anthropic.com](https://console.anthropic.com/settings/keys)
 
 ---
 
-## Teil 1: Den Hub aufsetzen
-
-Der Hub braucht einen Server, der dauerhaft läuft – ein kleiner VPS (1 GB RAM) reicht völlig.
-Er speichert alles in einer Datei (SQLite), es wird keine separate Datenbank benötigt.
-
-### Variante A: Mit Docker (empfohlen)
+## 1. Auf den Server verbinden
 
 ```bash
-git clone https://github.com/admncc/wpautoblog.git
-cd wpautoblog
-PUBLIC_URL=https://autoblog.meinedomain.de docker compose up -d --build
+ssh root@DEINE-SERVER-IP
 ```
 
-Danach ist der Hub auf Port 4000 erreichbar. Für den Betrieb im Netz einen Reverse Proxy
-mit HTTPS davorsetzen (Caddy, Nginx Proxy Manager, Traefik). Beispiel für Caddy:
+## 2. Docker installieren
 
+Prüfen, ob Docker schon da ist:
+
+```bash
+docker --version
 ```
-autoblog.meinedomain.de {
+
+Falls nicht:
+
+```bash
+curl -fsSL https://get.docker.com | sh
+```
+
+## 3. Projekt holen
+
+```bash
+apt update && apt install -y git
+git clone https://github.com/admncc/wpautoblog.git /opt/wpautoblog
+cd /opt/wpautoblog
+```
+
+## 4. Konfiguration anlegen
+
+```bash
+cat > .env <<'ENV'
+PUBLIC_URL=https://autoblog.deinedomain.de
+ENV
+```
+
+`PUBLIC_URL` ist die Adresse, unter der der Hub später erreichbar ist – genau diese
+Adresse trägst du später im WordPress-Plugin ein. Den API-Key musst du hier nicht
+eintragen, er lässt sich bequemer in der Oberfläche hinterlegen.
+
+## 5. Starten
+
+```bash
+docker compose up -d --build
+```
+
+Der erste Build dauert ein bis zwei Minuten. Danach prüfen:
+
+```bash
+docker compose ps
+curl http://127.0.0.1:4000/health
+```
+
+Erwartete Antwort: `{"ok":true,"version":"1.0.0"}`
+
+Der Hub lauscht bewusst nur auf `127.0.0.1` – aus dem Internet ist er erst über den
+Reverse Proxy im nächsten Schritt erreichbar.
+
+## 6. HTTPS einrichten (Caddy)
+
+Caddy holt das Zertifikat automatisch von Let's Encrypt.
+
+```bash
+apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  | tee /etc/apt/sources.list.d/caddy-stable.list
+apt update && apt install -y caddy
+```
+
+Konfiguration schreiben (Domain anpassen):
+
+```bash
+cat > /etc/caddy/Caddyfile <<'CADDY'
+autoblog.deinedomain.de {
     reverse_proxy 127.0.0.1:4000
 }
+CADDY
+
+systemctl reload caddy
 ```
 
-### Variante B: Ohne Docker
-
-Voraussetzung: Node.js 20 oder neuer.
+Firewall öffnen, falls `ufw` aktiv ist:
 
 ```bash
-git clone https://github.com/admncc/wpautoblog.git
-cd wpautoblog/hub
-npm install
-cp .env.example .env
-nano .env          # PUBLIC_URL eintragen
-npm start
+ufw allow 80/tcp && ufw allow 443/tcp
 ```
 
-Für den Dauerbetrieb einen Dienst einrichten, damit der Hub nach einem Neustart wieder läuft
-(`systemd`, `pm2` oder ähnlich).
+Jetzt im Browser `https://autoblog.deinedomain.de` aufrufen.
 
-### Erster Start
+> **Kein Domainname zur Hand?** Zum Ausprobieren geht auch ohne Proxy:
+> `BIND_ADDR=0.0.0.0 PUBLIC_URL=http://DEINE-IP:4000 docker compose up -d`
+> Das ist unverschlüsselt – nur zum Testen, nicht für den Dauerbetrieb.
 
-1. Hub im Browser öffnen (z. B. `https://autoblog.meinedomain.de`).
-2. Konto anlegen – E-Mail und Passwort (mindestens 8 Zeichen). Das passiert nur einmal.
-3. Auf **Einstellungen** gehen und den **Anthropic API-Key** eintragen.
-   Den Key gibt es unter [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys).
-   Der Key wird verschlüsselt gespeichert und nie wieder im Klartext angezeigt.
+## 7. Ersteinrichtung im Browser
 
-> **Wichtig bei einem Serverumzug:** Die Datei `data/.app_secret` mitnehmen.
-> Ohne sie lassen sich der gespeicherte API-Key und die Website-Token nicht mehr entschlüsseln.
+1. Konto anlegen (E-Mail + Passwort, mindestens 8 Zeichen). Das geht nur einmal.
+2. **Einstellungen** → Anthropic API-Key eintragen → Speichern.
+3. **Websites → Neue Website anlegen** → Name eingeben.
 
----
-
-## Teil 2: Das WordPress-Plugin installieren
-
-Auf **jeder** WordPress-Seite, die beliefert werden soll:
-
-1. Aus dem Ordner `wordpress-plugin/autoblog-connector` ein ZIP-Archiv erstellen:
-
-   ```bash
-   cd wordpress-plugin && zip -r autoblog-connector.zip autoblog-connector
-   ```
-
-2. In WordPress: **Plugins → Installieren → Plugin hochladen** → ZIP auswählen → installieren → aktivieren.
-
-   *Alternativ per FTP:* den Ordner `autoblog-connector` nach `wp-content/plugins/` kopieren und
-   das Plugin unter "Plugins" aktivieren.
+Die Website zeigt dir jetzt im Reiter **Verbindung** die Hub-Adresse und den Website-Token.
 
 ---
 
-## Teil 3: Verbinden
+## 8. Das WordPress-Plugin installieren
 
-1. Im Hub auf **Websites → Neue Website anlegen**. Name eingeben (z. B. „Kaffeeblog"), anlegen.
-2. Die Website öffnet sich im Reiter **Verbindung**. Dort stehen zwei Angaben:
-   - die **Hub-Adresse**
-   - der **Website-Token** (beginnt mit `wpab_`)
-3. In WordPress: **Einstellungen → Autoblog**. Beide Angaben einfügen, optional den Autor wählen,
-   auf **Verbinden** klicken.
-4. Zurück im Hub: **Verbindung testen**. Steht dort „Verbunden mit WordPress …", ist alles fertig.
+ZIP-Archiv auf dem Server erzeugen:
 
-### Wenn die Verbindung nicht klappt
+```bash
+cd /opt/wpautoblog
+./build-plugin-zip.sh
+```
 
-| Meldung | Ursache und Lösung |
-|---|---|
-| „Token unbekannt" | Der Token wurde nicht vollständig kopiert oder im Hub neu erzeugt. Im Hub erneut kopieren. |
-| „WordPress nicht erreichbar" | Die Website ist von außen nicht erreichbar (lokale Installation, Firewall, Wartungsmodus). Lösung: im Hub unter **Verbindung → Übertragungsweg** auf „WordPress holt selbst ab" umstellen. |
-| „Unerwartete Antwort von WordPress" | Das Plugin ist nicht aktiv, oder die REST-API von WordPress ist gesperrt (manche Sicherheits-Plugins tun das). |
-| „Zeitstempel abgelaufen" | Die Uhr des WordPress-Servers weicht mehr als 5 Minuten ab. Zeitsynchronisation prüfen. |
-| „Signatur ungültig" | Im Plugin steht ein alter Token. Im Hub kopieren und im Plugin ersetzen. |
+Auf den eigenen Rechner herunterladen (**neues Terminalfenster**, lokal ausführen):
 
-Ausführlicher: [Diagnose](03-diagnose.md).
+```bash
+scp root@DEINE-SERVER-IP:/opt/wpautoblog/autoblog-connector.zip ~/Downloads/
+```
 
----
+Dann in WordPress: **Plugins → Installieren → Plugin hochladen** → ZIP auswählen →
+installieren → aktivieren.
 
-## Weitere Websites hinzufügen
+*Falls du ohnehin SSH-Zugang zum WordPress-Server hast, geht es auch direkt:*
+
+```bash
+scp autoblog-connector.zip user@wordpress-server:/tmp/
+ssh user@wordpress-server
+cd /pfad/zu/wordpress/wp-content/plugins && unzip /tmp/autoblog-connector.zip
+```
+
+Danach in WordPress unter „Plugins" aktivieren.
+
+## 9. Verbinden
+
+1. In WordPress: **Einstellungen → Autoblog**
+2. **Hub-Adresse** eintragen: `https://autoblog.deinedomain.de`
+3. **Website-Token** aus dem Hub einfügen (beginnt mit `wpab_`)
+4. Auf **Verbinden** klicken
+5. Zurück im Hub: **Verbindung testen** – dort sollte „Verbunden mit WordPress …" stehen
 
 Für jede weitere WordPress-Seite: im Hub eine neue Website anlegen (eigener Token),
-Plugin dort installieren, Token eintragen. Jede Seite bekommt ihren eigenen Token –
-ein Token gilt immer nur für genau eine Website.
+dasselbe ZIP dort installieren, den neuen Token eintragen.
+
+---
+
+## Betrieb
+
+**Läuft alles?**
+
+```bash
+cd /opt/wpautoblog
+docker compose ps
+docker compose logs -f --tail 50      # mit Strg+C beenden
+```
+
+**Neustart**
+
+```bash
+docker compose restart
+```
+
+**Update auf eine neue Version**
+
+```bash
+cd /opt/wpautoblog
+git pull
+docker compose up -d --build
+```
+
+Die Daten überleben das Update – sie liegen im Docker-Volume `autoblog-data`, nicht im Container.
+
+**Sicherung**
+
+```bash
+docker run --rm -v autoblog-data:/data -v $(pwd):/backup alpine \
+  tar czf /backup/autoblog-backup-$(date +%F).tar.gz -C /data .
+```
+
+Darin sind Datenbank *und* der Schlüssel `.app_secret`, mit dem API-Key und Token
+verschlüsselt sind. Die Sicherung entsprechend vertraulich behandeln.
+
+**Zurückspielen**
+
+```bash
+docker compose down
+docker run --rm -v autoblog-data:/data -v $(pwd):/backup alpine \
+  tar xzf /backup/autoblog-backup-2026-01-01.tar.gz -C /data
+docker compose up -d
+```
+
+**Passwort vergessen**
+
+```bash
+docker compose exec hub node scripts/reset-password.js deine@mail.de neuesPasswort
+```
+
+---
+
+## Wenn etwas klemmt
+
+| Problem | Prüfen |
+|---|---|
+| Seite lädt nicht | `docker compose ps` – läuft der Container? `docker compose logs --tail 50` |
+| Zertifikatsfehler | Zeigt der A-Record der Domain wirklich auf diesen Server? `systemctl status caddy` |
+| „Token unbekannt" | Token im Hub erneut kopieren – er wurde eventuell neu erzeugt |
+| „WordPress nicht erreichbar" | Ist die WordPress-Seite öffentlich erreichbar? Sonst im Hub auf „WordPress holt selbst ab" umstellen |
+| „Zeitstempel abgelaufen" | Uhrzeit der Server vergleichen: `timedatectl` |
+| Artikel schlägt fehl | Im Hub unter **Protokoll** die Fehlermeldung lesen – dort steht die Ursache im Klartext |
+
+Mehr dazu in [Diagnose](03-diagnose.md).
+
+---
+
+## Ohne Docker (Alternative)
+
+Falls du Docker nicht einsetzen willst – Node.js 20 oder neuer vorausgesetzt:
+
+```bash
+git clone https://github.com/admncc/wpautoblog.git /opt/wpautoblog
+cd /opt/wpautoblog/hub
+npm install
+cp .env.example .env
+nano .env                      # PUBLIC_URL eintragen
+npm start                      # Test: läuft auf Port 4000
+```
+
+Für den Dauerbetrieb als Dienst einrichten:
+
+```bash
+cat > /etc/systemd/system/autoblog.service <<'UNIT'
+[Unit]
+Description=Autoblog Hub
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/wpautoblog/hub
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now autoblog
+systemctl status autoblog
+```
+
+Reverse Proxy (Schritt 6) und alles Weitere bleiben identisch.

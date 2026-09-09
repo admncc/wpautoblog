@@ -57,9 +57,14 @@ WordPress-Seiten veröffentlicht.
 Ausführlich in **[docs/01-installation.md](docs/01-installation.md)**. Kurzfassung mit Docker:
 
 ```bash
-cd wpautoblog
-PUBLIC_URL=https://autoblog.meinedomain.de docker compose up -d --build
+git clone https://github.com/admncc/wpautoblog.git /opt/wpautoblog
+cd /opt/wpautoblog
+echo "PUBLIC_URL=https://autoblog.meinedomain.de" > .env
+docker compose up -d --build
 ```
+
+Danach einen Reverse Proxy mit HTTPS davorsetzen (in der Anleitung Schritt für Schritt).
+Das WordPress-Plugin als ZIP erzeugen: `./build-plugin-zip.sh`
 
 Ohne Docker:
 
