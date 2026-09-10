@@ -377,8 +377,8 @@ async function main() {
         ueber ? 'Grenze von 2 Videos je Durchlauf erreicht' : null);
     });
     const nachGrenze = db.prepare("SELECT status, COUNT(*) AS n FROM videos WHERE channel_ref = ? GROUP BY status").all(kanalId);
-    const offen = (nachGrenze.find((r) => r.status === 'neu') || {}).n || 0;
-    pruefe(offen === 2, 'Grenze je Durchlauf begrenzt die offenen Videos', `offen=${offen}`);
+    const offeneVideos = (nachGrenze.find((r) => r.status === 'neu') || {}).n || 0;
+    pruefe(offeneVideos === 2, 'Grenze je Durchlauf begrenzt die offenen Videos', `offen=${offeneVideos}`);
 
     const grenzeGesetzt = await ruf(`/api/app/channels/${kanalId}`, { method: 'PATCH', body: { max_per_scan: 5, interval_hours: 72 } });
     pruefe(grenzeGesetzt.daten.max_per_scan === 5 && grenzeGesetzt.daten.interval_hours === 72,
