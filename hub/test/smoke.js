@@ -294,6 +294,27 @@ async function main() {
     const plan = await ruf('/api/app/plans', { method: 'POST', body: { site_id: siteId, name: 'Testplan', areas: 'Bereich A', per_week: 3, publish_hour: 6 } });
     pruefe(plan.status === 201 && plan.daten.next_run_at, 'Plan angelegt und Termin berechnet');
 
+    // "Jetzt ausfuehren" darf nur den angeklickten Plan starten. Frueher lief hier
+    // der Durchlauf ueber alle faelligen Plaene und der Post landete woanders.
+    const zweiteSeite = await ruf('/api/app/sites', { method: 'POST', body: { name: 'Zweite Seite', url: 'https://zweite.example' } });
+    const zweiteId = zweiteSeite.daten.id;
+    await ruf(`/api/app/sites/${zweiteId}/topics`, { method: 'POST', body: { keywords: 'Thema der zweiten Seite' } });
+    const zweiterPlan = await ruf('/api/app/plans', {
+      method: 'POST', body: { site_id: zweiteId, name: 'Plan zwei', areas: 'Bereich B', per_week: 3, publish_hour: 6 },
+    });
+    const { db: datenbank } = require('../src/db');
+    datenbank.prepare('UPDATE plans SET next_run_at = NULL').run();  // beide faellig machen
+
+    await ruf(`/api/app/plans/${plan.daten.id}/run`, { method: 'POST' });
+    await new Promise((r) => setTimeout(r, 1200));
+    const beiZwei = datenbank.prepare('SELECT COUNT(*) AS n FROM articles WHERE site_id = ?').get(zweiteId);
+    const beiEins = datenbank.prepare('SELECT COUNT(*) AS n FROM articles WHERE plan_id = ?').get(plan.daten.id);
+    pruefe(beiEins.n === 1 && beiZwei.n === 0,
+      'Jetzt ausfuehren startet nur den angeklickten Plan', `eigener=${beiEins.n}, fremder=${beiZwei.n}`);
+
+    await ruf(`/api/app/plans/${zweiterPlan.daten.id}`, { method: 'DELETE' });
+    await ruf(`/api/app/sites/${zweiteId}`, { method: 'DELETE' });
+
     console.log('\nArtikel, Bilder, Veroeffentlichung');
     // Ohne Anthropic-Key muss die Erzeugung sauber scheitern statt abzustuerzen.
     const erzeugung = await ruf('/api/app/articles', { method: 'POST', body: { site_id: siteId, keyword: 'Testthema' } });

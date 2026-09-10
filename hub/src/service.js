@@ -452,6 +452,66 @@ async function nextTopicForPlan(plan, site) {
 }
 
 /** Ein Durchlauf der wiederkehrenden Posts: faellige Plaene abarbeiten. */
+/**
+ * Ein Plan, ein Post.
+ *
+ * Bewusst getrennt vom Durchlauf ueber alle faelligen Plaene: Wer im Panel bei einem
+ * Plan auf "Jetzt ausfuehren" drueckt, meint genau diesen Plan und keinen anderen.
+ * Der Riegel verhindert, dass derselbe Plan zweimal gleichzeitig laeuft, etwa weil
+ * der Zeitplan dazwischenfunkt oder jemand zweimal klickt.
+ */
+const laufendePlaene = new Set();
+
+async function runPlan(plan) {
+  if (laufendePlaene.has(plan.id)) {
+    logger.warn('plan', 'run', `Plan "${plan.name}" laeuft bereits, dieser Aufruf wird uebersprungen`, {
+      siteId: plan.site_id,
+    });
+    return { produced: 0, laeuft: true };
+  }
+  laufendePlaene.add(plan.id);
+
+  const site = getSite(plan.site_id);
+  let produced = 0;
+  let article = null;
+  try {
+    if (!site) return { produced: 0, fehler: 'Website nicht gefunden.' };
+
+    const topic = await nextTopicForPlan(plan, site);
+    if (!topic) {
+      logger.warn('plan', 'run', `Plan "${plan.name}": kein Thema verfuegbar`, { siteId: plan.site_id });
+      return { produced: 0, fehler: 'Kein Thema verfuegbar.' };
+    }
+
+    const { promise } = startGeneration({
+      siteId: site.id,
+      keyword: topic.keyword,
+      angle: topic.angle,
+      topicId: topic.id,
+      planId: plan.id,
+      origin: 'recurring',
+    });
+    article = await promise;
+    if (article.status === 'draft') produced += 1;
+
+    if (article.status === 'draft' && plan.auto_publish) {
+      await publish(article.id);
+    }
+    return { produced, article };
+  } catch (err) {
+    logger.error('plan', 'run', `Fehler im Plan "${plan.name}": ${err.message || err}`, {
+      siteId: plan.site_id,
+      context: { plan: plan.name, stack: String(err.stack || '').slice(0, 1200) },
+    });
+    return { produced, fehler: String(err.message || err) };
+  } finally {
+    laufendePlaene.delete(plan.id);
+    db.prepare("UPDATE plans SET last_run_at = datetime('now') WHERE id = ?").run(plan.id);
+    scheduleNextRun(plan.id);
+  }
+}
+
+/** Alle faelligen Plaene der Reihe nach. Wird vom Zeitplan aufgerufen. */
 async function runRecurring() {
   const runTimer = logger.start('plan', 'cycle', 'Durchlauf der wiederkehrenden Posts gestartet');
   const due = db
@@ -460,38 +520,8 @@ async function runRecurring() {
 
   let produced = 0;
   for (const plan of due) {
-    const site = getSite(plan.site_id);
-    try {
-      if (!site) continue;
-      const topic = await nextTopicForPlan(plan, site);
-      if (!topic) {
-        logger.warn('plan', 'run', `Plan "${plan.name}": kein Thema verfuegbar`, { siteId: plan.site_id });
-        continue;
-      }
-
-      const { promise } = startGeneration({
-        siteId: site.id,
-        keyword: topic.keyword,
-        angle: topic.angle,
-        topicId: topic.id,
-        planId: plan.id,
-        origin: 'recurring',
-      });
-      const article = await promise;
-      if (article.status === 'draft') produced += 1;
-
-      if (article.status === 'draft' && plan.auto_publish) {
-        await publish(article.id);
-      }
-    } catch (err) {
-      logger.error('plan', 'run', `Fehler im Plan "${plan.name}": ${err.message || err}`, {
-        siteId: plan.site_id,
-        context: { plan: plan.name, stack: String(err.stack || '').slice(0, 1200) },
-      });
-    } finally {
-      db.prepare("UPDATE plans SET last_run_at = datetime('now') WHERE id = ?").run(plan.id);
-      scheduleNextRun(plan.id);
-    }
+    const ergebnis = await runPlan(plan);
+    produced += ergebnis.produced || 0;
   }
   runTimer.ok(`Durchlauf beendet: ${due.length} Plan/Plaene geprueft, ${produced} Post(s) erzeugt`, {
     context: { due: due.length, produced },
@@ -500,6 +530,6 @@ async function runRecurring() {
 }
 
 module.exports = {
-  startGeneration, startFromVideo, runVideoQueue, publish, runRecurring,
+  startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
   computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer,
 };

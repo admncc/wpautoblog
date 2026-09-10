@@ -701,9 +701,12 @@ router.post(
   wrap(async (req, res) => {
     const plan = db.prepare('SELECT * FROM plans WHERE id = ?').get(req.params.id);
     if (!plan) return res.status(404).json({ error: 'Plan nicht gefunden.' });
-    db.prepare('UPDATE plans SET next_run_at = NULL WHERE id = ?').run(plan.id);
-    const result = await service.runRecurring();
-    res.json({ ok: true, ...result });
+
+    // Nur dieser eine Plan. Frueher lief hier der Durchlauf ueber alle faelligen
+    // Plaene, dadurch erschien der Post auf einer ganz anderen Website.
+    const result = await service.runPlan(plan);
+    if (result.fehler) return res.status(400).json({ error: result.fehler });
+    res.json({ ok: true, produced: result.produced, article: result.article || null });
   })
 );
 
