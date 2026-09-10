@@ -46,9 +46,18 @@ von der KI zehn Vorschläge erzeugen lassen. Aus jedem Thema lässt sich direkt 
 **YT Channel Spy** – beobachtete YouTube-Kanäle. Erscheint dort ein neues Video, liest der Hub
 das Transkript und macht daraus einen eigenständigen Artikel für diese Website.
 
-Je Kanal legst du fest, wie oft geprüft wird (Standard: einmal täglich), ob Artikel automatisch
-entstehen oder du je Video entscheidest, ob das Video im Beitrag eingebettet wird, und optional
-einen festen Blickwinkel für alle Beiträge aus diesem Kanal.
+Je Kanal legst du fest:
+
+- **Wie oft geprüft wird** – von alle sechs Stunden bis alle zwei Wochen, Standard ist einmal täglich.
+- **Videos je Durchlauf** – Standard ist höchstens eines. Ein Kanal, der viel veröffentlicht,
+  erzeugt sonst ungebremst Artikel. Kommen mehr neue Videos, nimmt der Hub das neueste; die
+  übrigen bleiben als „übersprungen" stehen und lassen sich von Hand nachziehen.
+- **Automatisch oder auf Zuruf** – ohne Haken sammelt der Hub die Videos nur, und du entscheidest je Video.
+- **Video einbetten** und optional ein **fester Blickwinkel** für alle Beiträge dieses Kanals.
+
+Beispiel: alle drei Tage prüfen, höchstens ein Video verarbeiten. Dann entsteht aus diesem Kanal
+höchstens ein Artikel alle drei Tage, egal wie viel dort hochgeladen wird. Alle Werte lassen sich
+später direkt in der Kanalliste ändern.
 
 Wie es abläuft: Die Überwachung nutzt den öffentlichen RSS-Feed des Kanals, dafür braucht es
 keinen Google-Schlüssel. Beim ersten Lauf wird nur das neueste Video aufgenommen, sonst käme das

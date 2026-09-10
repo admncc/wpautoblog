@@ -41,6 +41,16 @@ function fmtDate(value) {
   return date.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+// Auswahl fuer das Pruefintervall, in Stunden.
+const INTERVALLE = [
+  [6, 'alle 6 Stunden'], [12, 'alle 12 Stunden'], [24, 'einmal täglich'],
+  [48, 'alle 2 Tage'], [72, 'alle 3 Tage'], [168, 'einmal pro Woche'], [336, 'alle 2 Wochen'],
+];
+const intervallText = (stunden) => {
+  const treffer = INTERVALLE.find(([h]) => h === Number(stunden));
+  return treffer ? treffer[1] : `alle ${stunden} h`;
+};
+
 const VIDEO_STATUS = {
   neu: ['warn', 'wartet'],
   transkribiert: ['info', 'wird verarbeitet …'],
@@ -706,12 +716,21 @@ async function renderSite(view, siteId) {
             <div class="hint">Adresse, @handle oder Kanal-ID. Der Hub ermittelt den Rest selbst.</div>
           </div>
           <div class="grid cols-2">
-            <div class="field"><label for="chan-interval">Wie oft prüfen (Stunden)</label>
-              <input id="chan-interval" type="number" min="1" max="168" value="24" />
-              <div class="hint">Standard: einmal täglich.</div></div>
-            <div class="field"><label for="chan-angle">Fester Blickwinkel (optional)</label>
-              <input id="chan-angle" placeholder="z. B. immer für Einsteiger einordnen" /></div>
+            <div class="field">
+              <label for="chan-interval">Wie oft prüfen</label>
+              <select id="chan-interval">${INTERVALLE.map(([stunden, text]) =>
+                `<option value="${stunden}" ${stunden === 24 ? 'selected' : ''}>${text}</option>`).join('')}</select>
+            </div>
+            <div class="field">
+              <label for="chan-max">Videos je Durchlauf</label>
+              <select id="chan-max">${[1, 2, 3, 5, 10].map((n) =>
+                `<option value="${n}" ${n === 1 ? 'selected' : ''}>${n === 1 ? 'höchstens 1 (empfohlen)' : `höchstens ${n}`}</option>`).join('')}</select>
+              <div class="hint">Kommen mehr neue Videos, wird das neueste genommen. Der Rest bleibt als
+                übersprungen stehen und lässt sich von Hand nachziehen.</div>
+            </div>
           </div>
+          <div class="field"><label for="chan-angle">Fester Blickwinkel (optional)</label>
+            <input id="chan-angle" placeholder="z. B. immer für Einsteiger einordnen" /></div>
           <div class="field">
             <label><input type="checkbox" id="chan-auto" checked style="width:auto;margin-right:8px" />
               Artikel automatisch erzeugen, sobald ein neues Video erscheint</label>
@@ -734,9 +753,10 @@ async function renderSite(view, siteId) {
                 <strong>${esc(k.title || k.channel_id)}</strong>
                 ${k.active ? '<span class="badge ok">aktiv</span>' : '<span class="badge">pausiert</span>'}
                 ${k.auto_article ? '<span class="badge info">automatisch</span>' : ''}
-                <div class="hint">${esc(k.handle || k.channel_id)} · alle ${k.interval_hours} h ·
-                  ${k.videos} Videos gefunden, ${k.artikel} Artikel ·
-                  zuletzt geprüft: ${fmtDate(k.last_check_at)}</div>
+                <div class="hint">${esc(k.handle || k.channel_id)} · ${intervallText(k.interval_hours)},
+                  höchstens ${k.max_per_scan} Video${k.max_per_scan === 1 ? '' : 's'} je Durchlauf ·
+                  ${k.videos} gefunden, ${k.artikel} Artikel ·
+                  zuletzt: ${fmtDate(k.last_check_at)} · nächste Prüfung: ${k.active ? fmtDate(k.next_check_at) : '–'}</div>
                 ${k.last_error ? `<div class="hint" style="color:var(--red)">${esc(k.last_error)}</div>` : ''}
                 ${k.angle ? `<div class="hint">Blickwinkel: ${esc(k.angle)}</div>` : ''}
               </div>
@@ -745,6 +765,19 @@ async function renderSite(view, siteId) {
                 <button class="small" data-toggle-chan="${esc(k.id)}" data-active="${k.active}">${k.active ? 'Pausieren' : 'Aktivieren'}</button>
                 <button class="small danger" data-del-chan="${esc(k.id)}">Entfernen</button>
               </div>
+            </div>
+            <div class="row" style="margin-top:10px;align-items:flex-end">
+              <div class="field" style="margin:0;width:190px"><label>Wie oft prüfen</label>
+                <select data-int="${esc(k.id)}">${INTERVALLE.map(([stunden, text]) =>
+                  `<option value="${stunden}" ${Number(k.interval_hours) === stunden ? 'selected' : ''}>${text}</option>`).join('')}</select></div>
+              <div class="field" style="margin:0;width:190px"><label>Videos je Durchlauf</label>
+                <select data-max="${esc(k.id)}">${[1, 2, 3, 5, 10].map((n) =>
+                  `<option value="${n}" ${Number(k.max_per_scan) === n ? 'selected' : ''}>höchstens ${n}</option>`).join('')}</select></div>
+              <div class="field" style="margin:0;flex:1;min-width:200px"><label>Blickwinkel</label>
+                <input data-angle="${esc(k.id)}" value="${esc(k.angle)}" placeholder="optional" /></div>
+              <label style="margin:0 0 8px 0"><input type="checkbox" data-auto="${esc(k.id)}" ${k.auto_article ? 'checked' : ''}
+                style="width:auto;margin-right:6px" />automatisch</label>
+              <button class="small primary" data-save-chan="${esc(k.id)}">Speichern</button>
             </div>
           </div>`).join('')
           : '<div class="empty">Noch kein Kanal in Beobachtung.</div>'}
@@ -781,6 +814,7 @@ async function renderSite(view, siteId) {
           body: {
             input: root.querySelector('#chan-input').value,
             interval_hours: root.querySelector('#chan-interval').value,
+            max_per_scan: root.querySelector('#chan-max').value,
             angle: root.querySelector('#chan-angle').value,
             auto_article: root.querySelector('#chan-auto').checked,
             embed_video: root.querySelector('#chan-embed').checked,
@@ -793,6 +827,20 @@ async function renderSite(view, siteId) {
     on('[data-scan]', 'click', (event) => guard(event.currentTarget, async () => {
       const ergebnis = await api(`/api/app/channels/${event.currentTarget.dataset.scan}/scan`, { method: 'POST' });
       toast(ergebnis.neu ? `${ergebnis.neu} neue Videos gefunden.` : 'Keine neuen Videos.');
+      await render();
+    }));
+    on('[data-save-chan]', 'click', (event) => guard(event.currentTarget, async () => {
+      const id = event.currentTarget.dataset.saveChan;
+      await api(`/api/app/channels/${id}`, {
+        method: 'PATCH',
+        body: {
+          interval_hours: root.querySelector(`[data-int="${id}"]`).value,
+          max_per_scan: root.querySelector(`[data-max="${id}"]`).value,
+          angle: root.querySelector(`[data-angle="${id}"]`).value,
+          auto_article: root.querySelector(`[data-auto="${id}"]`).checked,
+        },
+      });
+      toast('Gespeichert.');
       await render();
     }));
     on('[data-toggle-chan]', 'click', (event) => guard(event.currentTarget, async () => {

@@ -362,6 +362,28 @@ async function main() {
     pruefe(nachVideo.daten.status === 'failed' && /API-Key/.test(nachVideo.daten.error || ''),
       'Ohne Anthropic-Key scheitert die Video-Erzeugung sauber', nachVideo.daten.error);
 
+    // Grenze je Durchlauf: mehrere neue Videos, aber nur so viele wie erlaubt.
+    db.prepare("UPDATE channels SET max_per_scan = 2, last_check_at = '2026-01-01T00:00:00Z' WHERE id = ?").run(kanalId);
+    const kandidaten = [
+      ['neu_a', 'Alpha Thema ueber Fahrwerk', '2026-09-10T10:00:00Z'],
+      ['neu_b', 'Beta Thema ueber Motoren', '2026-09-09T10:00:00Z'],
+      ['neu_c', 'Gamma Thema ueber Reifen', '2026-09-08T10:00:00Z'],
+    ];
+    const einfuegen = db.prepare(`INSERT INTO videos (id, channel_ref, site_id, video_id, title, published_at, status, error)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    kandidaten.forEach(([vid, titel, datum], index) => {
+      const ueber = index >= 2;
+      einfuegen.run(`v_${vid}`, kanalId, siteId, vid, titel, datum, ueber ? 'uebersprungen' : 'neu',
+        ueber ? 'Grenze von 2 Videos je Durchlauf erreicht' : null);
+    });
+    const nachGrenze = db.prepare("SELECT status, COUNT(*) AS n FROM videos WHERE channel_ref = ? GROUP BY status").all(kanalId);
+    const offen = (nachGrenze.find((r) => r.status === 'neu') || {}).n || 0;
+    pruefe(offen === 2, 'Grenze je Durchlauf begrenzt die offenen Videos', `offen=${offen}`);
+
+    const grenzeGesetzt = await ruf(`/api/app/channels/${kanalId}`, { method: 'PATCH', body: { max_per_scan: 5, interval_hours: 72 } });
+    pruefe(grenzeGesetzt.daten.max_per_scan === 5 && grenzeGesetzt.daten.interval_hours === 72,
+      'Intervall und Grenze lassen sich aendern');
+
     const kanalAus = await ruf(`/api/app/channels/${kanalId}`, { method: 'PATCH', body: { active: false } });
     pruefe(kanalAus.daten.active === 0, 'Kanal laesst sich pausieren');
 

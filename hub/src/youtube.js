@@ -251,25 +251,49 @@ async function scanChannel(channel) {
 
     // Beim ersten Lauf nur das neueste Video aufnehmen, sonst kaeme das ganze Archiv.
     const ersterLauf = !channel.last_check_at;
-    const kandidaten = ersterLauf ? feed.eintraege.slice(0, 1) : feed.eintraege;
+    const grenze = Math.max(1, Math.min(10, Number(channel.max_per_scan) || 1));
+
+    // Neueste zuerst: Sind mehrere Videos dazugekommen, ist das juengste das relevanteste.
+    const kandidaten = feed.eintraege
+      .filter((e) => !bekannt.includes(e.video_id))
+      .sort((a, b) => String(b.published_at || '').localeCompare(String(a.published_at || '')));
 
     let neu = 0;
     let uebersprungen = 0;
     for (const eintrag of kandidaten) {
-      if (bekannt.includes(eintrag.video_id)) continue;
-
       const dublette = findeDublette(channel.site_id, eintrag.title);
-      const status = dublette ? 'uebersprungen' : 'neu';
-      if (dublette) uebersprungen += 1;
-      else neu += 1;
+      // Alles ueber der Grenze wird trotzdem vermerkt, damit es nicht beim naechsten
+      // Durchlauf erneut auftaucht. Von Hand laesst sich daraus weiter ein Artikel machen.
+      const ueberGrenze = !dublette && neu >= grenze;
+      const status = dublette || ueberGrenze ? 'uebersprungen' : 'neu';
+
+      if (status === 'neu') neu += 1;
+      else uebersprungen += 1;
 
       einfuegen.run(
         randomId('vid'), channel.id, channel.site_id, eintrag.video_id,
         eintrag.title, eintrag.description, eintrag.published_at, status
       );
-      if (dublette) {
-        db.prepare('UPDATE videos SET error = ? WHERE video_id = ?')
-          .run(`Aehnliches Video wurde bereits verarbeitet: "${dublette.title}"`, eintrag.video_id);
+
+      const grund = dublette
+        ? `Aehnliches Video wurde bereits verarbeitet: "${dublette.title}"`
+        : ueberGrenze
+          ? `Grenze von ${grenze} Video${grenze === 1 ? '' : 's'} je Durchlauf erreicht`
+          : null;
+      if (grund) db.prepare('UPDATE videos SET error = ? WHERE video_id = ?').run(grund, eintrag.video_id);
+      if (ersterLauf && neu >= 1 && !dublette) {
+        // Beim allerersten Lauf reicht ein Video, der Rest gilt als Altbestand.
+        for (const rest of kandidaten.slice(kandidaten.indexOf(eintrag) + 1)) {
+          if (bekannt.includes(rest.video_id)) continue;
+          einfuegen.run(
+            randomId('vid'), channel.id, channel.site_id, rest.video_id,
+            rest.title, rest.description, rest.published_at, 'uebersprungen'
+          );
+          db.prepare('UPDATE videos SET error = ? WHERE video_id = ?')
+            .run('Altbestand beim Einrichten des Kanals', rest.video_id);
+          uebersprungen += 1;
+        }
+        break;
       }
     }
 

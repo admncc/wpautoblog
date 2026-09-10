@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS channels (
   auto_article   INTEGER NOT NULL DEFAULT 1,        -- Artikel automatisch erzeugen
   embed_video    INTEGER NOT NULL DEFAULT 1,        -- Video im Beitrag einbetten
   interval_hours INTEGER NOT NULL DEFAULT 24,       -- wie oft geprueft wird
+  max_per_scan   INTEGER NOT NULL DEFAULT 1,        -- wie viele Videos je Durchlauf
   angle          TEXT NOT NULL DEFAULT '',          -- fester Blickwinkel fuer diesen Kanal
   last_check_at  TEXT,
   last_error     TEXT,
@@ -200,6 +201,7 @@ ensureColumn('articles', 'archived_at', 'TEXT');
 ensureColumn('articles', 'notice', 'TEXT');
 ensureColumn('articles', 'source_url', 'TEXT');
 ensureColumn('articles', 'source_title', 'TEXT');
+ensureColumn('channels', 'max_per_scan', 'INTEGER NOT NULL DEFAULT 1');
 
 const setSettingStmt = db.prepare(
   `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))

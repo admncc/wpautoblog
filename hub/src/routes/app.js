@@ -494,11 +494,12 @@ router.post(
       const gefunden = await youtube.resolveChannel(req.body.input);
       const id = randomId('chan');
       db.prepare(
-        `INSERT INTO channels (id, site_id, channel_id, handle, title, interval_hours, angle, auto_article, embed_video)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO channels (id, site_id, channel_id, handle, title, interval_hours, max_per_scan, angle, auto_article, embed_video)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id, site.id, gefunden.channel_id, gefunden.handle, sanitizeText(req.body.title || gefunden.title, 160),
-        Math.max(1, Math.min(168, Number(req.body.interval_hours) || 24)),
+        Math.max(1, Math.min(720, Number(req.body.interval_hours) || 24)),
+        Math.max(1, Math.min(10, Number(req.body.max_per_scan) || 1)),
         sanitizeText(req.body.angle, 300),
         req.body.auto_article === false ? 0 : 1,
         req.body.embed_video === false ? 0 : 1
@@ -523,7 +524,8 @@ router.patch(
     const patch = {};
     if ('title' in req.body) patch.title = sanitizeText(req.body.title, 160);
     if ('angle' in req.body) patch.angle = sanitizeText(req.body.angle, 300);
-    if ('interval_hours' in req.body) patch.interval_hours = Math.max(1, Math.min(168, Number(req.body.interval_hours) || 24));
+    if ('interval_hours' in req.body) patch.interval_hours = Math.max(1, Math.min(720, Number(req.body.interval_hours) || 24));
+    if ('max_per_scan' in req.body) patch.max_per_scan = Math.max(1, Math.min(10, Number(req.body.max_per_scan) || 1));
     if ('active' in req.body) patch.active = req.body.active ? 1 : 0;
     if ('auto_article' in req.body) patch.auto_article = req.body.auto_article ? 1 : 0;
     if ('embed_video' in req.body) patch.embed_video = req.body.embed_video ? 1 : 0;
@@ -531,6 +533,11 @@ router.patch(
     if (Object.keys(patch).length) {
       const setClause = Object.keys(patch).map((k) => `${k} = @${k}`).join(', ');
       db.prepare(`UPDATE channels SET ${setClause} WHERE id = @id`).run({ ...patch, id: kanal.id });
+    }
+    // Neues Intervall gilt ab dem letzten Durchlauf, nicht erst nach dem alten Termin.
+    if ('interval_hours' in patch && kanal.last_check_at) {
+      db.prepare("UPDATE channels SET next_check_at = datetime(last_check_at, ?) WHERE id = ?")
+        .run(`+${patch.interval_hours} hours`, kanal.id);
     }
     res.json(db.prepare('SELECT * FROM channels WHERE id = ?').get(kanal.id));
   })
