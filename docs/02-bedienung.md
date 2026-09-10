@@ -135,7 +135,11 @@ Statusbedeutungen:
 
 **Marke & Standardvorgaben** gelten für alle Websites, sofern eine Website nichts Eigenes vorgibt.
 
-**Prompt-Framework** – das Regelwerk, nach dem geschrieben wird: Inhalt, Struktur, SEO, erlaubtes HTML.
+**Prompt-Framework** – das Regelwerk, nach dem geschrieben wird. Sein längster Abschnitt heißt
+„Woran man KI-Texte erkennt" und verbietet gezielt die Muster, an denen maschinelle Texte
+auffallen: gleich lange Absätze, ein Gestaltungselement pro Abschnitt, Zahlenversprechen in
+Überschriften, Wegweiser-Floskeln, Abwägen ohne Empfehlung und vor allem das Fazit am Ende.
+Dazu kommen Inhalt, Struktur, SEO, Zitierfähigkeit für KI-Assistenten und erlaubtes HTML.
 Der Hub ergänzt automatisch das Briefing der jeweiligen Website und das konkrete Thema –
 dieses Regelwerk bestimmt das *Wie*. Mit **Standard wiederherstellen** kommt jederzeit die
 mitgelieferte Fassung zurück.

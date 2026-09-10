@@ -130,6 +130,15 @@ function replaceEmDash(text) {
 const countEmDash = (text) => (String(text || '').match(/—/g) || []).length;
 
 /**
+ * Sucht nach Ersatzschreibweisen wie "fuer" oder "groesste". Reparieren laesst sich das
+ * nicht zuverlaessig (z. B. "Duesseldorf" gegen "Steuer"), aber es gehoert ins Protokoll.
+ */
+function zaehleErsatzumlaute(text) {
+  const treffer = String(text || '').match(/\b(?:fuer|ueber|koennen|muessen|waehrend|naechst\w*|groess\w*|hoeh\w*|moegl\w*|zusaetzl\w*|grundsaetzl\w*|taeglich|jaehrlich|moeglichkeit\w*|beruecksicht\w*|erfuell\w*|gemaess|zunaechst)\b/gi);
+  return treffer ? treffer.length : 0;
+}
+
+/**
  * Gleicht die gelieferte Kategorie gegen die vorhandenen ab.
  * Zweite Absicherung neben der Vorgabe im Schema: Es wird nie ein Wert
  * weitergereicht, den die Website nicht kennt.
@@ -150,17 +159,18 @@ function waehleKategorie(gewaehlt, vorhanden) {
 
 function siteBriefing(site) {
   const global = settings.all();
+  // Bewusst mit echten Umlauten: Das Modell uebernimmt die Schreibweise der Aufgabe.
   const lines = [
     `Website: ${site.name}${site.url ? ` (${site.url})` : ''}`,
     `Sprache: ${site.language || 'de'}`,
     `Zielgruppe: ${site.audience || 'allgemeines Fachpublikum'}`,
-    `Tonalitaet: ${site.tone || global.default_tone}`,
+    `Tonalität: ${site.tone || global.default_tone}`,
   ];
   if (site.topic_focus) lines.push(`Themenschwerpunkte: ${site.topic_focus}`);
   if (global.brand_name) lines.push(`Marke: ${global.brand_name}`);
-  if (global.brand_description) lines.push(`Ueber die Marke: ${global.brand_description}`);
-  if (global.global_prompt) lines.push(`Grundsaetzliche Vorgaben: ${global.global_prompt}`);
-  if (site.extra_prompt) lines.push(`Zusaetzliche Vorgaben fuer diese Website: ${site.extra_prompt}`);
+  if (global.brand_description) lines.push(`Über die Marke: ${global.brand_description}`);
+  if (global.global_prompt) lines.push(`Grundsätzliche Vorgaben: ${global.global_prompt}`);
+  if (site.extra_prompt) lines.push(`Zusätzliche Vorgaben für diese Website: ${site.extra_prompt}`);
   return lines.join('\n');
 }
 
@@ -225,17 +235,18 @@ async function generateArticle({ site, keyword, angle, imageCount = 0, categorie
   const kategorien = categories.map((c) => (typeof c === 'string' ? c : c.name)).filter(Boolean);
   const prompt = `${siteBriefing(site)}
 
-Aufgabe: Schreibe einen vollstaendigen Blogartikel.
+Aufgabe: Schreibe einen vollständigen Blogartikel.
 Hauptkeyword / Thema: ${keyword}
-${angle ? `Gewuenschter Blickwinkel: ${angle}\n` : ''}Ziellaenge: ca. ${wordCount} Woerter als Richtwert.
-Sprache: ${site.language === 'en' ? 'Englisch' : site.language === 'fr' ? 'Franzoesisch' : site.language === 'es' ? 'Spanisch' : 'Deutsch'}.
+${angle ? `Gewünschter Blickwinkel: ${angle}\n` : ''}Ziellänge: ca. ${wordCount} Wörter als Richtwert.
+Sprache: ${site.language === 'en' ? 'Englisch' : site.language === 'fr' ? 'Französisch' : site.language === 'es' ? 'Spanisch' : 'Deutsch'}${
+    site.language === 'de' || !site.language ? ', mit echten Umlauten (ä, ö, ü, ß), niemals ae/oe/ue/ss' : ''}.
 ${kategorien.length
-    ? `Kategorie: Waehle GENAU EINE aus den vorhandenen Kategorien dieser Website. `
+    ? `Kategorie: Wähle GENAU EINE aus den vorhandenen Kategorien dieser Website. `
       + `Lege keine neue an und weiche nicht ab. Passt keine gut, nimm die am wenigsten unpassende.\n`
       + `Vorhandene Kategorien: ${kategorien.join(' | ')}\n`
     : ''}Bilder: ${imageCount > 0
-    ? `${imageCount} Bildkonzepte. Bild 1 ist das Titelbild, die uebrigen platzierst du mit [[BILD:2]] bis [[BILD:${imageCount}]] im Text.`
-    : 'keine. Gib fuer "images" eine leere Liste zurueck und setze keine Platzhalter in den Text.'}`;
+    ? `${imageCount} Bildkonzepte. Bild 1 ist das Titelbild, die übrigen platzierst du mit [[BILD:2]] bis [[BILD:${imageCount}]] im Text.`
+    : 'keine. Gib für "images" eine leere Liste zurück und setze keine Platzhalter in den Text.'}`;
 
   const { data, usage } = await runJson({
     system: articleSystemPrompt(),
@@ -255,6 +266,14 @@ ${kategorien.length
       caption: sanitizeText(img.caption, 300),
     }))
     .filter((img) => img.motif);
+
+  const ersatz = zaehleErsatzumlaute(data.content_html);
+  if (ersatz > 2) {
+    logger.warn('ai', 'umlaute', `${ersatz} Wörter in Ersatzschreibweise (fuer, ueber, groesste …) im Artikel`, {
+      siteId: site.id,
+      context: { keyword, treffer: ersatz, hinweis: 'Prompt-Framework auf echte Umlaute prüfen' },
+    });
+  }
 
   const emDashes = countEmDash(data.content_html) + countEmDash(data.title) + countEmDash(data.meta_description);
   if (emDashes) {
@@ -318,9 +337,9 @@ const TOPICS_SCHEMA = {
 async function suggestTopics({ site, count = 10, existing = [] }) {
   const prompt = `${siteBriefing(site)}
 
-Aufgabe: Schlage ${count} Themen fuer neue Blogartikel vor, die zu dieser Website passen und realistisches Suchinteresse haben.
+Aufgabe: Schlage ${count} Themen für neue Blogartikel vor, die zu dieser Website passen und realistisches Suchinteresse haben.
 Mische Ratgeber-, Vergleichs- und Grundlagenthemen. Jedes Thema muss sich klar von den anderen unterscheiden.
-${existing.length ? `Diese Themen existieren bereits und duerfen NICHT wiederholt werden:\n- ${existing.slice(0, 60).join('\n- ')}` : ''}`;
+${existing.length ? `Diese Themen existieren bereits und dürfen NICHT wiederholt werden:\n- ${existing.slice(0, 60).join('\n- ')}` : ''}`;
 
   const { data } = await runJson({
     system: topicSystemPrompt(),
