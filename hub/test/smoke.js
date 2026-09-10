@@ -152,6 +152,7 @@ function starteFakeTranskript(zustand) {
         tags: [], transcriptLanguages: ['de'], uploadDate: '2026-09-10T10:00:00.000Z',
       });
     }
+    zustand.transkripte += 1;
     antworte({
       lang: 'de',
       content: 'Zinsen steigen wieder an. '.repeat(30) + 'Das hat Folgen fuer Sparer und Kreditnehmer.',
@@ -206,7 +207,7 @@ async function main() {
 
   let fakeWp = null;
   let fakeBild = null;
-  const transkriptZustand = { kanalVideos: [], abrufe: 0, metadaten: 0 };
+  const transkriptZustand = { kanalVideos: [], abrufe: 0, metadaten: 0, transkripte: 0 };
   let fakeTranskript = starteFakeTranskript(transkriptZustand);
 
   try {
@@ -392,6 +393,17 @@ async function main() {
     pruefe(/youtube\.com/.test(nachVideo.daten.source_url || ''), 'Quelladresse am Artikel hinterlegt');
     pruefe(nachVideo.daten.status === 'failed' && /API-Key/.test(nachVideo.daten.error || ''),
       'Ohne Anthropic-Key scheitert die Video-Erzeugung sauber', nachVideo.daten.error);
+
+    // "Neu schreiben" muss bei einem Video-Artikel wieder ueber das Transkript gehen,
+    // sonst entstuende ein Artikel ueber den blossen Videotitel.
+    const vorNeu = transkriptZustand.transkripte;
+    const nochmal = await ruf(`/api/app/articles/${videoArtikel.daten.id}/regenerate`, { method: 'POST' });
+    pruefe(nochmal.status === 202 && nochmal.daten.origin === 'youtube' && /youtube\.com/.test(nochmal.daten.source_url || ''),
+      'Neu schreiben nimmt bei Video-Artikeln wieder das Video', JSON.stringify(nochmal.daten.origin));
+    await new Promise((r) => setTimeout(r, 800));
+    pruefe(transkriptZustand.transkripte === vorNeu,
+      'Vorhandenes Transkript wird wiederverwendet statt erneut geholt',
+      `abrufe=${transkriptZustand.transkripte - vorNeu}`);
 
     // Grenze je Durchlauf: mehrere neue Videos, aber nur so viele wie erlaubt.
     db.prepare("UPDATE channels SET max_per_scan = 2, last_check_at = '2026-01-01T00:00:00Z' WHERE id = ?").run(kanalId);

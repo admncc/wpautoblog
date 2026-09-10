@@ -115,8 +115,19 @@ function startFromVideo(video) {
     kategorien = JSON.parse(site.categories || '[]');
   } catch { /* noch keine gemeldet */ }
 
-  const promise = youtube
-    .fetchTranscript(video.video_id, site.language || 'de')
+  // Beim zweiten Anlauf ist das Transkript meist schon da. Es erneut zu holen wuerde
+  // beim Transkript-Dienst zaehlen, ohne dass sich am Text etwas aendert.
+  const gespeichert = String(video.transcript || '').trim();
+  const holen = gespeichert.length > 200
+    ? Promise.resolve(gespeichert)
+    : youtube.fetchTranscript(video.video_id, site.language || 'de');
+  if (gespeichert.length > 200) {
+    logger.debug('article', 'video', 'Vorhandenes Transkript wird wiederverwendet', {
+      siteId: site.id, articleId: id, context: { video_id: video.video_id, woerter: gespeichert.split(' ').length },
+    });
+  }
+
+  const promise = holen
     .then(async (transcript) => {
       db.prepare('UPDATE videos SET transcript = ?, words = ? WHERE id = ?')
         .run(transcript.slice(0, 200000), transcript.split(' ').length, video.id);

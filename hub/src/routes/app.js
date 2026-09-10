@@ -475,6 +475,18 @@ router.post(
   wrap((req, res) => {
     const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
     if (!article) return res.status(404).json({ error: 'Artikel nicht gefunden.' });
+
+    // Artikel aus einem Video muessen wieder aus dem Transkript entstehen. Ohne das
+    // waere es nur ein Artikel ueber den Videotitel und haette mit dem Video nichts
+    // mehr zu tun. Ist das Video nicht mehr da, bleibt der gewoehnliche Weg.
+    if (article.origin === 'youtube') {
+      const video = db.prepare('SELECT * FROM videos WHERE article_id = ?').get(article.id);
+      if (video) {
+        const { article: neuerArtikel } = service.startFromVideo(video);
+        return res.status(202).json(neuerArtikel);
+      }
+    }
+
     const { article: created } = service.startGeneration({
       siteId: article.site_id,
       keyword: article.keyword || article.title,
