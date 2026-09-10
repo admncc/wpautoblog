@@ -459,6 +459,29 @@ async function main() {
     pruefe(!!ohneQuelle.fehler, 'Nicht erreichbare Quelle wird als Fehler gemeldet', String(ohneQuelle.fehler).slice(0, 80));
     settings.save({ youtube_source: 'supadata' });
 
+    // Nachbearbeitung eines Artikels ohne Anthropic-Aufruf. Fing zuletzt einen Fehler,
+    // bei dem die Bildkonzepte in der gemeinsamen Nachbearbeitung nicht mehr bekannt waren.
+    console.log('\nArtikel-Nachbearbeitung');
+    const ai = require('../src/ai');
+    const roh = {
+      title: 'Zinsen im Blick — was Sparer wissen sollten',
+      slug: 'zinsen-im-blick', meta_title: 'Zinsen im Blick', meta_description: 'Kurz erklärt.',
+      excerpt: 'Ein Überblick.', tags: ['Zinsen', 'Sparen'], category: 'Geldanlage',
+      content_html: '<h2>Überblick</h2>' + '<p>Zinsen bewegen sich wieder deutlich nach oben und das merkt jeder Sparer.</p>'.repeat(12)
+        + '<p>[[BILD:2]]</p><p>[[BILD:7]]</p>',
+      images: [
+        { slot: 1, motif: 'Titelbild: Muenzen auf einem Tisch', alt: 'Muenzen', caption: 'Sparen' },
+        { slot: 2, motif: 'Diagramm mit steigender Kurve', alt: 'Kurve', caption: 'Aufwaerts' },
+      ],
+    };
+    const fertig = ai.aufbereiten(roh, { id: siteId }, 3, 'Zinsen', ['Geldanlage', 'Ratgeber']);
+    pruefe(fertig.images.length === 2 && fertig.images[0].motif.startsWith('Titelbild'),
+      'Bildkonzepte ueberstehen die Nachbearbeitung', JSON.stringify(fertig.images.map((i) => i.slot)));
+    pruefe(fertig.content_html.includes('[[BILD:2]]') && !fertig.content_html.includes('[[BILD:7]]'),
+      'Platzhalter ohne Bildkonzept werden entfernt');
+    pruefe(!fertig.title.includes('—') && fertig.word_count > 120, 'Langer Gedankenstrich ersetzt, Laenge gezaehlt');
+    pruefe(fertig.category === 'Geldanlage', 'Kategorie bleibt bei den vorhandenen');
+
     console.log('\nDiagnose');
     const diag = await ruf('/api/app/diagnostics/enable', { method: 'POST' });
     pruefe(diag.daten.url && diag.daten.token, 'Diagnose-Link erzeugt');

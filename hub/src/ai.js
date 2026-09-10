@@ -257,17 +257,7 @@ ${kategorien.length
     meta: { siteId: site.id, context: { keyword, angle, target_words: wordCount } },
   });
 
-  const images = (Array.isArray(data.images) ? data.images : [])
-    .slice(0, Math.max(0, imageCount))
-    .map((img, index) => ({
-      slot: Number(img.slot) || index + 1,
-      motif: sanitizeText(img.motif, 2000),
-      alt: sanitizeText(img.alt, 300),
-      caption: sanitizeText(img.caption, 300),
-    }))
-    .filter((img) => img.motif);
-
-  return aufbereiten(data, site, imageCount, keyword, kategorien);
+  return { ...aufbereiten(data, site, imageCount, keyword, kategorien), ...usage };
 }
 
 /**
@@ -290,6 +280,16 @@ function aufbereiten(data, site, imageCount, keyword, kategorien) {
       context: { keyword, count: emDashes },
     });
   }
+
+  const images = (Array.isArray(data.images) ? data.images : [])
+    .slice(0, Math.max(0, imageCount))
+    .map((img, index) => ({
+      slot: Number(img.slot) || index + 1,
+      motif: sanitizeText(img.motif, 2000),
+      alt: sanitizeText(img.alt, 300),
+      caption: sanitizeText(img.caption, 300),
+    }))
+    .filter((img) => img.motif);
 
   let contentHtml = replaceEmDash(sanitizeHtml(data.content_html));
   // Platzhalter entfernen, zu denen es kein Bildkonzept gibt - sie wuerden sonst
@@ -318,7 +318,6 @@ function aufbereiten(data, site, imageCount, keyword, kategorien) {
     content_html: contentHtml,
     word_count: countWords(contentHtml),
     images,
-    ...usage,
   };
 }
 
@@ -430,4 +429,5 @@ ${existing.length ? `Diese Themen existieren bereits und dürfen NICHT wiederhol
     .filter((t) => t.keyword);
 }
 
-module.exports = { MODELS, AiError, generateArticle, generateFromVideo, suggestTopics };
+// aufbereiten wird von der Funktionspruefung direkt aufgerufen, ohne Anthropic zu behelligen.
+module.exports = { MODELS, AiError, generateArticle, generateFromVideo, suggestTopics, aufbereiten };
