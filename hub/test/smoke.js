@@ -590,6 +590,27 @@ async function main() {
     const nochmalPruefen = await plugins.updateAlle();
     pruefe(nochmalPruefen.aktualisiert === 0, 'Aktuelle Website wird nicht erneut angefasst', JSON.stringify(nochmalPruefen));
 
+    // Wortlaut-Pruefung: Der Artikel soll aus dem Transkript entstehen, nicht daraus
+    // abgeschrieben sein.
+    console.log('\nWortlaut-Pruefung');
+    const { pruefeUebernahme } = require('../src/textvergleich');
+    const quelltext = ('Der VinFast VF6 kommt aus Vietnam, aber die Technik stammt von Zulieferern aus aller Welt. '
+      + 'Das Design kommt aus Turin, die Zellen von CATL und das Steuergerät von Bosch. '
+      + 'Damit ist das Auto ein Baukasten wie jedes andere moderne Elektroauto auch. ').repeat(6);
+
+    const eigen = pruefeUebernahme(
+      '<p>Am VF6 ist ungefähr so viel Vietnam dran wie an einem Golf aus Mexiko. Wer heute als neue Marke '
+      + 'antritt, baut kein Auto, sondern konfiguriert eines aus fertigen Baugruppen. Genau darin liegt der '
+      + 'eigentliche Reiz dieses Kompakt-SUV, noch vor Reichweite und Ladeleistung.</p>', quelltext);
+    pruefe(!eigen.auffaellig && eigen.passage < 25, 'Eigener Wortlaut gilt als unauffaellig', JSON.stringify(eigen));
+
+    const abgeschrieben = pruefeUebernahme(`<p>${quelltext.slice(0, 600)}</p>`, quelltext);
+    pruefe(abgeschrieben.auffaellig && abgeschrieben.anteil > 0.5,
+      'Abgeschriebener Text wird erkannt', `anteil=${abgeschrieben.anteil.toFixed(2)}, passage=${abgeschrieben.passage}`);
+    pruefe(abgeschrieben.stelle.startsWith('der vinfast vf6 kommt aus vietnam'),
+      'Die uebernommene Stelle wird benannt', abgeschrieben.stelle.slice(0, 40));
+    pruefe(!pruefeUebernahme('<p>Zu kurz.</p>', quelltext).auffaellig, 'Sehr kurze Texte schlagen nicht an');
+
     console.log('\nDiagnose');
     const diag = await ruf('/api/app/diagnostics/enable', { method: 'POST' });
     pruefe(diag.daten.url && diag.daten.token, 'Diagnose-Link erzeugt');
