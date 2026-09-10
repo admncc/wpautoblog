@@ -1162,18 +1162,91 @@ async function renderPosts(view) {
   } else {
     body.innerHTML = `
       <div class="card">
-        <h2>Gezielte Posts <span class="badge">in Vorbereitung</span></h2>
-        <p class="sub">Geplant für die nächste Ausbaustufe.</p>
-        <p>Hier wirst du Posts gezielt auf recherchierte Suchbegriffe ansetzen können:</p>
-        <ul>
-          <li>Keyword mit Suchvolumen, Wettbewerb und Suchintention recherchieren</li>
-          <li>Die aktuell führenden Ergebnisse analysieren und inhaltliche Lücken finden</li>
-          <li>Daraus eine Gliederung ableiten, die diese Lücken gezielt schließt</li>
-          <li>Interne Verlinkung auf bereits veröffentlichte Beiträge vorschlagen</li>
-        </ul>
-        <p class="sub">Die Struktur dafür steht bereits: Posts werden mit Thema und Blickwinkel erzeugt –
-          die Recherche liefert später genau diese beiden Angaben automatisch.</p>
+        <h2>Gezielter Post</h2>
+        <p class="sub">Ein Beitrag, der für einen bestimmten Suchbegriff stehen soll. Er läuft über ein
+          eigenes Regelwerk, das strenger auf Suchabsicht, Antwort im ersten Absatz und Abdeckung achtet
+          als das allgemeine. Alles außer Website und Suchbegriff ist freiwillig, je mehr du einträgst,
+          desto gezielter wird der Text.</p>
+        <form id="target-form" style="margin-top:14px">
+          <div class="grid cols-2">
+            <div class="field">
+              <label for="tgt-site">Website</label>
+              <select id="tgt-site">${sites.map((site) =>
+                `<option value="${esc(site.id)}">${esc(site.name)}${site.connected ? '' : ' (nicht verbunden)'}</option>`).join('')}</select>
+            </div>
+            <div class="field">
+              <label for="tgt-keyword">Suchbegriff</label>
+              <input id="tgt-keyword" required placeholder="z. B. air fryer chicken thighs" />
+            </div>
+          </div>
+          <div class="grid cols-3">
+            <div class="field"><label for="tgt-intent">Suchabsicht</label>
+              <input id="tgt-intent" placeholder="z. B. Anleitung, Vergleich, Definition" /></div>
+            <div class="field"><label for="tgt-volume">Suchvolumen im Monat</label>
+              <input id="tgt-volume" type="number" min="0" placeholder="optional" /></div>
+            <div class="field"><label for="tgt-difficulty">Schwierigkeit (0 bis 100)</label>
+              <input id="tgt-difficulty" type="number" min="0" max="100" placeholder="optional" /></div>
+          </div>
+          <div class="field">
+            <label for="tgt-secondary">Nebenbegriffe</label>
+            <input id="tgt-secondary" placeholder="durch Komma getrennt" />
+          </div>
+          <div class="field">
+            <label for="tgt-questions">Fragen zu dieser Suche (eine je Zeile)</label>
+            <textarea id="tgt-questions" style="min-height:90px"
+              placeholder="Aus „Ähnliche Fragen“ bei Google, eine Frage je Zeile."></textarea>
+          </div>
+          <div class="grid cols-2">
+            <div class="field">
+              <label for="tgt-covered">Das haben die führenden Treffer schon</label>
+              <textarea id="tgt-covered" style="min-height:110px"
+                placeholder="Stichpunkte: welche Themen decken die ersten zehn Ergebnisse ab?"></textarea>
+            </div>
+            <div class="field">
+              <label for="tgt-gaps">Das fehlt dort</label>
+              <textarea id="tgt-gaps" style="min-height:110px"
+                placeholder="Stichpunkte: was keiner beantwortet, welche Fälle fehlen, was veraltet ist."></textarea>
+            </div>
+          </div>
+          <div class="field">
+            <label for="tgt-angle">Blickwinkel (optional)</label>
+            <input id="tgt-angle" placeholder="z. B. für Einsteiger ohne Vorkenntnisse" />
+          </div>
+          <button class="primary" type="submit">Gezielten Post erzeugen</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Automatische Recherche <span class="badge">in Vorbereitung</span></h2>
+        <p class="sub">Die Felder oben füllst du derzeit selbst. Als Nächstes holt der Hub sie sich:
+          Suchbegriffe zu einem Saatwort sammeln, Volumen und Schwierigkeit dazu, die echten
+          Suchergebnisse ansehen und daraus Abdeckung und Lücken ableiten. Dafür braucht es einen
+          Zugang zu einem Recherchedienst, der in den Einstellungen hinterlegt wird.</p>
       </div>`;
+
+    on('#target-form', 'submit', (event) => {
+      event.preventDefault();
+      guard(event.target.querySelector('button'), async () => {
+        const feld = (id) => root.querySelector(`#tgt-${id}`).value;
+        const article = await api('/api/app/articles', {
+          method: 'POST',
+          body: {
+            origin: 'target',
+            site_id: feld('site'),
+            keyword: feld('keyword'),
+            angle: feld('angle'),
+            intent: feld('intent'),
+            volume: feld('volume'),
+            difficulty: feld('difficulty'),
+            secondary: feld('secondary'),
+            questions: feld('questions'),
+            covered: feld('covered'),
+            gaps: feld('gaps'),
+          },
+        });
+        navigate('article', article.id);
+      });
+    });
   }
 
   on('[data-ptab]', 'click', (event) => { state.data.postsTab = event.currentTarget.dataset.ptab; render(); });
@@ -1190,6 +1263,7 @@ function articleTable(articles) {
           onclick="event.stopPropagation()">${esc(a.wp_url)}</a></div>` : ''}
         ${a.origin === 'recurring' ? '<span class="badge info">wiederkehrend</span>' : ''}
         ${a.origin === 'youtube' ? '<span class="badge info">Video</span>' : ''}
+        ${a.origin === 'target' ? '<span class="badge info">gezielt</span>' : ''}
         ${a.archived ? '<span class="badge">archiviert</span>' : ''}</td>
       <td>${statusBadge(a.status)}</td>
       <td>${a.word_count || '–'}</td>
@@ -1526,6 +1600,12 @@ async function renderSettings(view) {
         </div>
       </div>
       <div class="field">
+        <label for="target_prompt">Anweisung für gezielte Posts</label>
+        <textarea id="target_prompt" style="min-height:180px">${esc(data.target_prompt)}</textarea>
+        <div class="hint">Gilt nur für Posts, die auf einen recherchierten Suchbegriff gehen.
+          Steht vor dem allgemeinen Prompt-Framework.</div>
+      </div>
+      <div class="field">
         <label for="video_prompt">Anweisung für Artikel aus Videos</label>
         <textarea id="video_prompt" style="min-height:180px">${esc(data.video_prompt)}</textarea>
         <div class="hint">Steht vor dem allgemeinen Prompt-Framework. Regelt, wie aus einem Transkript
@@ -1569,7 +1649,7 @@ async function renderSettings(view) {
     for (const field of ['hub_name', 'model', 'effort', 'brand_name', 'brand_description', 'default_language',
       'default_word_count', 'default_tone', 'global_prompt', 'article_prompt', 'topic_prompt',
       'image_provider', 'images_per_article', 'image_base_url', 'image_model', 'image_size',
-      'image_quality', 'image_style', 'transcript_url', 'transcript_header', 'video_prompt',
+      'image_quality', 'image_style', 'transcript_url', 'transcript_header', 'video_prompt', 'target_prompt',
       'youtube_source']) {
       const el = root.querySelector(`#${field}`);
       if (el) body[field] = el.value;

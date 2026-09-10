@@ -2,7 +2,9 @@
 const { getSetting, setSetting } = require('./db');
 const { encrypt, decrypt } = require('./util');
 const { ENV_ANTHROPIC_KEY, DEFAULT_MODEL } = require('./config');
-const { DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT, DEFAULT_VIDEO_PROMPT } = require('./prompts');
+const {
+  DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT, DEFAULT_VIDEO_PROMPT, DEFAULT_TARGET_PROMPT,
+} = require('./prompts');
 
 const DEFAULTS = {
   hub_name: 'Autoblog Hub',
@@ -32,6 +34,7 @@ const DEFAULTS = {
   transcript_url: 'https://api.supadata.ai/v1/youtube/transcript?url={video_url}&lang={lang}&text=true',
   transcript_header: 'x-api-key',
   video_prompt: DEFAULT_VIDEO_PROMPT,
+  target_prompt: DEFAULT_TARGET_PROMPT,
 };
 
 function all() {
@@ -113,6 +116,7 @@ function resetPrompts() {
   setSetting('article_prompt', DEFAULTS.article_prompt);
   setSetting('topic_prompt', DEFAULTS.topic_prompt);
   setSetting('video_prompt', DEFAULTS.video_prompt);
+  setSetting('target_prompt', DEFAULTS.target_prompt);
 }
 
 module.exports = {

@@ -425,7 +425,21 @@ router.post(
 router.post(
   '/articles',
   wrap((req, res) => {
+    // Gezielte Posts kommen ueber denselben Weg, nur mit Recherche im Gepaeck.
+    const gezielt = req.body.origin === 'target';
+    const briefing = gezielt ? {
+      intent: sanitizeText(req.body.intent || '', 200),
+      volume: Number(req.body.volume) || null,
+      difficulty: Number(req.body.difficulty) || null,
+      secondary: String(req.body.secondary || '').split(/[\n,]+/).map((t) => sanitizeText(t, 80)).filter(Boolean).slice(0, 20),
+      questions: String(req.body.questions || '').split(/\n+/).map((t) => sanitizeText(t, 200)).filter(Boolean).slice(0, 15),
+      covered: sanitizeText(req.body.covered || '', 3000),
+      gaps: sanitizeText(req.body.gaps || '', 2000),
+    } : null;
+
     const { article } = service.startGeneration({
+      origin: gezielt ? 'target' : undefined,
+      briefing,
       siteId: req.body.site_id,
       keyword: req.body.keyword,
       angle: req.body.angle || '',

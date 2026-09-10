@@ -63,7 +63,7 @@ function touchArticle(id, patch) {
  * Legt einen Artikel im Status "generating" an und startet die Erzeugung im Hintergrund.
  * Die Oberflaeche pollt anschliessend den Status.
  */
-function startGeneration({ siteId, keyword, angle = '', topicId = null, planId = null, origin = 'manual' }) {
+function startGeneration({ siteId, keyword, angle = '', topicId = null, planId = null, origin = 'manual', briefing = null }) {
   const site = getSite(siteId);
   if (!site) throw new Error('Website nicht gefunden.');
   const cleanKeyword = String(keyword || '').trim();
@@ -84,8 +84,11 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
 
   const kategorien = kategorienFuer(site);
 
-  const promise = ai
-    .generateArticle({ site, keyword: cleanKeyword, angle, imageCount: images.plannedCount(), categories: kategorien })
+  // Gezielte Posts haben ein eigenes Regelwerk und bekommen die Recherche mit.
+  const auftrag = { site, keyword: cleanKeyword, angle, imageCount: images.plannedCount(), categories: kategorien };
+  const promise = (origin === 'target'
+    ? ai.generateTargeted({ ...auftrag, briefing: briefing || {} })
+    : ai.generateArticle(auftrag))
     .then(async (result) => {
       touchArticle(id, {
         title: result.title,

@@ -340,6 +340,71 @@ function aufbereiten(data, site, imageCount, keyword, kategorien) {
   };
 }
 
+/**
+ * Artikel auf einen recherchierten Suchbegriff.
+ *
+ * Unterschied zur gewoehnlichen Erzeugung: Hier ist der Suchbegriff gesetzt und es
+ * gibt ein Briefing dazu, was in den Suchergebnissen schon steht. Das eigene Regelwerk
+ * dafuer steht in den Einstellungen und laesst sich dort anpassen.
+ */
+function targetSystemPrompt() {
+  return (settings.get('target_prompt') || '').trim() || require('./prompts').DEFAULT_TARGET_PROMPT;
+}
+
+/** Baut aus den Recherchedaten den Teil des Prompts, der die Suche beschreibt. */
+function rechercheBlock(briefing = {}) {
+  const zeilen = [];
+  if (briefing.intent) zeilen.push(`Suchabsicht: ${briefing.intent}`);
+  if (briefing.volume) zeilen.push(`Suchvolumen: ${briefing.volume} Suchanfragen im Monat`);
+  if (briefing.difficulty) zeilen.push(`Schwierigkeit: ${briefing.difficulty} von 100`);
+  if (briefing.secondary && briefing.secondary.length) {
+    zeilen.push(`Nebenbegriffe, die vorkommen sollen: ${briefing.secondary.join(', ')}`);
+  }
+  if (briefing.questions && briefing.questions.length) {
+    zeilen.push(`Fragen, die zu dieser Suche gestellt werden:\n- ${briefing.questions.join('\n- ')}`);
+  }
+  if (briefing.covered) zeilen.push(`Das decken die führenden Ergebnisse bereits ab:\n${briefing.covered}`);
+  if (briefing.gaps) zeilen.push(`Dort fehlt bisher:\n${briefing.gaps}`);
+  return zeilen.length ? `\nRECHERCHE\n${zeilen.join('\n')}\n` : '';
+}
+
+async function generateTargeted({ site, keyword, angle = '', briefing = {}, imageCount = 0, categories = [] }) {
+  const wordCount = Number(site.word_count) || Number(settings.get('default_word_count')) || 1200;
+  const kategorien = categories.map((c) => (typeof c === 'string' ? c : c.name)).filter(Boolean);
+
+  const system = `${targetSystemPrompt()}
+
+═══════════════════════════════════════════════════════════════════
+REGELWERK FUER ARTIKEL
+═══════════════════════════════════════════════════════════════════
+
+${articleSystemPrompt()}`;
+
+  const prompt = `${siteBriefing(site)}
+
+Aufgabe: Schreibe den Beitrag, der für diese Suche stehen soll.
+Suchbegriff: ${keyword}
+${angle ? `Gewünschter Blickwinkel: ${angle}\n` : ''}Ziellänge: ca. ${wordCount} Wörter als Richtwert.
+${sprachHinweis(site)}
+${kategorien.length
+    ? `Kategorie: Wähle GENAU EINE der vorhandenen Kategorien dieser Website: ${kategorien.join(' | ')}\n`
+    : ''}Bilder: ${imageCount > 0
+    ? `${imageCount} Bildkonzepte. Bild 1 ist das Titelbild, die übrigen platzierst du mit [[BILD:2]] bis [[BILD:${imageCount}]] im Text.`
+    : 'keine. Gib für "images" eine leere Liste zurück und setze keine Platzhalter in den Text.'}
+${rechercheBlock(briefing)}`;
+
+  const { data, usage } = await runJson({
+    system,
+    prompt,
+    schema: articleSchema(kategorien),
+    maxTokens: 32000,
+    kind: 'target',
+    meta: { siteId: site.id, context: { keyword, angle, target_words: wordCount, recherche: Object.keys(briefing || {}) } },
+  });
+
+  return { ...aufbereiten(data, site, imageCount, keyword, kategorien), ...usage };
+}
+
 const VIDEO_SCHEMA = JSON.parse(JSON.stringify(ARTICLE_SCHEMA));
 VIDEO_SCHEMA.properties.verwertbar = {
   type: 'boolean',
@@ -450,4 +515,6 @@ ${existing.length ? `Diese Themen existieren bereits und dürfen NICHT wiederhol
 }
 
 // aufbereiten wird von der Funktionspruefung direkt aufgerufen, ohne Anthropic zu behelligen.
-module.exports = { MODELS, AiError, generateArticle, generateFromVideo, suggestTopics, aufbereiten };
+module.exports = {
+  MODELS, AiError, generateArticle, generateFromVideo, generateTargeted, suggestTopics, aufbereiten,
+};

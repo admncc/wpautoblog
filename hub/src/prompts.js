@@ -271,4 +271,68 @@ TITEL
 Alle übrigen Regeln des Regelwerks für Artikel gelten unverändert: Sprache, verbotene
 Wendungen, kein Fazit, wechselnde Absatzlängen, Struktur, SEO und Ausgabeformat.`;
 
-module.exports = { DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT, DEFAULT_VIDEO_PROMPT };
+const DEFAULT_TARGET_PROMPT = `ROLLE
+Dieser Beitrag zielt auf genau einen recherchierten Suchbegriff. Er soll dafür in den
+Ergebnissen stehen, nicht bloß darin vorkommen. Alles, was folgt, dient dieser einen
+Suche. Was ihr nicht dient, kommt nicht in den Text.
+
+DIE SUCHABSICHT ENTSCHEIDET ÜBER DIE FORM
+Kläre zuerst, was jemand will, der genau das sucht. Danach richtet sich der Aufbau:
+- Er will etwas verstehen: Antwort zuerst, dann Erklärung, dann Randfälle.
+- Er will etwas tun: nummerierte Schritte, jeder Schritt ein überprüfbares Ergebnis.
+- Er will vergleichen: eine Tabelle mit drei bis sechs Zeilen und einer klaren Empfehlung.
+- Er will etwas auswählen oder kaufen: Kriterien, Kompromisse, für wen sich was eignet.
+Eine Anleitung, die mit einer Begriffsgeschichte beginnt, hat die Suche verfehlt, auch
+wenn jedes Wort stimmt.
+
+DIE ANTWORT STEHT OBEN
+Die Kernfrage wird in den ersten 40 bis 60 Wörtern beantwortet, in Sätzen, die aus dem
+Text herausgelöst noch stimmen. Keine Hinführung, keine Ankündigung, kein "in diesem
+Beitrag". Wer nur diese drei Zeilen liest, hat seine Antwort.
+
+DER SUCHBEGRIFF
+- Wörtlich im Titel, möglichst weit vorn.
+- Wörtlich im ersten Absatz, in einem Satz, der etwas aussagt.
+- Wörtlich in mindestens einer Zwischenüberschrift.
+- Danach nur noch, wo er sich von selbst ergibt. Verwende Wortformen und natürliche
+  Varianten statt derselben Kette. Gezähltes Wiederholen erkennt jeder Leser sofort,
+  und Suchmaschinen ebenso.
+
+NEBENBEGRIFFE UND FRAGEN
+Sind Nebenbegriffe oder Fragen vorgegeben, bekommt jede Frage eine eigene Überschrift
+in Frageform und darunter eine direkte Antwort in ein bis zwei Sätzen, bevor es
+ausführlicher wird. Nebenbegriffe stehen dort, wo sie inhaltlich hingehören, nicht in
+einer Aufzählung am Ende.
+
+WAS DIE VORHANDENEN ERGEBNISSE SCHON HABEN
+Liegt ein Briefing zu den führenden Treffern vor, gilt:
+- Alles, was dort alle abdecken, muss auch hier vorkommen. Fehlt es, wirkt der Beitrag
+  unvollständig, egal wie gut der Rest ist.
+- Mindestens zwei Dinge müssen dazukommen, die keiner der Treffer hat: eine konkretere
+  Angabe, ein Sonderfall, ein Fehler mit seiner Ursache, eine Zahl, eine Abgrenzung.
+- Schreibe nie über die Konkurrenz und erwähne sie nicht.
+
+FORMATE, DIE ALS DIREKTE ANTWORT TAUGEN
+- Definitionsfragen: ein Absatz von 40 bis 60 Wörtern, der die Frage vollständig
+  beantwortet, ohne Rückbezug auf den Rest.
+- Anleitungen: nummerierte Schritte, je Schritt ein Satz Handlung und ein Satz Ergebnis.
+- Vergleiche: eine Tabelle, deren erste Spalte das Kriterium ist.
+- Zahlen, Maße, Fristen und Temperaturen ausschreiben, nicht umschreiben.
+
+TITEL UND META
+- Titel höchstens 60 Zeichen, Suchbegriff vorn, ein Versprechen, das der Text einlöst.
+- Meta-Beschreibung 140 bis 160 Zeichen: was der Leser bekommt, mit dem Suchbegriff,
+  ohne Klickköder und ohne Fragezeichen am Ende.
+- Der Titel darf nicht dieselbe Formulierung sein wie die erste Überschrift im Text.
+
+WAS DEN BEITRAG WERTLOS MACHT
+- Denselben Gedanken in anderen Worten wiederholen, um auf Länge zu kommen.
+- Erfundene Zahlen, Studien, Preise oder Jahresangaben. Lieber nichts nennen.
+- Allgemeinplätze, die auf jedes Thema passen.
+- Ein Abschnitt, der nur existiert, damit ein Nebenbegriff untergebracht ist.
+
+Alle übrigen Regeln des Regelwerks für Artikel gelten unverändert: Sprache, verbotene
+Wendungen, kein Fazit am Ende, wechselnde Absatzlängen, Struktur, Bilder und
+Ausgabeformat.`;
+
+module.exports = { DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT, DEFAULT_VIDEO_PROMPT, DEFAULT_TARGET_PROMPT };

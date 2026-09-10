@@ -553,6 +553,29 @@ async function main() {
     pruefe(erlaubt.join(',') === 'Geldanlage,Ratgeber',
       'Gesperrte Kategorie faellt samt Unterkategorie weg', erlaubt.join(','));
 
+    // Gezielte Posts: eigener Weg, eigenes Regelwerk, Recherche im Gepaeck.
+    console.log('\nGezielte Posts');
+    const gezielt = await ruf('/api/app/articles', {
+      method: 'POST',
+      body: {
+        origin: 'target', site_id: siteId, keyword: 'kaffeemaschine entkalken',
+        intent: 'Anleitung', volume: '880', difficulty: '14',
+        secondary: 'entkalker hausmittel, essig oder zitronensäure',
+        questions: 'Wie oft muss man entkalken?\nGeht Essig auch?',
+        covered: 'Alle nennen Essig und Zitronensäure.', gaps: 'Keiner nennt Herstellerangaben.',
+      },
+    });
+    pruefe(gezielt.status === 202 && gezielt.daten.origin === 'target',
+      'Gezielter Post wird als solcher angelegt', JSON.stringify(gezielt.daten.origin));
+    await new Promise((r) => setTimeout(r, 900));
+    const gezieltFertig = await ruf(`/api/app/articles/${gezielt.daten.id}`);
+    pruefe(gezieltFertig.daten.status === 'failed' && /API-Key/.test(gezieltFertig.daten.error || ''),
+      'Ohne Anthropic-Key scheitert auch der gezielte Post sauber', gezieltFertig.daten.error);
+
+    const regelwerk = settings.all().target_prompt || '';
+    pruefe(regelwerk.includes('SUCHABSICHT') && regelwerk.includes('DIE ANTWORT STEHT OBEN'),
+      'Eigenes Regelwerk fuer gezielte Posts ist hinterlegt', `${regelwerk.length} Zeichen`);
+
     console.log('\nArtikel-Nachbearbeitung');
     const ai = require('../src/ai');
     const roh = {
