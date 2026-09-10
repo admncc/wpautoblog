@@ -566,7 +566,7 @@ async function main() {
         { slot: 2, motif: 'Diagramm mit steigender Kurve', alt: 'Kurve', caption: 'Aufwaerts' },
       ],
     };
-    const fertig = ai.aufbereiten(roh, { id: siteId }, 3, 'Zinsen', ['Geldanlage', 'Ratgeber']);
+    const fertig = ai.aufbereiten(roh, { id: siteId, language: 'de' }, 3, 'Zinsen', ['Geldanlage', 'Ratgeber']);
     pruefe(fertig.images.length === 2 && fertig.images[0].motif.startsWith('Titelbild'),
       'Bildkonzepte ueberstehen die Nachbearbeitung', JSON.stringify(fertig.images.map((i) => i.slot)));
     pruefe(fertig.content_html.includes('[[BILD:2]]') && !fertig.content_html.includes('[[BILD:7]]'),

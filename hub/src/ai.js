@@ -157,6 +157,26 @@ function waehleKategorie(gewaehlt, vorhanden) {
   return '';
 }
 
+const SPRACHEN = { de: 'Deutsch', en: 'Englisch', fr: 'Französisch', es: 'Spanisch' };
+
+/**
+ * Sagt dem Modell, in welcher Sprache der Beitrag steht.
+ *
+ * Bei nicht-deutschen Websites muss das ausdruecklich dastehen: Das Regelwerk selbst
+ * ist auf Deutsch verfasst, und ohne klare Ansage schreibt das Modell in der Sprache
+ * der Anweisung weiter. Die Regeln zu Umlauten und deutschen Fuellwendungen gelten
+ * dann selbstverstaendlich nicht.
+ */
+function sprachHinweis(site) {
+  const code = site.language || 'de';
+  const name = SPRACHEN[code] || code;
+  if (code === 'de') return `Sprache: Deutsch, mit echten Umlauten (ä, ö, ü, ß), niemals ae/oe/ue/ss.`;
+  return `Sprache: ${name}. Der gesamte Beitrag steht in dieser Sprache: Titel, Zwischenüberschriften,`
+    + ` Fließtext, Meta-Angaben, Schlagwörter, Bildunterschriften und Alternativtexte. Die Regeln des`
+    + ` Regelwerks zu deutschen Umlauten und zu deutschen Füllwendungen gelten hier nicht, ihre Absicht`
+    + ` schon: keine Floskeln, keine Aufzählungen ohne Inhalt, kein zusammenfassendes Fazit am Ende.`;
+}
+
 function siteBriefing(site) {
   const global = settings.all();
   // Bewusst mit echten Umlauten: Das Modell uebernimmt die Schreibweise der Aufgabe.
@@ -238,8 +258,7 @@ async function generateArticle({ site, keyword, angle, imageCount = 0, categorie
 Aufgabe: Schreibe einen vollständigen Blogartikel.
 Hauptkeyword / Thema: ${keyword}
 ${angle ? `Gewünschter Blickwinkel: ${angle}\n` : ''}Ziellänge: ca. ${wordCount} Wörter als Richtwert.
-Sprache: ${site.language === 'en' ? 'Englisch' : site.language === 'fr' ? 'Französisch' : site.language === 'es' ? 'Spanisch' : 'Deutsch'}${
-    site.language === 'de' || !site.language ? ', mit echten Umlauten (ä, ö, ü, ß), niemals ae/oe/ue/ss' : ''}.
+${sprachHinweis(site)}
 ${kategorien.length
     ? `Kategorie: Wähle GENAU EINE aus den vorhandenen Kategorien dieser Website. `
       + `Lege keine neue an und weiche nicht ab. Passt keine gut, nimm die am wenigsten unpassende.\n`
@@ -265,7 +284,7 @@ ${kategorien.length
  * Platzhalter aufraeumen. Wird von der Artikel- und der Video-Erzeugung genutzt.
  */
 function aufbereiten(data, site, imageCount, keyword, kategorien) {
-  const ersatz = zaehleErsatzumlaute(data.content_html);
+  const ersatz = (site.language || 'de') === 'de' ? zaehleErsatzumlaute(data.content_html) : 0;
   if (ersatz > 2) {
     logger.warn('ai', 'umlaute', `${ersatz} Wörter in Ersatzschreibweise (fuer, ueber, groesste …) im Artikel`, {
       siteId: site.id,
@@ -357,7 +376,7 @@ ${articleSystemPrompt()}`;
 Aufgabe: Schreibe einen Artikel auf Grundlage des folgenden Video-Transkripts.
 Titel des Videos: ${video.title}
 ${angle ? `Gewünschter Blickwinkel: ${angle}\n` : ''}Ziellänge: ca. ${wordCount} Wörter als Richtwert.
-Sprache: Deutsch, mit echten Umlauten (ä, ö, ü, ß), niemals ae/oe/ue/ss.
+${sprachHinweis(site)}
 ${kategorien.length
     ? `Kategorie: Wähle GENAU EINE der vorhandenen Kategorien dieser Website: ${kategorien.join(' | ')}\n`
     : ''}Bilder: ${imageCount > 0
@@ -413,6 +432,7 @@ async function suggestTopics({ site, count = 10, existing = [] }) {
 
 Aufgabe: Schlage ${count} Themen für neue Blogartikel vor, die zu dieser Website passen und realistisches Suchinteresse haben.
 Mische Ratgeber-, Vergleichs- und Grundlagenthemen. Jedes Thema muss sich klar von den anderen unterscheiden.
+Die Themen stehen in der Sprache der Website (${SPRACHEN[site.language] || site.language || 'Deutsch'}), denn daraus werden die Artikel.
 ${existing.length ? `Diese Themen existieren bereits und dürfen NICHT wiederholt werden:\n- ${existing.slice(0, 60).join('\n- ')}` : ''}`;
 
   const { data } = await runJson({
