@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { log, pruneLogs } = require('./db');
 const { logger, httpLogger } = require('./logger');
+const guard = require('./guard');
 const auth = require('./auth');
 const settings = require('./settings');
 const appRoutes = require('./routes/app');
@@ -33,6 +34,7 @@ app.use(
   })
 );
 app.use(cookieParser());
+app.use(guard.securityHeaders);
 app.use(httpLogger); // protokolliert jede Anfrage mit Dauer und Status
 
 // ------------------------------------------------------------------- Login
@@ -60,14 +62,18 @@ app.post('/api/setup', (req, res) => {
 });
 
 app.post('/api/login', (req, res) => {
+  if (guard.istGesperrt(req, res)) return;
+
   const user = auth.verifyLogin(req.body.email, req.body.password || '');
   if (!user) {
     logger.warn('auth', 'login', `Fehlgeschlagener Anmeldeversuch fuer ${String(req.body.email || '').slice(0, 60)}`, {
       requestId: req.requestId,
       context: { ip: req.ip },
     });
+    guard.fehlversuch(req);
     return res.status(401).json({ error: 'E-Mail oder Passwort ist falsch.' });
   }
+  guard.zuruecksetzen(req);
   res.cookie(auth.COOKIE, auth.createToken(user.id), cookieOptions(req));
   logger.info('auth', 'login', `Anmeldung: ${user.email}`, { requestId: req.requestId, context: { ip: req.ip } });
   res.json({ ok: true });
@@ -116,7 +122,21 @@ app.use((err, req, res, _next) => {
   res.status(status).json({ error: err.message || 'Unerwarteter Fehler.' });
 });
 
-app.listen(config.PORT, config.HOST, () => {
+// Ein unbehandelter Fehler soll im Protokoll landen, bevor der Prozess endet.
+// Docker startet den Container danach neu, die Ursache bleibt nachlesbar.
+process.on('unhandledRejection', (grund) => {
+  logger.error('system', 'unhandledRejection', `Unbehandelter Fehler: ${(grund && grund.message) || grund}`, {
+    context: { stack: String((grund && grund.stack) || '').slice(0, 1500) },
+  });
+});
+process.on('uncaughtException', (err) => {
+  logger.error('system', 'uncaughtException', `Schwerer Fehler, der Hub beendet sich: ${err.message}`, {
+    context: { stack: String(err.stack || '').slice(0, 1500) },
+  });
+  process.exit(1);
+});
+
+const server = app.listen(config.PORT, config.HOST, () => {
   pruneLogs();
   logger.info('system', 'start', `Autoblog Hub laeuft auf http://localhost:${config.PORT}`, {
     context: { node: process.version, public_url: config.PUBLIC_URL || null, data_dir: config.DATA_DIR },
@@ -126,3 +146,12 @@ app.listen(config.PORT, config.HOST, () => {
   }
   scheduler.start();
 });
+
+// Beim Stoppen laufende Anfragen zu Ende bringen, statt sie abzuschneiden.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    logger.info('system', 'stop', `${signal} empfangen, Hub faehrt herunter`);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 8000).unref();
+  });
+}

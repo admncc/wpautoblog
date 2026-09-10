@@ -68,9 +68,27 @@ alle fehlgeschlagenen Artikel mit Fehlermeldung und das Protokoll.
 | `image/generate: Bilddienst meldet einen Fehler` | Schlüssel, Modell oder Format des Bilddienstes prüfen. Der Artikel bleibt trotzdem nutzbar. |
 | `image/deliver: PUBLIC_URL ist nicht gesetzt` | Ohne öffentliche Hub-Adresse kann WordPress die Bilder nicht abholen. |
 
+## Funktionsprüfung
+
+Nach jedem Update lässt sich das System selbst überprüfen:
+
+```bash
+cd /opt/wpautoblog/hub && npm test
+```
+
+Der Test startet einen Hub mit einer leeren Datenbank in einem temporären Ordner, stellt ein
+WordPress und einen Bilddienst nach und geht 43 Prüfungen durch: Anmeldung und Sperren,
+Signaturprüfung, Verbindungsaufbau, Themen, Pläne, Artikel, Bilder, beide Übertragungswege,
+Archivierung, Plugin-Update und Diagnose. Es entstehen dabei keine Kosten, weil kein echter
+Anthropic-Aufruf stattfindet. Am Ende steht die Zahl der bestandenen Prüfungen; bei einem
+Fehlschlag werden die letzten Protokollzeilen mit ausgegeben.
+
 ## Aufbewahrung
 
 Protokolleinträge werden 7 Tage aufbewahrt, Debug-Einträge 2 Tage.
-Das Aufräumen läuft täglich um 03:30 UTC und entfernt dabei auch Bilddateien,
-deren Artikel gelöscht wurde. Alles liegt in der Datei
+
+Das Aufräumen läuft täglich um 03:30 UTC. Es entfernt außerdem Bilddateien, deren Artikel
+gelöscht wurde, und die Bilddateien veröffentlichter Artikel, die älter als 90 Tage sind.
+Letztere werden nicht mehr gebraucht, weil sie längst in der WordPress-Mediathek liegen.
+Bildbeschreibung und Alt-Text bleiben erhalten. Alles liegt in der Datei
 `data/autoblog.sqlite` – für eine Sicherung reicht es, den Ordner `data/` zu kopieren.

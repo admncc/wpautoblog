@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS articles (
   origin        TEXT NOT NULL DEFAULT 'manual',
   notice        TEXT,                               -- nicht kritischer Hinweis, z. B. zu Bildern
   archived      INTEGER NOT NULL DEFAULT 0,         -- 1 = erledigt, aus der Arbeitsliste geraeumt
-  archived_at   TEXT,     -- manual | autopilot
+  archived_at   TEXT,
   published_at  TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))

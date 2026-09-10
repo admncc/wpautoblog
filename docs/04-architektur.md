@@ -41,7 +41,17 @@ Beide Seiten prüfen identisch und vergleichen zeitkonstant. Der Zeitstempel ver
 dass eine mitgeschnittene Anfrage später wiederholt werden kann.
 
 **Artikel-HTML** wird zweimal gefiltert: im Hub gegen eine Positivliste erlaubter Tags
-(`src/sanitize.js`) und in WordPress noch einmal durch `wp_kses_post()`.
+(`src/sanitize.js`) und in WordPress noch einmal durch `wp_kses_post()`. Der Filter im Hub
+zerlegt den Text in Tags und Freitext und baut ihn aus den Bestandteilen neu auf, statt
+Verbotenes herauszuschneiden. Unbekannte Schreibweisen können dadurch nicht durchrutschen.
+Adressen in `href` und `src` werden vor der Prüfung von HTML-Entities und Steuerzeichen
+befreit, damit eine maskierte `javascript:`-Adresse nicht als harmlos durchgeht.
+
+**Anmeldung:** Nach fünf Fehlversuchen je IP und E-Mail wird gesperrt, die Sperre verdoppelt
+sich mit jedem weiteren Versuch bis auf eine Stunde (`src/guard.js`).
+
+**Sicherheitskopfzeilen:** Content-Security-Policy ohne fremde Skriptquellen, dazu
+`X-Frame-Options`, `X-Content-Type-Options` und `Referrer-Policy`.
 
 ## Datenmodell (SQLite)
 
@@ -185,6 +195,7 @@ hub/
     ai.js             Anthropic-Anbindung, JSON-Schemata
     sanitize.js       HTML-Positivliste
     images.js         Bildgenerierung, Ablage und Ausliefer-Adressen
+    guard.js          Anmeldesperre und Sicherheitskopfzeilen
     zip.js            kleiner ZIP-Schreiber ohne Fremdbibliothek
     pluginpack.js     baut das Plugin-Archiv und signiert die Download-Adressen
     wp.js             Signierte Aufrufe an WordPress
@@ -194,6 +205,7 @@ hub/
     update.js         Stand des Systems und Anforderung eines Updates
     routes/           app.js (Oberfläche), plugin.js (WordPress), diagnostics.js, media.js
   public/             Oberfläche (ohne Build-Schritt: index.html, app.js, styles.css)
+  test/smoke.js       Funktionsprüfung von außen, Aufruf mit npm test
 
 ops/
   autoblog-update-runner.sh   Update-Helfer, laeuft auf dem Server

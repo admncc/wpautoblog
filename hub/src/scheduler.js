@@ -29,8 +29,11 @@ function start() {
   // Naechtliches Aufraeumen des Protokolls.
   cron.schedule('30 3 * * *', () => {
     const removed = pruneLogs();
-    const files = images.pruneOrphans();
-    logger.info('scheduler', 'prune', `Aufgeraeumt: ${removed} Protokolleintraege aelter als ${LOG_RETENTION_DAYS} Tage, ${files} verwaiste Bilddateien`);
+    const verwaist = images.pruneOrphans();
+    const alt = images.pruneVeroeffentlichte();
+    logger.info('scheduler', 'prune',
+      `Aufgeraeumt: ${removed} Protokolleintraege (aelter als ${LOG_RETENTION_DAYS} Tage), `
+      + `${verwaist} verwaiste Bilddateien, ${alt} Bilder veroeffentlichter Artikel (aelter als ${images.AUFBEWAHRUNG_TAGE} Tage)`);
   });
 
   logger.info('scheduler', 'start', 'Zeitplan aktiv: Pruefung alle 15 Minuten, Aufraeumen taeglich um 03:30 UTC');

@@ -183,6 +183,40 @@ function filePath(image) {
   return path.join(IMAGE_DIR, image.file);
 }
 
+/**
+ * Raeumt Bilder auf, die niemand mehr braucht.
+ *
+ * Nach der Uebergabe liegt jedes Bild in der WordPress-Mediathek. Die Kopie im Hub
+ * wird nur noch fuer ein erneutes Senden gebraucht. Nach der Schonfrist verschwindet
+ * sie, damit die Festplatte nicht endlos vollaeuft. Die Beschreibung bleibt erhalten.
+ */
+const AUFBEWAHRUNG_TAGE = 90;
+
+function pruneVeroeffentlichte(tage = AUFBEWAHRUNG_TAGE) {
+  const alt = db
+    .prepare(
+      `SELECT i.id, i.file FROM images i
+       JOIN articles a ON a.id = i.article_id
+       WHERE i.file != '' AND a.status = 'published'
+         AND a.published_at IS NOT NULL
+         AND a.published_at < datetime('now', ?)`
+    )
+    .all(`-${Math.max(1, Number(tage) || AUFBEWAHRUNG_TAGE)} days`);
+
+  let entfernt = 0;
+  for (const bild of alt) {
+    const datei = path.join(IMAGE_DIR, bild.file);
+    try {
+      if (fs.existsSync(datei)) fs.unlinkSync(datei);
+      db.prepare("UPDATE images SET file = '', bytes = 0, status = 'aufgeraeumt' WHERE id = ?").run(bild.id);
+      entfernt += 1;
+    } catch (err) {
+      logger.warn('image', 'prune', `Bilddatei liess sich nicht entfernen: ${err.message}`, { context: { file: bild.file } });
+    }
+  }
+  return entfernt;
+}
+
 /** Loescht Bilddateien, deren Artikel nicht mehr existiert. */
 function pruneOrphans() {
   const known = new Set(db.prepare("SELECT file FROM images WHERE file != ''").all().map((r) => r.file));
@@ -195,4 +229,4 @@ function pruneOrphans() {
   return removed;
 }
 
-module.exports = { ImageError, enabled, plannedCount, generateForArticle, forArticle, forDelivery, publicUrl, filePath, pruneOrphans, IMAGE_DIR };
+module.exports = { ImageError, enabled, plannedCount, generateForArticle, forArticle, forDelivery, publicUrl, filePath, pruneOrphans, pruneVeroeffentlichte, AUFBEWAHRUNG_TAGE, IMAGE_DIR };
