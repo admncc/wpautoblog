@@ -25,7 +25,8 @@ const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, 
  */
 function publicSite(site) {
   if (!site) return null;
-  const { secret, pair_code, categories, excluded_categories, ...rest } = site;
+  // pair_code und der Klartext-Schluessel bleiben absichtlich in der Datenbank.
+  const { secret, pair_code: _pair, categories, excluded_categories, ...rest } = site;
   let liste = [];
   try {
     liste = JSON.parse(categories || '[]');

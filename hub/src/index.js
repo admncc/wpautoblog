@@ -4,7 +4,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 
 const config = require('./config');
-const { log, pruneLogs } = require('./db');
+const { pruneLogs } = require('./db');
 const { logger, httpLogger } = require('./logger');
 const guard = require('./guard');
 const auth = require('./auth');

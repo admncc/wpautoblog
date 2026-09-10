@@ -481,7 +481,7 @@ async function renderSites(view) {
 }
 
 async function renderSite(view, siteId) {
-  const { site, topics, articles, plans, pluginVersion, channels = [], videos = [], youtubeAktiv } =
+  const { site, topics, articles, pluginVersion, channels = [], videos = [], youtubeAktiv } =
     await api(`/api/app/sites/${siteId}`);
   const tab = state.data.siteTab || 'connect';
   const hubUrl = location.origin;

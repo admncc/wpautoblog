@@ -87,34 +87,7 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
   const promise = ai
     .generateArticle({ site, keyword: cleanKeyword, angle, imageCount: images.plannedCount(), categories: kategorien })
     .then(async (result) => {
-      // Der Artikel soll aus dem Transkript entstehen, nicht daraus abgeschrieben sein.
-      // Auffaelliges wird vermerkt, aber nicht verhindert: Das Urteil bleibt beim Menschen.
-      const uebernahme = pruefeUebernahme(result.content_html, transcript);
-      let hinweis = null;
-      if (uebernahme.auffaellig) {
-        hinweis = `Der Text liegt nah am Transkript: ${Math.round(uebernahme.anteil * 100)} % der Wortketten`
-          + ` stimmen ueberein, die laengste gleiche Passage ist ${uebernahme.passage} Woerter lang.`
-          + ' Bitte vor dem Senden pruefen oder neu schreiben lassen.';
-        logger.warn('article', 'uebernahme', hinweis, {
-          siteId: site.id,
-          articleId: id,
-          context: {
-            video_id: video.video_id,
-            anteil: Number(uebernahme.anteil.toFixed(3)),
-            passage: uebernahme.passage,
-            stelle: uebernahme.stelle,
-          },
-        });
-      } else {
-        logger.debug('article', 'uebernahme', 'Eigener Wortlaut bestaetigt', {
-          siteId: site.id,
-          articleId: id,
-          context: { anteil: Number(uebernahme.anteil.toFixed(3)), passage: uebernahme.passage },
-        });
-      }
-
       touchArticle(id, {
-        notice: hinweis,
         title: result.title,
         slug: result.slug,
         excerpt: result.excerpt,
@@ -216,7 +189,34 @@ function startFromVideo(video) {
         angle: kanal.angle || '',
       });
 
+      // Der Artikel soll aus dem Transkript entstehen, nicht daraus abgeschrieben sein.
+      // Auffaelliges wird vermerkt, aber nicht verhindert: Das Urteil bleibt beim Menschen.
+      const uebernahme = pruefeUebernahme(result.content_html, transcript);
+      let hinweis = null;
+      if (uebernahme.auffaellig) {
+        hinweis = `Der Text liegt nah am Transkript: ${Math.round(uebernahme.anteil * 100)} % der Wortketten`
+          + ` stimmen ueberein, die laengste gleiche Passage ist ${uebernahme.passage} Woerter lang.`
+          + ' Bitte vor dem Senden pruefen oder neu schreiben lassen.';
+        logger.warn('article', 'uebernahme', hinweis, {
+          siteId: site.id,
+          articleId: id,
+          context: {
+            video_id: video.video_id,
+            anteil: Number(uebernahme.anteil.toFixed(3)),
+            passage: uebernahme.passage,
+            stelle: uebernahme.stelle,
+          },
+        });
+      } else {
+        logger.debug('article', 'uebernahme', 'Eigener Wortlaut bestaetigt', {
+          siteId: site.id,
+          articleId: id,
+          context: { anteil: Number(uebernahme.anteil.toFixed(3)), passage: uebernahme.passage },
+        });
+      }
+
       touchArticle(id, {
+        notice: hinweis,
         title: result.title,
         slug: result.slug,
         excerpt: result.excerpt,

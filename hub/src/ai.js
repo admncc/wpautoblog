@@ -94,7 +94,7 @@ async function runJson({ system, prompt, schema, maxTokens, kind, meta = {} }) {
   let data;
   try {
     data = JSON.parse(text);
-  } catch (err) {
+  } catch {
     timer.fail('Antwort war kein gueltiges JSON', { context: { ...usageContext, response: excerpt(text, 1500) } });
     throw new AiError('Claude hat kein gueltiges JSON geliefert. Bitte erneut versuchen.');
   }
