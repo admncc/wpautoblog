@@ -106,6 +106,9 @@ function starteFakeWordPress(token, siteId) {
       }
       const daten = JSON.parse(body || '{}');
       empfangen.push({ url: req.url, daten });
+      if (req.url.endsWith('/update')) {
+        return res.end(JSON.stringify({ ok: true, from: '1.3.1', version: '99.0.0' }));
+      }
       return res.end(JSON.stringify({
         ok: true, post_id: 42, url: 'https://test-wp.example/beitrag/',
         images_imported: (daten.images || []).length, image_errors: [], category: daten.category,
@@ -508,6 +511,27 @@ async function main() {
     pruefe(ersatz.length === 1 && ersatz[0].title === TITEL[ersatz[0].video_id],
       'Beim Nachruecken wird der Titel nachgeladen', ersatz.length ? ersatz[0].title : '');
 
+    // Ausgeschlossene Kategorien: die KI bekommt sie gar nicht erst zur Auswahl.
+    console.log('\nKategorien');
+    db.prepare('UPDATE sites SET categories = ? WHERE id = ?').run(JSON.stringify([
+      { id: 1, name: 'Ratgeber', slug: 'ratgeber', count: 12, parent: 0 },
+      { id: 2, name: 'weitere Bücher', slug: 'weitere-buecher', count: 3, parent: 0 },
+      { id: 3, name: 'Ernährung', slug: 'ernaehrung', count: 5, parent: 2 },
+      { id: 4, name: 'Geldanlage', slug: 'geldanlage', count: 8, parent: 0 },
+    ]), siteId);
+    const gespeichert = await ruf(`/api/app/sites/${siteId}`, {
+      method: 'PATCH', body: { excluded_categories: ['weitere Bücher'] },
+    });
+    pruefe(Array.isArray(gespeichert.daten.excluded_categories)
+      && gespeichert.daten.excluded_categories[0] === 'weitere Bücher',
+      'Ausgeschlossene Kategorien werden gespeichert', JSON.stringify(gespeichert.daten.excluded_categories));
+
+    const service = require('../src/service');
+    const erlaubt = service.kategorienFuer(db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId))
+      .map((k) => k.name).sort();
+    pruefe(erlaubt.join(',') === 'Geldanlage,Ratgeber',
+      'Gesperrte Kategorie faellt samt Unterkategorie weg', erlaubt.join(','));
+
     console.log('\nArtikel-Nachbearbeitung');
     const ai = require('../src/ai');
     const roh = {
@@ -528,6 +552,22 @@ async function main() {
       'Platzhalter ohne Bildkonzept werden entfernt');
     pruefe(!fertig.title.includes('—') && fertig.word_count > 120, 'Langer Gedankenstrich ersetzt, Laenge gezaehlt');
     pruefe(fertig.category === 'Geldanlage', 'Kategorie bleibt bei den vorhandenen');
+
+    // Plugin-Updates: Der Hub bringt zurueckliegende Websites von selbst auf Stand.
+    console.log('\nPlugin-Updates');
+    const plugins = require('../src/plugins');
+    pruefe(plugins.aelter('1.3.1', '1.4.0') && plugins.aelter('1.9.0', '1.10.0') && !plugins.aelter('1.4.0', '1.4.0')
+      && !plugins.aelter('2.0.0', '1.4.0') && plugins.aelter('', '1.0.0'),
+      'Versionsvergleich stimmt');
+
+    db.prepare("UPDATE sites SET plugin_version = '1.3.1', status = 'connected' WHERE id = ?").run(siteId);
+    const lauf = await plugins.updateAlle();
+    pruefe(lauf.aktualisiert === 1 && !lauf.fehler, 'Zurueckliegende Website wird aktualisiert', JSON.stringify(lauf));
+    const standJetzt = db.prepare('SELECT plugin_version FROM sites WHERE id = ?').get(siteId);
+    pruefe(standJetzt.plugin_version === '99.0.0', 'Gemeldete Version wird uebernommen', standJetzt.plugin_version);
+
+    const nochmalPruefen = await plugins.updateAlle();
+    pruefe(nochmalPruefen.aktualisiert === 0, 'Aktuelle Website wird nicht erneut angefasst', JSON.stringify(nochmalPruefen));
 
     console.log('\nDiagnose');
     const diag = await ruf('/api/app/diagnostics/enable', { method: 'POST' });

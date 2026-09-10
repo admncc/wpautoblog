@@ -60,7 +60,9 @@ class Autoblog_Settings {
         foreach ($begriffe as $begriff) {
             $liste[] = [
                 'id'     => (int) $begriff->term_id,
-                'name'   => $begriff->name,
+                // WordPress speichert Sonderzeichen als Entity ("Gesundheit &amp; Mehr").
+                // Im Hub soll der Name so stehen, wie ihn ein Mensch liest.
+                'name'   => html_entity_decode($begriff->name, ENT_QUOTES, 'UTF-8'),
                 'slug'   => $begriff->slug,
                 'count'  => (int) $begriff->count,
                 'parent' => (int) $begriff->parent,

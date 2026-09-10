@@ -194,6 +194,8 @@ function ensureColumn(table, column, definition) {
 ensureColumn('sites', 'delivery', "TEXT NOT NULL DEFAULT 'push'");
 ensureColumn('sites', 'categories', 'TEXT');
 ensureColumn('sites', 'categories_at', 'TEXT');
+// Kategorien, die die KI nicht waehlen darf, als JSON-Liste von Namen.
+ensureColumn('sites', 'excluded_categories', 'TEXT');
 ensureColumn('topics', 'plan_id', 'TEXT');
 ensureColumn('articles', 'plan_id', 'TEXT');
 ensureColumn('articles', 'archived', 'INTEGER NOT NULL DEFAULT 0');

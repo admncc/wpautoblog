@@ -137,3 +137,16 @@ code.pair {
   .sidebar-foot { position: static; }
   .main { padding: 18px; }
 }
+
+/* Kleines x an einer Kategorie: schliesst sie von der Auswahl aus. */
+.chip-x {
+  all: unset;
+  cursor: pointer;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+  opacity: .45;
+  line-height: 1;
+  font-size: 13px;
+}
+.chip-x:hover { opacity: 1; background: rgba(0, 0, 0, .08); }

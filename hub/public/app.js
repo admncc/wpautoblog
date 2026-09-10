@@ -551,9 +551,15 @@ async function renderSite(view, siteId) {
         <h2>Kategorien</h2>
         ${site.categories && site.categories.length
           ? `<p class="sub">${site.categories.length} Kategorien von WordPress gemeldet (${fmtDate(site.categories_at)}).
-               Die KI wählt für jeden Beitrag die passendste davon aus und legt nie eine neue an.</p>
-             <div class="row" style="margin-top:10px">${site.categories.slice(0, 40).map((k) =>
-               `<span class="badge">${esc(k.name)}${k.count ? ` · ${k.count}` : ''}</span>`).join('')}</div>`
+               Die KI wählt für jeden Beitrag die passendste davon aus und legt nie eine neue an.
+               Mit dem × schließt du eine Kategorie aus, ein Klick auf die rote Kategorie holt sie zurück.
+               Unterkategorien einer ausgeschlossenen sind ebenfalls gesperrt.</p>
+             <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px">${site.categories.map((k) => {
+               const raus = (site.excluded_categories || []).includes(k.name);
+               return `<span class="badge${raus ? ' err' : ''}" style="padding-right:4px">${esc(k.name)}${
+                 k.count ? ` · ${k.count}` : ''}<button class="chip-x" data-exclude="${esc(k.name)}"
+                 title="${raus ? 'wieder zulassen' : 'von der Auswahl ausschließen'}">${raus ? '↺' : '×'}</button></span>`;
+             }).join('')}</div>`
           : `<p class="sub">Noch keine Kategorien gemeldet. Klick oben auf <strong>Verbindung testen</strong>
                oder warte auf das nächste Lebenszeichen des Plugins.</p>`}
       </div>
@@ -954,6 +960,17 @@ async function renderSite(view, siteId) {
     await api(`/api/app/sites/${siteId}`, { method: 'DELETE' });
     navigate('sites');
   });
+  // Kategorie aus- oder wieder einschliessen. Wird sofort gespeichert, ein extra
+  // Speichern-Knopf waere bei einer Liste mit 38 Eintraegen nur laestig.
+  on('[data-exclude]', 'click', (event) => guard(event.currentTarget, async () => {
+    const name = event.currentTarget.dataset.exclude;
+    const bisher = site.excluded_categories || [];
+    const neu = bisher.includes(name) ? bisher.filter((n) => n !== name) : [...bisher, name];
+    await api(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { excluded_categories: neu } });
+    toast(bisher.includes(name) ? `„${name}" ist wieder zugelassen.` : `„${name}" wird nicht mehr gewählt.`);
+    await render();
+  }));
+
   on('[data-save-site]', 'click', (event) => guard(event.currentTarget, async () => {
     const body = {};
     const fields = ['name', 'url', 'language', 'word_count', 'audience', 'tone', 'topic_focus', 'extra_prompt',
@@ -1169,6 +1186,8 @@ function articleTable(articles) {
     ${articles.map((a) => `<tr class="clickable" data-article="${esc(a.id)}">
       <td><strong>${esc(a.title || a.keyword)}</strong>
         ${a.site_name ? `<div class="hint">${esc(a.site_name)}</div>` : ''}
+        ${a.wp_url ? `<div class="hint"><a href="${esc(a.wp_url)}" target="_blank" rel="noopener"
+          onclick="event.stopPropagation()">${esc(a.wp_url)}</a></div>` : ''}
         ${a.origin === 'recurring' ? '<span class="badge info">wiederkehrend</span>' : ''}
         ${a.origin === 'youtube' ? '<span class="badge info">Video</span>' : ''}
         ${a.archived ? '<span class="badge">archiviert</span>' : ''}</td>

@@ -5,6 +5,7 @@ const { logger } = require('./logger');
 const service = require('./service');
 const images = require('./images');
 const youtube = require('./youtube');
+const plugins = require('./plugins');
 
 let running = false;
 
@@ -44,6 +45,20 @@ function start() {
       timer.fail(err);
     } finally {
       videoLaeuft = false;
+    }
+  });
+
+  // Einmal taeglich pruefen, ob eine Website noch ein aelteres Plugin faehrt.
+  cron.schedule('20 4 * * *', async () => {
+    const timer = logger.start('plugin', 'cycle', 'Plugin-Versionen werden geprueft');
+    try {
+      const ergebnis = await plugins.updateAlle();
+      if (ergebnis.aktualisiert || ergebnis.fehler) {
+        timer.ok(`${ergebnis.aktualisiert} Website(s) auf ${ergebnis.version} gebracht`
+          + `${ergebnis.fehler ? `, ${ergebnis.fehler} fehlgeschlagen` : ''}`, { context: ergebnis });
+      }
+    } catch (err) {
+      timer.fail(err);
     }
   });
 

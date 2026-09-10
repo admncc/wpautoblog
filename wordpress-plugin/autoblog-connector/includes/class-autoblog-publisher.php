@@ -288,10 +288,14 @@ class Autoblog_Publisher {
             $begriff = get_term_by('slug', sanitize_title($gesucht), 'category');
         }
         if (!$begriff) {
+            // Der Hub kennt die Namen entschluesselt, WordPress haelt sie als Entity vor.
+            // Deshalb werden beide Seiten vor dem Vergleich auf dieselbe Form gebracht.
+            $klein = static function ($text) {
+                $text = html_entity_decode((string) $text, ENT_QUOTES, 'UTF-8');
+                return function_exists('mb_strtolower') ? mb_strtolower($text) : strtolower($text);
+            };
             foreach (get_categories(['hide_empty' => false, 'number' => 200]) as $vorhanden) {
-                if (function_exists('mb_strtolower')
-                    ? mb_strtolower($vorhanden->name) === mb_strtolower($gesucht)
-                    : strtolower($vorhanden->name) === strtolower($gesucht)) {
+                if ($klein($vorhanden->name) === $klein($gesucht)) {
                     $begriff = $vorhanden;
                     break;
                 }
@@ -310,7 +314,7 @@ class Autoblog_Publisher {
         }
 
         wp_set_post_categories($post_id, [(int) $begriff->term_id], false);
-        return ['name' => $begriff->name, 'hinweis' => ''];
+        return ['name' => html_entity_decode($begriff->name, ENT_QUOTES, 'UTF-8'), 'hinweis' => ''];
     }
 
     private static function assign_tags($post_id, $tags) {

@@ -9,6 +9,46 @@ const { randomId } = require('./util');
 const { PUBLIC_URL } = require('./config');
 
 const getSite = (id) => db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
+
+/**
+ * Die Kategorien, unter denen ein Artikel erscheinen darf.
+ *
+ * Ausgeschlossene bleiben aussen vor, damit die KI sie gar nicht erst vorschlagen
+ * kann. Mit einer Kategorie fallen auch ihre Unterkategorien weg: Wer "weitere
+ * Buecher" sperrt, will auch nichts unter "weitere Buecher / Ernaehrung" stehen
+ * haben, denn die Adresse des Beitrags traegt den Oberbegriff mit.
+ */
+function kategorienFuer(site) {
+  const lies = (feld) => {
+    try {
+      const wert = JSON.parse(site[feld] || '[]');
+      return Array.isArray(wert) ? wert : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const alle = lies('categories');
+  const gesperrt = new Set(lies('excluded_categories').map((n) => String(n).trim().toLowerCase()));
+  if (!gesperrt.size) return alle;
+
+  const nachId = new Map(alle.filter((k) => k && k.id).map((k) => [k.id, k]));
+  const istGesperrt = (kategorie) => {
+    let aktuell = kategorie;
+    for (let tiefe = 0; aktuell && tiefe < 10; tiefe += 1) {
+      if (gesperrt.has(String(aktuell.name || '').trim().toLowerCase())) return true;
+      aktuell = aktuell.parent ? nachId.get(aktuell.parent) : null;
+    }
+    return false;
+  };
+
+  return alle.filter((k) => {
+    const name = typeof k === 'string' ? k : (k && k.name) || '';
+    if (!name) return false;
+    return typeof k === 'string' ? !gesperrt.has(name.trim().toLowerCase()) : !istGesperrt(k);
+  });
+}
+
 const getArticle = (id) => db.prepare('SELECT * FROM articles WHERE id = ?').get(id);
 
 function touchArticle(id, patch) {
@@ -41,10 +81,7 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
     context: { keyword: cleanKeyword, angle, origin, plan_id: planId, topic_id: topicId },
   });
 
-  let kategorien = [];
-  try {
-    kategorien = JSON.parse(site.categories || '[]');
-  } catch { /* noch keine gemeldet */ }
+  const kategorien = kategorienFuer(site);
 
   const promise = ai
     .generateArticle({ site, keyword: cleanKeyword, angle, imageCount: images.plannedCount(), categories: kategorien })
@@ -123,10 +160,7 @@ function startFromVideo(video) {
     context: { video_id: video.video_id, kanal: kanal.title },
   });
 
-  let kategorien = [];
-  try {
-    kategorien = JSON.parse(site.categories || '[]');
-  } catch { /* noch keine gemeldet */ }
+  const kategorien = kategorienFuer(site);
 
   // Beim zweiten Anlauf ist das Transkript meist schon da. Es erneut zu holen wuerde
   // beim Transkript-Dienst zaehlen, ohne dass sich am Text etwas aendert.
@@ -465,4 +499,7 @@ async function runRecurring() {
   return { plans: due.length, produced };
 }
 
-module.exports = { startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle };
+module.exports = {
+  startGeneration, startFromVideo, runVideoQueue, publish, runRecurring,
+  computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer,
+};

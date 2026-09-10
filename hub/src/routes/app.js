@@ -25,12 +25,19 @@ const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, 
  */
 function publicSite(site) {
   if (!site) return null;
-  const { secret, pair_code, categories, ...rest } = site;
+  const { secret, pair_code, categories, excluded_categories, ...rest } = site;
   let liste = [];
   try {
     liste = JSON.parse(categories || '[]');
   } catch { /* noch nichts gemeldet */ }
-  return { ...rest, token: decrypt(secret), connected: site.status === 'connected', categories: liste };
+  let ausgeschlossen = [];
+  try {
+    ausgeschlossen = JSON.parse(excluded_categories || '[]');
+  } catch { /* nichts ausgeschlossen */ }
+  return {
+    ...rest, token: decrypt(secret), connected: site.status === 'connected',
+    categories: liste, excluded_categories: ausgeschlossen,
+  };
 }
 
 // ---------------------------------------------------------------- Uebersicht
@@ -159,6 +166,12 @@ router.patch(
       else if (['word_count', 'wp_author_id'].includes(field)) patch[field] = Number(value) || 0;
       else if (field === 'delivery') patch.delivery = value === 'pull' ? 'pull' : 'push';
       else patch[field] = sanitizeText(value, 2000);
+    }
+    // Ausgeschlossene Kategorien kommen als Liste von Namen.
+    if (Array.isArray(req.body.excluded_categories)) {
+      patch.excluded_categories = JSON.stringify(
+        req.body.excluded_categories.map((name) => sanitizeText(name, 120)).filter(Boolean).slice(0, 200)
+      );
     }
     if (Object.keys(patch).length) {
       const setClause = Object.keys(patch).map((k) => `${k} = @${k}`).join(', ');
