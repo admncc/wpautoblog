@@ -383,6 +383,16 @@ async function main() {
     pruefe(youtube.aehnlichkeit('Zinsen steigen wieder an', 'Motorradreifen richtig waehlen') < 0.3,
       'Verschiedene Titel gelten nicht als Dublette');
 
+    // Die Marke des Kanals gehoert nicht in den Artikeltitel.
+    const ohneMarke = youtube.ohneKanalname(
+      'Dieser neue Auto-Hersteller will Europa erobern | auto mobil', 'auto mobil – das VOX-Automagazin');
+    pruefe(ohneMarke === 'Dieser neue Auto-Hersteller will Europa erobern',
+      'Kanalname faellt aus dem Videotitel', ohneMarke);
+    pruefe(youtube.ohneKanalname('Neue Technik im Test - auto motor und sport', 'auto motor und sport')
+      === 'Neue Technik im Test', 'Auch ein angehaengter Kanalname faellt weg');
+    pruefe(youtube.ohneKanalname('auto mobil', 'auto mobil – das VOX-Automagazin') === 'auto mobil',
+      'Bleibt nichts uebrig, bleibt der Titel wie er war');
+
     const transkript = await youtube.fetchTranscript('abc123XYZ01', 'de');
     pruefe(transkript.length > 200 && /Zinsen/.test(transkript), 'Transkript wird geholt und aufbereitet');
 

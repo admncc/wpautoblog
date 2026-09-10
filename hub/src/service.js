@@ -106,11 +106,15 @@ function startFromVideo(video) {
       .run(video.article_id);
   }
 
+  // Der Videotitel traegt meist die Marke des Kanals mit ("... | auto mobil").
+  // Fuer den Artikel faellt sie weg, in der Quellangabe bleibt der echte Titel stehen.
+  const arbeitstitel = youtube.ohneKanalname(video.title, kanal.title);
+
   const id = randomId('art');
   db.prepare(
     `INSERT INTO articles (id, site_id, keyword, title, status, origin, source_url, source_title)
      VALUES (?, ?, ?, ?, 'generating', 'youtube', ?, ?)`
-  ).run(id, site.id, video.title, video.title, youtube.videoUrl(video.video_id), video.title);
+  ).run(id, site.id, arbeitstitel, arbeitstitel, youtube.videoUrl(video.video_id), video.title);
   db.prepare("UPDATE videos SET status = 'transkribiert', article_id = ?, retry_at = NULL WHERE id = ?").run(id, video.id);
 
   const timer = logger.start('article', 'video', `Artikel aus Video: "${video.title}"`, {
@@ -143,7 +147,7 @@ function startFromVideo(video) {
 
       const result = await ai.generateFromVideo({
         site,
-        video,
+        video: { ...video, title: arbeitstitel },
         transcript,
         imageCount: images.plannedCount(),
         categories: kategorien,

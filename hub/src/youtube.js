@@ -521,12 +521,45 @@ async function runScan() {
 const offeneVideos = (limit = 5) =>
   db.prepare("SELECT * FROM videos WHERE status = 'neu' ORDER BY published_at ASC LIMIT ?").all(limit);
 
+/**
+ * Entfernt den Namen des Kanals oder Magazins aus einem Videotitel.
+ *
+ * Videotitel tragen fast immer die Marke des Kanals mit, etwa "... | auto mobil".
+ * Im Artikel hat sie nichts zu suchen, der Text steht ja fuer sich. Das Modell wird
+ * ueber das Regelwerk ebenfalls dazu angehalten, hier faellt der Zusatz aber schon
+ * weg, bevor er ueberhaupt im Prompt auftaucht.
+ */
+const nurBuchstaben = (text) => String(text || '').toLowerCase().replace(/[^a-z0-9äöüß]+/g, '');
+
+function ohneKanalname(titel, kanal) {
+  const marke = nurBuchstaben(kanal);
+  const istMarke = (teil) => {
+    const wert = nurBuchstaben(teil);
+    return wert.length >= 3 && marke.length >= 3 && (marke.includes(wert) || wert.includes(marke));
+  };
+
+  // Senkrechte Striche und Aufzaehlungspunkte trennen fast immer die Marke ab.
+  let teile = String(titel || '').split(/\s*[|•·]\s*/).map((t) => t.trim()).filter(Boolean);
+  const behalten = teile.filter((t) => !istMarke(t));
+  if (behalten.length) teile = behalten;
+  let text = teile.join(' - ');
+
+  // Auch ein angehaengter Kanalname nach einem Gedankenstrich faellt weg.
+  const stuecke = text.split(/\s+[-–—]\s+/);
+  if (stuecke.length > 1 && istMarke(stuecke[stuecke.length - 1])) {
+    stuecke.pop();
+    text = stuecke.join(' - ');
+  }
+
+  return text.trim() || String(titel || '').trim();
+}
+
 // Bewusst kein YouTube-Thumbnail: Das ist fremdes Bildmaterial. Videoartikel
 // bekommen eigene Bilder wie jeder andere Artikel auch.
 const videoUrl = (videoId) => `https://www.youtube.com/watch?v=${videoId}`;
 
 module.exports = {
   YoutubeError, aktiv, resolveChannel, fetchFeed, listVideos, fetchTranscript,
-  scanChannel, runScan, offeneVideos, findeDublette, aehnlichkeit, ergaenzeMetadaten,
+  scanChannel, runScan, offeneVideos, findeDublette, aehnlichkeit, ergaenzeMetadaten, ohneKanalname,
   videoUrl,
 };

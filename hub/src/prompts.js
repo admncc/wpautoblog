@@ -258,6 +258,16 @@ GRUNDREGELN
 - Ist das Transkript zu dünn, zu wirr oder inhaltlich leer, sag das im Feld
   "verwertbar" und schreibe keinen Artikel.
 
+TITEL
+- Der Titel ist deiner, nicht der des Videos. Bilde ihn aus dem Inhalt.
+- Namen von Sendungen, Kanälen, Magazinen, Moderatoren oder Produktionen gehören
+  nicht in den Titel. Auch nicht als Zusatz hinter einem senkrechten Strich, nach
+  einem Gedankenstrich oder in Klammern, und ebenso wenig Folgennummern, "Teil 2",
+  "Review", "Test" als bloßes Sendungsformat oder Kanal-Kürzel.
+- Dasselbe gilt für den Meta-Titel und die Beschreibung.
+- Wer im Video spricht, wird nur im Text genannt, und nur dann, wenn eine Aussage
+  ihm ausdrücklich zugeschrieben gehört.
+
 Alle übrigen Regeln des Regelwerks für Artikel gelten unverändert: Sprache, verbotene
 Wendungen, kein Fazit, wechselnde Absatzlängen, Struktur, SEO und Ausgabeformat.`;
 
