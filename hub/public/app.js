@@ -793,7 +793,13 @@ async function renderSite(view, siteId) {
                 <div class="hint">${esc(v.kanal || '')}
                   · <a href="https://www.youtube.com/watch?v=${esc(v.video_id)}" target="_blank" rel="noopener">auf YouTube</a>
                   ${v.words ? ` · ${v.words} Wörter Transkript` : ''}</div>
-                ${v.error ? `<div class="hint" style="color:var(--red)">${esc(v.error)}</div>` : ''}</td>
+                ${v.error ? `<div class="hint" style="color:var(--red)">${esc(v.error)}</div>` : ''}
+                ${v.status === 'neu' && v.auto_article && v.kanal_aktiv
+                  ? '<div class="hint">Wird beim nächsten stündlichen Durchlauf von selbst zum Artikel.</div>'
+                  : ''}
+                ${v.status === 'neu' && !(v.auto_article && v.kanal_aktiv)
+                  ? '<div class="hint">Wartet auf dich: Für diesen Kanal ist „automatisch" ausgeschaltet.</div>'
+                  : ''}</td>
               <td><span class="badge ${cls}">${esc(label)}</span></td>
               <td>${fmtDate(v.published_at)}</td>
               <td style="text-align:right;white-space:nowrap">
