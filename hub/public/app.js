@@ -1164,6 +1164,7 @@ function articleTable(articles) {
       <td><strong>${esc(a.title || a.keyword)}</strong>
         ${a.site_name ? `<div class="hint">${esc(a.site_name)}</div>` : ''}
         ${a.origin === 'recurring' ? '<span class="badge info">wiederkehrend</span>' : ''}
+        ${a.origin === 'youtube' ? '<span class="badge info">Video</span>' : ''}
         ${a.archived ? '<span class="badge">archiviert</span>' : ''}</td>
       <td>${statusBadge(a.status)}</td>
       <td>${a.word_count || '–'}</td>
@@ -1230,6 +1231,8 @@ async function renderArticle(view, articleId) {
         <h1>${esc(article.title || article.keyword)}</h1>
         <p class="sub">${esc(article.site_name)} · ${statusBadge(article.status)} · ${article.word_count} Wörter ·
           ${esc(article.model || '')} ${article.wp_url ? `· <a href="${esc(article.wp_url)}" target="_blank" rel="noopener">in WordPress ansehen</a>` : ''}
+          ${article.origin === 'youtube' ? `· <span class="badge info">Video</span>${article.source_url
+            ? ` <a href="${esc(article.source_url)}" target="_blank" rel="noopener">Quelle ansehen</a>` : ''}` : ''}
           ${article.archived ? `· <span class="badge">archiviert ${fmtDate(article.archived_at)}</span>` : ''}</p>
       </div>
       <div class="row">
