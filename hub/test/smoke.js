@@ -116,6 +116,22 @@ function starteFakeWordPress(token, siteId) {
   return { server, empfangen };
 }
 
+function starteFakeTranskript() {
+  const server = http.createServer((req, res) => {
+    if (!req.headers['x-api-key']) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'unauthorized', message: 'kein Schluessel' }));
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      lang: 'de',
+      content: 'Zinsen steigen wieder an. '.repeat(30) + 'Das hat Folgen fuer Sparer und Kreditnehmer.',
+    }));
+  });
+  server.listen(IMG_PORT + 1);
+  return server;
+}
+
 function starteFakeBilddienst() {
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const server = http.createServer((req, res) => {
@@ -161,6 +177,7 @@ async function main() {
 
   let fakeWp = null;
   let fakeBild = null;
+  let fakeTranskript = starteFakeTranskript();
 
   try {
     console.log('Sicherheit');
@@ -313,6 +330,41 @@ async function main() {
     const gefaelscht = await fetch(`${BASIS}/plugin/site_x.9999999999999.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/autoblog-connector.zip`);
     pruefe(gefaelscht.status === 403, 'Gefaelschte Download-Adresse abgewiesen');
 
+    console.log('\nYT Channel Spy');
+    settings.save({
+      youtube_enabled: '1',
+      transcript_url: `http://127.0.0.1:${IMG_PORT + 1}/transcript?url={video_url}&lang={lang}`,
+      transcript_header: 'x-api-key',
+    });
+    settings.setTranscriptKey('sk-transkript-test');
+
+    const youtube = require('../src/youtube');
+    const kanalId = 'chan_test';
+    db.prepare(`INSERT INTO channels (id, site_id, channel_id, title, interval_hours, auto_article)
+                VALUES (?, ?, 'UCtesttesttesttesttest12', 'Testkanal', 24, 1)`).run(kanalId, siteId);
+
+    // Zwei Videos einsetzen, das zweite mit sehr aehnlichem Titel.
+    db.prepare(`INSERT INTO videos (id, channel_ref, site_id, video_id, title, published_at, status)
+                VALUES ('vid_1', ?, ?, 'abc123XYZ01', 'Zinsen steigen wieder deutlich an', datetime('now'), 'neu')`).run(kanalId, siteId);
+    pruefe(youtube.aehnlichkeit('Zinsen steigen wieder deutlich an', 'Zinsen steigen deutlich an sagen Experten') > 0.6,
+      'Aehnliche Titel werden als Dublette erkannt');
+    pruefe(youtube.aehnlichkeit('Zinsen steigen wieder an', 'Motorradreifen richtig waehlen') < 0.3,
+      'Verschiedene Titel gelten nicht als Dublette');
+
+    const transkript = await youtube.fetchTranscript('abc123XYZ01', 'de');
+    pruefe(transkript.length > 200 && /Zinsen/.test(transkript), 'Transkript wird geholt und aufbereitet');
+
+    const videoArtikel = await ruf('/api/app/videos/vid_1/article', { method: 'POST' });
+    pruefe(videoArtikel.status === 202 && videoArtikel.daten.origin === 'youtube', 'Artikel aus Video angestossen');
+    await new Promise((r) => setTimeout(r, 1500));
+    const nachVideo = await ruf(`/api/app/articles/${videoArtikel.daten.id}`);
+    pruefe(/youtube\.com/.test(nachVideo.daten.source_url || ''), 'Quelladresse am Artikel hinterlegt');
+    pruefe(nachVideo.daten.status === 'failed' && /API-Key/.test(nachVideo.daten.error || ''),
+      'Ohne Anthropic-Key scheitert die Video-Erzeugung sauber', nachVideo.daten.error);
+
+    const kanalAus = await ruf(`/api/app/channels/${kanalId}`, { method: 'PATCH', body: { active: false } });
+    pruefe(kanalAus.daten.active === 0, 'Kanal laesst sich pausieren');
+
     console.log('\nDiagnose');
     const diag = await ruf('/api/app/diagnostics/enable', { method: 'POST' });
     pruefe(diag.daten.url && diag.daten.token, 'Diagnose-Link erzeugt');
@@ -338,6 +390,7 @@ async function main() {
   } finally {
     if (fakeWp) fakeWp.server.close();
     if (fakeBild) fakeBild.close();
+    if (fakeTranskript) fakeTranskript.close();
     hub.kill();
   }
 

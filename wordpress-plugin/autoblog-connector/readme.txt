@@ -58,6 +58,9 @@ Die alte Verbindung wird sofort ungueltig. Trage den neuen Token unter "Einstell
 
 == Changelog ==
 
+= 1.4.0 =
+* Beitraege aus Videos: Das Quellvideo wird oben eingebettet und unten als Quelle genannt.
+
 = 1.3.0 =
 * Updates kommen jetzt direkt vom Autoblog Hub: Sie erscheinen unter "Plugins" wie gewohnt,
   lassen sich automatisch einspielen und koennen vom Hub aus angestossen werden.

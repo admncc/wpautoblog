@@ -100,6 +100,42 @@ CREATE TABLE IF NOT EXISTS articles (
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Beobachtete YouTube-Kanaele je Website
+CREATE TABLE IF NOT EXISTS channels (
+  id             TEXT PRIMARY KEY,
+  site_id        TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+  channel_id     TEXT NOT NULL,                     -- UC...
+  handle         TEXT NOT NULL DEFAULT '',
+  title          TEXT NOT NULL DEFAULT '',
+  active         INTEGER NOT NULL DEFAULT 1,
+  auto_article   INTEGER NOT NULL DEFAULT 1,        -- Artikel automatisch erzeugen
+  embed_video    INTEGER NOT NULL DEFAULT 1,        -- Video im Beitrag einbetten
+  interval_hours INTEGER NOT NULL DEFAULT 24,       -- wie oft geprueft wird
+  angle          TEXT NOT NULL DEFAULT '',          -- fester Blickwinkel fuer diesen Kanal
+  last_check_at  TEXT,
+  last_error     TEXT,
+  next_check_at  TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (site_id, channel_id)
+);
+
+-- Gefundene Videos und was daraus wurde
+CREATE TABLE IF NOT EXISTS videos (
+  id           TEXT PRIMARY KEY,
+  channel_ref  TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  site_id      TEXT NOT NULL,
+  video_id     TEXT NOT NULL UNIQUE,
+  title        TEXT NOT NULL DEFAULT '',
+  description  TEXT NOT NULL DEFAULT '',
+  published_at TEXT,
+  status       TEXT NOT NULL DEFAULT 'neu',         -- neu | transkribiert | artikel | uebersprungen | fehler
+  transcript   TEXT,
+  words        INTEGER NOT NULL DEFAULT 0,
+  article_id   TEXT,
+  error        TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Erzeugte Bilder. Die Datei liegt unter DATA_DIR/images, der Token macht sie
 -- ueber eine nicht erratbare URL fuer WordPress abrufbar.
 CREATE TABLE IF NOT EXISTS images (
@@ -140,6 +176,8 @@ CREATE TABLE IF NOT EXISTS logs (
 CREATE INDEX IF NOT EXISTS idx_plans_site   ON plans(site_id, active);
 CREATE INDEX IF NOT EXISTS idx_articles_site ON articles(site_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_site   ON topics(site_id, status);
+CREATE INDEX IF NOT EXISTS idx_channels_site  ON channels(site_id, active);
+CREATE INDEX IF NOT EXISTS idx_videos_channel  ON videos(channel_ref, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_images_article ON images(article_id, slot);
 CREATE INDEX IF NOT EXISTS idx_logs_created  ON logs(id DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_level    ON logs(level, id DESC);
@@ -160,6 +198,8 @@ ensureColumn('articles', 'plan_id', 'TEXT');
 ensureColumn('articles', 'archived', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('articles', 'archived_at', 'TEXT');
 ensureColumn('articles', 'notice', 'TEXT');
+ensureColumn('articles', 'source_url', 'TEXT');
+ensureColumn('articles', 'source_title', 'TEXT');
 
 const setSettingStmt = db.prepare(
   `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))

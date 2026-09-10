@@ -13,6 +13,11 @@
   automatisch in die WordPress-Mediathek
 - Ausführliches Protokoll und Diagnose-URL mit Einmal-Token
 
+## Bereits umgesetzt (Fortsetzung)
+
+- **YT Channel Spy:** YouTube-Kanäle beobachten, Transkripte auslesen und daraus eigenständige
+  Artikel schreiben, mit Duplikaterkennung über mehrere Kanäle hinweg
+
 ## Als Nächstes: Gezielte Posts
 
 Die Oberfläche hat den Reiter bereits, die Funktion folgt:

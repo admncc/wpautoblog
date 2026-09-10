@@ -62,6 +62,7 @@ class Autoblog_Publisher {
             isset($data['slug']) ? sanitize_title($data['slug']) : ''
         );
         $inhalt = self::apply_images($postarr['post_content'], $import['bilder'], $post_id);
+        $inhalt = self::apply_source($inhalt, isset($data['source']) ? $data['source'] : null);
         if ($inhalt !== $postarr['post_content']) {
             wp_update_post(['ID' => $post_id, 'post_content' => $inhalt]);
         }
@@ -195,6 +196,34 @@ class Autoblog_Publisher {
         }
 
         return ['bilder' => $bilder, 'fehler' => $fehler];
+    }
+
+    /**
+     * Ergaenzt Beitraege, die aus einem Video entstanden sind: Das Video wird oben
+     * eingebettet, unten steht die Quelle. WordPress macht aus einer nackten
+     * YouTube-Adresse in einer eigenen Zeile von selbst einen Player.
+     */
+    private static function apply_source($content, $source) {
+        if (!is_array($source) || empty($source['url'])) {
+            return $content;
+        }
+        $url   = esc_url_raw($source['url']);
+        $titel = isset($source['title']) ? sanitize_text_field($source['title']) : '';
+
+        $oben = '';
+        if (!empty($source['embed'])) {
+            // Eigene Zeile, damit die automatische Einbettung greift.
+            $oben = "\n" . $url . "\n\n";
+        }
+
+        $quelle = sprintf(
+            /* translators: %s: Link zum Quellvideo */
+            __('Grundlage dieses Beitrags ist das Video %s.', 'autoblog-connector'),
+            '<a href="' . esc_url($url) . '" target="_blank" rel="noopener nofollow">'
+                . esc_html($titel !== '' ? $titel : $url) . '</a>'
+        );
+
+        return $oben . $content . "\n\n<p class=\"autoblog-quelle\"><em>" . $quelle . '</em></p>';
     }
 
     /** Dateiendung zum gelieferten Bildtyp. */

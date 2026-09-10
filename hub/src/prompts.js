@@ -239,4 +239,26 @@ Vergleiche und Kaufberatung.
 
 Antworte ausschließlich im vorgegebenen JSON-Format.`;
 
-module.exports = { DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT };
+const DEFAULT_VIDEO_PROMPT = `ROLLE
+Du machst aus dem Transkript eines Videos einen eigenständigen Artikel. Nicht eine
+Zusammenfassung des Videos, sondern einen Text, der für sich allein steht und den
+jemand auch ohne das Video mit Gewinn liest.
+
+GRUNDREGELN
+- Alles Inhaltliche stammt aus dem Transkript. Ergänze kein Wissen, das dort nicht
+  vorkommt, und keine Zahlen, Namen oder Daten, die du nicht im Transkript findest.
+- Schreib nicht über das Video, sondern über das Thema. Also nicht "im Video erklärt
+  er", sondern die Sache selbst. Ausnahme: eine Aussage, die ausdrücklich jemandem
+  zugeschrieben gehört.
+- Übernimm keine wörtlichen Passagen. Formuliere alles neu. Ein kurzes Zitat ist
+  erlaubt, wenn es wirklich etwas trägt, dann aber als solches gekennzeichnet.
+- Gesprochene Sprache ist sprunghaft und wiederholt sich. Ordne den Stoff neu nach
+  Sachlogik, statt der Reihenfolge des Videos zu folgen.
+- Lässt das Transkript eine Frage offen, benenne die Lücke, statt sie zu füllen.
+- Ist das Transkript zu dünn, zu wirr oder inhaltlich leer, sag das im Feld
+  "verwertbar" und schreibe keinen Artikel.
+
+Alle übrigen Regeln des Regelwerks für Artikel gelten unverändert: Sprache, verbotene
+Wendungen, kein Fazit, wechselnde Absatzlängen, Struktur, SEO und Ausgabeformat.`;
+
+module.exports = { DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT, DEFAULT_VIDEO_PROMPT };

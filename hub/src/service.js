@@ -4,6 +4,7 @@ const { logger } = require('./logger');
 const ai = require('./ai');
 const wp = require('./wp');
 const images = require('./images');
+const youtube = require('./youtube');
 const { randomId } = require('./util');
 const { PUBLIC_URL } = require('./config');
 
@@ -85,6 +86,118 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
     });
 
   return { article: getArticle(id), promise };
+}
+
+/**
+ * Macht aus einem beobachteten Video einen Artikel: Transkript holen, Artikel
+ * schreiben lassen, Bilder erzeugen. Laeuft wie die normale Erzeugung im Hintergrund.
+ */
+function startFromVideo(video) {
+  const site = getSite(video.site_id);
+  if (!site) throw new Error('Website nicht gefunden.');
+
+  const kanal = db.prepare('SELECT * FROM channels WHERE id = ?').get(video.channel_ref) || {};
+  const id = randomId('art');
+  db.prepare(
+    `INSERT INTO articles (id, site_id, keyword, title, status, origin, source_url, source_title)
+     VALUES (?, ?, ?, ?, 'generating', 'youtube', ?, ?)`
+  ).run(id, site.id, video.title, video.title, youtube.videoUrl(video.video_id), video.title);
+  db.prepare("UPDATE videos SET status = 'transkribiert', article_id = ? WHERE id = ?").run(id, video.id);
+
+  const timer = logger.start('article', 'video', `Artikel aus Video: "${video.title}"`, {
+    siteId: site.id,
+    articleId: id,
+    context: { video_id: video.video_id, kanal: kanal.title },
+  });
+
+  let kategorien = [];
+  try {
+    kategorien = JSON.parse(site.categories || '[]');
+  } catch { /* noch keine gemeldet */ }
+
+  const promise = youtube
+    .fetchTranscript(video.video_id, site.language || 'de')
+    .then(async (transcript) => {
+      db.prepare('UPDATE videos SET transcript = ?, words = ? WHERE id = ?')
+        .run(transcript.slice(0, 200000), transcript.split(' ').length, video.id);
+
+      const result = await ai.generateFromVideo({
+        site,
+        video,
+        transcript,
+        imageCount: images.plannedCount(),
+        categories: kategorien,
+        angle: kanal.angle || '',
+      });
+
+      touchArticle(id, {
+        title: result.title,
+        slug: result.slug,
+        excerpt: result.excerpt,
+        content_html: result.content_html,
+        meta_title: result.meta_title,
+        meta_desc: result.meta_desc,
+        tags: result.tags,
+        category: site.wp_category || result.category || '',
+        word_count: result.word_count,
+        model: result.model,
+        tokens_in: result.tokens_in,
+        tokens_out: result.tokens_out,
+        status: 'draft',
+        error: null,
+      });
+      db.prepare("UPDATE videos SET status = 'artikel' WHERE id = ?").run(video.id);
+      timer.ok(`Artikel aus Video fertig: "${result.title}" (${result.word_count} Woerter)`, {
+        siteId: site.id, articleId: id, context: { video_id: video.video_id },
+      });
+
+      if (result.images && result.images.length) {
+        await images.generateForArticle(getArticle(id), result.images).catch((err) =>
+          logger.error('image', 'generate', `Bilder fehlgeschlagen: ${err.message || err}`, { siteId: site.id, articleId: id })
+        );
+      }
+      return getArticle(id);
+    })
+    .catch((err) => {
+      const meldung = String(err.message || err);
+      touchArticle(id, { status: 'failed', error: meldung });
+      db.prepare("UPDATE videos SET status = 'fehler', error = ? WHERE id = ?").run(meldung.slice(0, 500), video.id);
+      timer.fail(meldung, { siteId: site.id, articleId: id, context: { video_id: video.video_id } });
+      return getArticle(id);
+    });
+
+  return { article: getArticle(id), promise };
+}
+
+/**
+ * Arbeitet neu gefundene Videos ab. Bewusst nacheinander und begrenzt,
+ * damit ein Schwung neuer Videos nicht alles blockiert.
+ */
+async function runVideoQueue(limit = 3) {
+  if (!youtube.aktiv()) return { verarbeitet: 0 };
+
+  const offen = db
+    .prepare(
+      `SELECT v.* FROM videos v
+       JOIN channels c ON c.id = v.channel_ref
+       WHERE v.status = 'neu' AND c.active = 1 AND c.auto_article = 1
+       ORDER BY v.published_at ASC LIMIT ?`
+    )
+    .all(Math.max(1, limit));
+
+  let verarbeitet = 0;
+  for (const video of offen) {
+    try {
+      const { promise } = startFromVideo(video);
+      await promise;
+      verarbeitet += 1;
+    } catch (err) {
+      logger.error('article', 'video', `Video konnte nicht verarbeitet werden: ${err.message || err}`, {
+        siteId: video.site_id, context: { video_id: video.video_id },
+      });
+    }
+  }
+  return { verarbeitet };
 }
 
 /** Schiebt einen fertigen Artikel ueber das Plugin nach WordPress. */
@@ -256,4 +369,4 @@ async function runRecurring() {
   return { plans: due.length, produced };
 }
 
-module.exports = { startGeneration, publish, runRecurring, computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle };
+module.exports = { startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle };

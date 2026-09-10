@@ -2,7 +2,7 @@
 const { getSetting, setSetting } = require('./db');
 const { encrypt, decrypt } = require('./util');
 const { ENV_ANTHROPIC_KEY, DEFAULT_MODEL } = require('./config');
-const { DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT } = require('./prompts');
+const { DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT, DEFAULT_VIDEO_PROMPT } = require('./prompts');
 
 const DEFAULTS = {
   hub_name: 'Autoblog Hub',
@@ -24,6 +24,12 @@ const DEFAULTS = {
   image_quality: 'high',
   image_style: 'natural documentary photography, soft daylight, shallow depth of field, no text',
   images_per_article: '3',
+  // YouTube-Beobachtung. Der Google-Schluessel ist optional, der Feed genuegt meist.
+  youtube_enabled: '0',
+  transcript_provider: 'supadata',              // supadata | custom
+  transcript_url: 'https://api.supadata.ai/v1/youtube/transcript?url={video_url}&lang={lang}&text=true',
+  transcript_header: 'x-api-key',
+  video_prompt: DEFAULT_VIDEO_PROMPT,
 };
 
 function all() {
@@ -40,6 +46,29 @@ function save(patch) {
   for (const [key, value] of Object.entries(patch)) {
     if (key in DEFAULTS) setSetting(key, value);
   }
+}
+
+/** Schluessel des Transkript-Dienstes und optionaler Google-Schluessel. */
+function setTranscriptKey(key) {
+  setSetting('transcript_api_key', key ? encrypt(key.trim()) : '');
+}
+function getTranscriptKey() {
+  return decrypt(getSetting('transcript_api_key', '')) || process.env.TRANSCRIPT_API_KEY || '';
+}
+function transcriptKeyInfo() {
+  const key = getTranscriptKey();
+  return key ? { configured: true, hint: `${key.slice(0, 6)}…${key.slice(-4)}` } : { configured: false, hint: '' };
+}
+
+function setYoutubeKey(key) {
+  setSetting('youtube_api_key', key ? encrypt(key.trim()) : '');
+}
+function getYoutubeKey() {
+  return decrypt(getSetting('youtube_api_key', '')) || process.env.YOUTUBE_API_KEY || '';
+}
+function youtubeKeyInfo() {
+  const key = getYoutubeKey();
+  return key ? { configured: true, hint: `${key.slice(0, 6)}…${key.slice(-4)}` } : { configured: false, hint: '' };
 }
 
 /** Bild-API-Key, ebenfalls verschluesselt abgelegt. */
@@ -81,6 +110,13 @@ function apiKeyInfo() {
 function resetPrompts() {
   setSetting('article_prompt', DEFAULTS.article_prompt);
   setSetting('topic_prompt', DEFAULTS.topic_prompt);
+  setSetting('video_prompt', DEFAULTS.video_prompt);
 }
 
-module.exports = { all, get, save, setApiKey, getApiKey, apiKeyInfo, setImageKey, getImageKey, imageKeyInfo, resetPrompts, DEFAULTS };
+module.exports = {
+  all, get, save, resetPrompts, DEFAULTS,
+  setApiKey, getApiKey, apiKeyInfo,
+  setImageKey, getImageKey, imageKeyInfo,
+  setTranscriptKey, getTranscriptKey, transcriptKeyInfo,
+  setYoutubeKey, getYoutubeKey, youtubeKeyInfo,
+};

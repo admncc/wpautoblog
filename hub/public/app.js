@@ -41,6 +41,14 @@ function fmtDate(value) {
   return date.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+const VIDEO_STATUS = {
+  neu: ['warn', 'wartet'],
+  transkribiert: ['info', 'wird verarbeitet …'],
+  artikel: ['ok', 'Artikel erzeugt'],
+  uebersprungen: ['', 'übersprungen'],
+  fehler: ['err', 'Fehler'],
+};
+
 const STATUS = {
   generating: ['info', 'wird erzeugt …'],
   draft: ['', 'Entwurf'],
@@ -463,11 +471,12 @@ async function renderSites(view) {
 }
 
 async function renderSite(view, siteId) {
-  const { site, topics, articles, plans, pluginVersion } = await api(`/api/app/sites/${siteId}`);
+  const { site, topics, articles, plans, pluginVersion, channels = [], videos = [], youtubeAktiv } =
+    await api(`/api/app/sites/${siteId}`);
   const tab = state.data.siteTab || 'connect';
   const hubUrl = location.origin;
 
-  const tabs = { connect: 'Verbindung', content: 'Inhalt & Stil', topics: 'Themen', articles: 'Artikel' };
+  const tabs = { connect: 'Verbindung', content: 'Inhalt & Stil', topics: 'Themen', spy: 'YT Channel Spy', articles: 'Artikel' };
 
   view.innerHTML = `
     <div class="page-head">
@@ -677,6 +686,132 @@ async function renderSite(view, siteId) {
       const { keyword, write } = event.currentTarget.dataset;
       const article = await api('/api/app/articles', { method: 'POST', body: { site_id: siteId, keyword, topic_id: write } });
       navigate('article', article.id);
+    }));
+  }
+
+  if (tab === 'spy') {
+    body.innerHTML = `
+      ${youtubeAktiv ? '' : `<div class="notice err">Die Kanalbeobachtung ist noch nicht eingerichtet.
+        Unter <a href="#/settings">Einstellungen → YouTube</a> einschalten und den Schlüssel des
+        Transkript-Dienstes hinterlegen.</div>`}
+
+      <div class="card">
+        <h2>Kanal beobachten</h2>
+        <p class="sub">Kommt auf einem beobachteten Kanal ein neues Video, liest der Hub das Transkript
+          und macht daraus einen eigenständigen Artikel für diese Website.</p>
+        <form id="channel-form" style="margin-top:14px">
+          <div class="field">
+            <label for="chan-input">Kanal</label>
+            <input id="chan-input" required placeholder="https://www.youtube.com/@kanalname oder UC…" />
+            <div class="hint">Adresse, @handle oder Kanal-ID. Der Hub ermittelt den Rest selbst.</div>
+          </div>
+          <div class="grid cols-2">
+            <div class="field"><label for="chan-interval">Wie oft prüfen (Stunden)</label>
+              <input id="chan-interval" type="number" min="1" max="168" value="24" />
+              <div class="hint">Standard: einmal täglich.</div></div>
+            <div class="field"><label for="chan-angle">Fester Blickwinkel (optional)</label>
+              <input id="chan-angle" placeholder="z. B. immer für Einsteiger einordnen" /></div>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="chan-auto" checked style="width:auto;margin-right:8px" />
+              Artikel automatisch erzeugen, sobald ein neues Video erscheint</label>
+            <div class="hint">Ohne Haken sammelt der Hub die Videos nur, du entscheidest je Video.</div>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="chan-embed" checked style="width:auto;margin-right:8px" />
+              Video im Beitrag einbetten und als Quelle nennen</label>
+          </div>
+          <button class="primary" type="submit">Kanal hinzufügen</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Beobachtete Kanäle (${channels.length})</h2>
+        ${channels.length ? channels.map((k) => `
+          <div style="border-top:1px solid var(--border);padding:14px 0">
+            <div class="row">
+              <div style="flex:1">
+                <strong>${esc(k.title || k.channel_id)}</strong>
+                ${k.active ? '<span class="badge ok">aktiv</span>' : '<span class="badge">pausiert</span>'}
+                ${k.auto_article ? '<span class="badge info">automatisch</span>' : ''}
+                <div class="hint">${esc(k.handle || k.channel_id)} · alle ${k.interval_hours} h ·
+                  ${k.videos} Videos gefunden, ${k.artikel} Artikel ·
+                  zuletzt geprüft: ${fmtDate(k.last_check_at)}</div>
+                ${k.last_error ? `<div class="hint" style="color:var(--red)">${esc(k.last_error)}</div>` : ''}
+                ${k.angle ? `<div class="hint">Blickwinkel: ${esc(k.angle)}</div>` : ''}
+              </div>
+              <div class="row">
+                <button class="small" data-scan="${esc(k.id)}">Jetzt prüfen</button>
+                <button class="small" data-toggle-chan="${esc(k.id)}" data-active="${k.active}">${k.active ? 'Pausieren' : 'Aktivieren'}</button>
+                <button class="small danger" data-del-chan="${esc(k.id)}">Entfernen</button>
+              </div>
+            </div>
+          </div>`).join('')
+          : '<div class="empty">Noch kein Kanal in Beobachtung.</div>'}
+      </div>
+
+      <div class="card">
+        <h2>Gefundene Videos</h2>
+        ${videos.length ? `<table><thead><tr><th>Video</th><th>Status</th><th>Veröffentlicht</th><th></th></tr></thead><tbody>
+          ${videos.map((v) => {
+            const [cls, label] = VIDEO_STATUS[v.status] || ['', v.status];
+            return `<tr>
+              <td><strong>${esc(v.title)}</strong>
+                <div class="hint">${esc(v.kanal || '')}
+                  · <a href="https://www.youtube.com/watch?v=${esc(v.video_id)}" target="_blank" rel="noopener">auf YouTube</a>
+                  ${v.words ? ` · ${v.words} Wörter Transkript` : ''}</div>
+                ${v.error ? `<div class="hint" style="color:var(--red)">${esc(v.error)}</div>` : ''}</td>
+              <td><span class="badge ${cls}">${esc(label)}</span></td>
+              <td>${fmtDate(v.published_at)}</td>
+              <td style="text-align:right;white-space:nowrap">
+                ${v.article_id ? `<a class="btn small" href="#/article/${esc(v.article_id)}">Artikel</a>` : ''}
+                ${['neu', 'fehler', 'uebersprungen'].includes(v.status)
+                  ? `<button class="small primary" data-make="${esc(v.id)}">Artikel erzeugen</button>` : ''}
+                ${v.status === 'neu' ? `<button class="small" data-skip="${esc(v.id)}">Überspringen</button>` : ''}
+              </td></tr>`;
+          }).join('')}
+        </tbody></table>` : '<div class="empty">Noch keine Videos gefunden.</div>'}
+      </div>`;
+
+    on('#channel-form', 'submit', (event) => {
+      event.preventDefault();
+      guard(event.target.querySelector('button'), async () => {
+        await api(`/api/app/sites/${siteId}/channels`, {
+          method: 'POST',
+          body: {
+            input: root.querySelector('#chan-input').value,
+            interval_hours: root.querySelector('#chan-interval').value,
+            angle: root.querySelector('#chan-angle').value,
+            auto_article: root.querySelector('#chan-auto').checked,
+            embed_video: root.querySelector('#chan-embed').checked,
+          },
+        });
+        toast('Kanal wird jetzt beobachtet.');
+        await render();
+      });
+    });
+    on('[data-scan]', 'click', (event) => guard(event.currentTarget, async () => {
+      const ergebnis = await api(`/api/app/channels/${event.currentTarget.dataset.scan}/scan`, { method: 'POST' });
+      toast(ergebnis.neu ? `${ergebnis.neu} neue Videos gefunden.` : 'Keine neuen Videos.');
+      await render();
+    }));
+    on('[data-toggle-chan]', 'click', (event) => guard(event.currentTarget, async () => {
+      const { toggleChan, active } = event.currentTarget.dataset;
+      await api(`/api/app/channels/${toggleChan}`, { method: 'PATCH', body: { active: active !== '1' } });
+      await render();
+    }));
+    on('[data-del-chan]', 'click', async (event) => {
+      if (!confirm('Kanal nicht mehr beobachten? Bereits erzeugte Artikel bleiben erhalten.')) return;
+      await api(`/api/app/channels/${event.currentTarget.dataset.delChan}`, { method: 'DELETE' });
+      await render();
+    });
+    on('[data-make]', 'click', (event) => guard(event.currentTarget, async () => {
+      const artikel = await api(`/api/app/videos/${event.currentTarget.dataset.make}/article`, { method: 'POST' });
+      navigate('article', artikel.id);
+    }));
+    on('[data-skip]', 'click', (event) => guard(event.currentTarget, async () => {
+      await api(`/api/app/videos/${event.currentTarget.dataset.skip}/skip`, { method: 'POST' });
+      await render();
     }));
   }
 
@@ -1257,6 +1392,44 @@ async function renderSettings(view) {
     </div>
 
     <div class="card">
+      <h2>YouTube-Kanäle und Transkripte</h2>
+      <p class="sub">Für den Reiter „YT Channel Spy" bei den Websites. Die Kanalbeobachtung läuft über den
+        öffentlichen RSS-Feed und braucht keinen Google-Schlüssel. Nur für die Transkripte wird ein
+        Dienst gebraucht, weil YouTube dafür keine offene Schnittstelle hat.</p>
+      <div class="field" style="margin-top:14px">
+        <label><input type="checkbox" id="youtube_enabled" ${data.youtube_enabled === '1' ? 'checked' : ''}
+          style="width:auto;margin-right:8px" />Kanalbeobachtung einschalten</label>
+      </div>
+      <div class="field">
+        <label for="transcript_api_key">Schlüssel des Transkript-Dienstes</label>
+        <input id="transcript_api_key" type="password" placeholder="${data.transcriptKey.configured ? `hinterlegt (${esc(data.transcriptKey.hint)})` : 'z. B. Supadata-Schlüssel'}" />
+        <div class="hint">${data.transcriptKey.configured
+          ? 'Ein Schlüssel ist hinterlegt. Feld leer lassen, um ihn zu behalten.'
+          : 'Voreingestellt ist Supadata (supadata.ai). Jeder Dienst mit HTTP-Schnittstelle funktioniert.'}</div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field"><label for="transcript_url">Abrufadresse</label>
+          <input id="transcript_url" value="${esc(data.transcript_url)}" />
+          <div class="hint">Platzhalter: <code>{video_url}</code>, <code>{video_id}</code>, <code>{lang}</code></div></div>
+        <div class="field"><label for="transcript_header">Name des Schlüssel-Headers</label>
+          <input id="transcript_header" value="${esc(data.transcript_header)}" placeholder="x-api-key" />
+          <div class="hint">Bei „authorization" wird automatisch „Bearer" vorangestellt.</div></div>
+      </div>
+      <div class="field">
+        <label for="youtube_api_key">Google API-Schlüssel (optional)</label>
+        <input id="youtube_api_key" type="password" placeholder="${data.youtubeKey.configured ? `hinterlegt (${esc(data.youtubeKey.hint)})` : 'wird normalerweise nicht gebraucht'}" />
+        <div class="hint">Nur als Rückfallweg, falls der RSS-Feed einmal nicht erreichbar ist.</div>
+      </div>
+      <div class="field">
+        <label for="video_prompt">Anweisung für Artikel aus Videos</label>
+        <textarea id="video_prompt" style="min-height:180px">${esc(data.video_prompt)}</textarea>
+        <div class="hint">Steht vor dem allgemeinen Prompt-Framework. Regelt, wie aus einem Transkript
+          ein eigenständiger Artikel wird statt einer Zusammenfassung.</div>
+      </div>
+      <button class="primary" id="save-settings-4">Speichern</button>
+    </div>
+
+    <div class="card">
       <h2>Diagnose-Zugang</h2>
       <p class="sub">Erzeugt einen Link, über den sich der komplette Systemzustand samt Protokoll abrufen lässt –
         ohne Anmeldung, nur mit diesem Link. Jede Aktivierung erzeugt einen <strong>neuen</strong> Token,
@@ -1291,7 +1464,7 @@ async function renderSettings(view) {
     for (const field of ['hub_name', 'model', 'effort', 'brand_name', 'brand_description', 'default_language',
       'default_word_count', 'default_tone', 'global_prompt', 'article_prompt', 'topic_prompt',
       'image_provider', 'images_per_article', 'image_base_url', 'image_model', 'image_size',
-      'image_quality', 'image_style']) {
+      'image_quality', 'image_style', 'transcript_url', 'transcript_header', 'video_prompt']) {
       const el = root.querySelector(`#${field}`);
       if (el) body[field] = el.value;
     }
@@ -1299,6 +1472,12 @@ async function renderSettings(view) {
     if (key) body.anthropic_api_key = key;
     const imageKey = root.querySelector('#image_api_key').value.trim();
     if (imageKey) body.image_api_key = imageKey;
+    const transcriptKey = root.querySelector('#transcript_api_key');
+    if (transcriptKey && transcriptKey.value.trim()) body.transcript_api_key = transcriptKey.value.trim();
+    const youtubeKey = root.querySelector('#youtube_api_key');
+    if (youtubeKey && youtubeKey.value.trim()) body.youtube_api_key = youtubeKey.value.trim();
+    const ytAn = root.querySelector('#youtube_enabled');
+    if (ytAn) body.youtube_enabled = ytAn.checked ? '1' : '0';
     await api('/api/app/settings', { method: 'PUT', body });
     state.session = null; // Hub-Name in der Seitenleiste neu laden
     toast('Gespeichert.');
@@ -1307,6 +1486,7 @@ async function renderSettings(view) {
   on('#save-settings', 'click', saveSettings);
   on('#save-settings-2', 'click', saveSettings);
   on('#save-settings-3', 'click', saveSettings);
+  on('#save-settings-4', 'click', saveSettings);
   const renderDiagnostics = async () => {
     const box = root.querySelector('#diagnostics-box');
     if (!box) return;

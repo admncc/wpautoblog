@@ -195,6 +195,15 @@ async function updatePlugin(site) {
   return callSite(site, 'update', { download_url: require('./pluginpack').downloadUrl(site.id) });
 }
 
+/** Soll das Quellvideo im Beitrag eingebettet werden? Steht am Kanal. */
+function quelleEinbetten(article) {
+  const { db } = require('./db');
+  const kanal = db
+    .prepare('SELECT c.embed_video FROM videos v JOIN channels c ON c.id = v.channel_ref WHERE v.article_id = ?')
+    .get(article.id);
+  return kanal ? Boolean(kanal.embed_video) : true;
+}
+
 async function publishArticle(site, article) {
   return callSite(site, 'publish', {
     article_id: article.id,
@@ -210,6 +219,10 @@ async function publishArticle(site, article) {
     meta: { title: article.meta_title, description: article.meta_desc },
     // WordPress laedt die Bilder ueber diese Adressen selbst herunter.
     images: images.forDelivery(article.id),
+    // Bei Artikeln aus Videos: Quelle zum Einbetten und Nennen.
+    source: article.source_url
+      ? { url: article.source_url, title: article.source_title || '', embed: quelleEinbetten(article) }
+      : null,
   });
 }
 

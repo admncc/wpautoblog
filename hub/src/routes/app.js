@@ -13,6 +13,7 @@ const diagnostics = require('./../diagnostics');
 const images = require('./../images');
 const pack = require('./../pluginpack');
 const update = require('./../update');
+const youtube = require('./../youtube');
 
 const router = express.Router();
 
@@ -87,6 +88,21 @@ router.get(
       site: publicSite(site),
       topics: db.prepare('SELECT * FROM topics WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
       plans: db.prepare('SELECT * FROM plans WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
+      channels: db
+        .prepare(
+          `SELECT c.*, (SELECT COUNT(*) FROM videos v WHERE v.channel_ref = c.id) AS videos,
+                  (SELECT COUNT(*) FROM videos v WHERE v.channel_ref = c.id AND v.status = 'artikel') AS artikel
+           FROM channels c WHERE c.site_id = ? ORDER BY c.created_at DESC`
+        )
+        .all(site.id),
+      videos: db
+        .prepare(
+          `SELECT v.id, v.video_id, v.title, v.status, v.published_at, v.article_id, v.error, v.words, c.title AS kanal
+           FROM videos v JOIN channels c ON c.id = v.channel_ref
+           WHERE v.site_id = ? ORDER BY v.published_at DESC LIMIT 40`
+        )
+        .all(site.id),
+      youtubeAktiv: youtube.aktiv(),
       articles: db
         .prepare(`SELECT id, title, keyword, status, word_count, wp_url, created_at, published_at, origin,
                          archived, archived_at
@@ -282,6 +298,21 @@ router.post(
       added: suggestions.length,
       topics: db.prepare('SELECT * FROM topics WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
       plans: db.prepare('SELECT * FROM plans WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
+      channels: db
+        .prepare(
+          `SELECT c.*, (SELECT COUNT(*) FROM videos v WHERE v.channel_ref = c.id) AS videos,
+                  (SELECT COUNT(*) FROM videos v WHERE v.channel_ref = c.id AND v.status = 'artikel') AS artikel
+           FROM channels c WHERE c.site_id = ? ORDER BY c.created_at DESC`
+        )
+        .all(site.id),
+      videos: db
+        .prepare(
+          `SELECT v.id, v.video_id, v.title, v.status, v.published_at, v.article_id, v.error, v.words, c.title AS kanal
+           FROM videos v JOIN channels c ON c.id = v.channel_ref
+           WHERE v.site_id = ? ORDER BY v.published_at DESC LIMIT 40`
+        )
+        .all(site.id),
+      youtubeAktiv: youtube.aktiv(),
     });
   })
 );
@@ -451,6 +482,103 @@ router.delete(
   })
 );
 
+// -------------------------------------------------------- YT Channel Spy
+
+router.post(
+  '/sites/:id/channels',
+  wrap(async (req, res) => {
+    const site = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    if (!site) return res.status(404).json({ error: 'Website nicht gefunden.' });
+
+    try {
+      const gefunden = await youtube.resolveChannel(req.body.input);
+      const id = randomId('chan');
+      db.prepare(
+        `INSERT INTO channels (id, site_id, channel_id, handle, title, interval_hours, angle, auto_article, embed_video)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        id, site.id, gefunden.channel_id, gefunden.handle, sanitizeText(req.body.title || gefunden.title, 160),
+        Math.max(1, Math.min(168, Number(req.body.interval_hours) || 24)),
+        sanitizeText(req.body.angle, 300),
+        req.body.auto_article === false ? 0 : 1,
+        req.body.embed_video === false ? 0 : 1
+      );
+      logger.info('youtube', 'channel', `Kanal aufgenommen: ${gefunden.title || gefunden.channel_id}`, {
+        siteId: site.id, requestId: req.requestId, context: { channel_id: gefunden.channel_id },
+      });
+      res.status(201).json(db.prepare('SELECT * FROM channels WHERE id = ?').get(id));
+    } catch (err) {
+      const schonDa = /UNIQUE constraint/.test(String(err.message));
+      res.status(400).json({ error: schonDa ? 'Dieser Kanal wird fuer diese Website bereits beobachtet.' : err.message });
+    }
+  })
+);
+
+router.patch(
+  '/channels/:id',
+  wrap((req, res) => {
+    const kanal = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+    if (!kanal) return res.status(404).json({ error: 'Kanal nicht gefunden.' });
+
+    const patch = {};
+    if ('title' in req.body) patch.title = sanitizeText(req.body.title, 160);
+    if ('angle' in req.body) patch.angle = sanitizeText(req.body.angle, 300);
+    if ('interval_hours' in req.body) patch.interval_hours = Math.max(1, Math.min(168, Number(req.body.interval_hours) || 24));
+    if ('active' in req.body) patch.active = req.body.active ? 1 : 0;
+    if ('auto_article' in req.body) patch.auto_article = req.body.auto_article ? 1 : 0;
+    if ('embed_video' in req.body) patch.embed_video = req.body.embed_video ? 1 : 0;
+
+    if (Object.keys(patch).length) {
+      const setClause = Object.keys(patch).map((k) => `${k} = @${k}`).join(', ');
+      db.prepare(`UPDATE channels SET ${setClause} WHERE id = @id`).run({ ...patch, id: kanal.id });
+    }
+    res.json(db.prepare('SELECT * FROM channels WHERE id = ?').get(kanal.id));
+  })
+);
+
+router.delete(
+  '/channels/:id',
+  wrap((req, res) => {
+    db.prepare('DELETE FROM channels WHERE id = ?').run(req.params.id);
+    res.json({ ok: true });
+  })
+);
+
+/** Kanal sofort pruefen, ohne auf den Termin zu warten. */
+router.post(
+  '/channels/:id/scan',
+  wrap(async (req, res) => {
+    const kanal = db.prepare('SELECT * FROM channels WHERE id = ?').get(req.params.id);
+    if (!kanal) return res.status(404).json({ error: 'Kanal nicht gefunden.' });
+    const ergebnis = await youtube.scanChannel(kanal);
+    if (ergebnis.fehler) return res.status(400).json({ error: ergebnis.fehler });
+    res.json({ ok: true, ...ergebnis });
+  })
+);
+
+/** Aus einem einzelnen Video jetzt einen Artikel machen. */
+router.post(
+  '/videos/:id/article',
+  wrap((req, res) => {
+    const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(req.params.id);
+    if (!video) return res.status(404).json({ error: 'Video nicht gefunden.' });
+    if (video.status === 'artikel' && video.article_id) {
+      return res.status(400).json({ error: 'Aus diesem Video wurde bereits ein Artikel erzeugt.' });
+    }
+    const { article } = service.startFromVideo(video);
+    res.status(202).json(article);
+  })
+);
+
+router.post(
+  '/videos/:id/skip',
+  wrap((req, res) => {
+    db.prepare("UPDATE videos SET status = 'uebersprungen', error = 'von Hand uebersprungen' WHERE id = ?")
+      .run(req.params.id);
+    res.json({ ok: true });
+  })
+);
+
 // ------------------------------------------- Wiederkehrende Posts (Plaene)
 
 router.get(
@@ -546,6 +674,8 @@ router.get(
       ...settings.all(),
       apiKey: settings.apiKeyInfo(),
       imageKey: settings.imageKeyInfo(),
+      transcriptKey: settings.transcriptKeyInfo(),
+      youtubeKey: settings.youtubeKeyInfo(),
       imagesEnabled: images.enabled(),
       models: ai.MODELS,
       hubUrl: PUBLIC_URL,
@@ -566,7 +696,22 @@ router.put(
       settings.setImageKey(req.body.image_api_key);
     }
     if (req.body.image_api_key === '') settings.setImageKey('');
-    res.json({ ...settings.all(), apiKey: settings.apiKeyInfo(), imageKey: settings.imageKeyInfo(), imagesEnabled: images.enabled() });
+    if (typeof req.body.transcript_api_key === 'string' && req.body.transcript_api_key.trim()) {
+      settings.setTranscriptKey(req.body.transcript_api_key);
+    }
+    if (req.body.transcript_api_key === '') settings.setTranscriptKey('');
+    if (typeof req.body.youtube_api_key === 'string' && req.body.youtube_api_key.trim()) {
+      settings.setYoutubeKey(req.body.youtube_api_key);
+    }
+    if (req.body.youtube_api_key === '') settings.setYoutubeKey('');
+    res.json({
+      ...settings.all(),
+      apiKey: settings.apiKeyInfo(),
+      imageKey: settings.imageKeyInfo(),
+      transcriptKey: settings.transcriptKeyInfo(),
+      youtubeKey: settings.youtubeKeyInfo(),
+      imagesEnabled: images.enabled(),
+    });
   })
 );
 

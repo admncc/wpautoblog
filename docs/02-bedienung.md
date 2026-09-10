@@ -43,6 +43,25 @@ Standardkategorie von WordPress, und am Artikel steht ein Hinweis.
 **Themen** – die Warteliste der Website. Eigene Themen zeilenweise eintragen oder
 von der KI zehn Vorschläge erzeugen lassen. Aus jedem Thema lässt sich direkt ein Artikel schreiben.
 
+**YT Channel Spy** – beobachtete YouTube-Kanäle. Erscheint dort ein neues Video, liest der Hub
+das Transkript und macht daraus einen eigenständigen Artikel für diese Website.
+
+Je Kanal legst du fest, wie oft geprüft wird (Standard: einmal täglich), ob Artikel automatisch
+entstehen oder du je Video entscheidest, ob das Video im Beitrag eingebettet wird, und optional
+einen festen Blickwinkel für alle Beiträge aus diesem Kanal.
+
+Wie es abläuft: Die Überwachung nutzt den öffentlichen RSS-Feed des Kanals, dafür braucht es
+keinen Google-Schlüssel. Beim ersten Lauf wird nur das neueste Video aufgenommen, sonst käme das
+ganze Archiv. Danach zählt jedes neue Video. Berichten mehrere beobachtete Kanäle über dasselbe
+Thema, erkennt der Hub das an der Titelähnlichkeit und überspringt die Dublette, statt denselben
+Beitrag mehrfach zu schreiben.
+
+Der erzeugte Artikel ist bewusst **keine Zusammenfassung des Videos**, sondern ein eigener Text
+zum Thema: neu geordnet, neu formuliert, ohne wörtliche Übernahmen. Alles Inhaltliche stammt
+trotzdem ausschließlich aus dem Transkript. Gibt das Transkript nichts her, sagt die KI das und
+es entsteht kein Artikel. In WordPress steht das Quellvideo oben und ein Hinweis auf die Quelle
+unten. Ein YouTube-Thumbnail wird bewusst nicht übernommen, die Bilder entstehen wie sonst auch.
+
 **Artikel** – alle Beiträge dieser Website.
 
 ---
@@ -177,5 +196,11 @@ durch das Bild samt Unterschrift. Platzhalter ohne Bild verschwinden rückstands
 > Fehlermeldung aus WordPress, etwa „Bild 1: Hub nicht erreichbar (Connection refused)".
 > Läuft der Hub auf einem eigenen Port wie 4000, muss der WordPress-Hoster ausgehende
 > Verbindungen dorthin zulassen.
+
+**YouTube-Kanäle und Transkripte** – Schalter für die Kanalbeobachtung und der Schlüssel des
+Transkript-Dienstes. Voreingestellt ist [Supadata](https://supadata.ai), jeder Dienst mit
+HTTP-Schnittstelle funktioniert: Die Abrufadresse ist frei bearbeitbar und kennt die Platzhalter
+`{video_url}`, `{video_id}` und `{lang}`. Ein Google-Schlüssel wird normalerweise nicht gebraucht.
+Darunter die Anweisung für Artikel aus Videos, die dem allgemeinen Prompt-Framework vorangestellt wird.
 
 **Diagnose-Zugang** – siehe [Diagnose](03-diagnose.md).

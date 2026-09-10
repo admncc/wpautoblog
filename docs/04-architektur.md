@@ -63,6 +63,8 @@ sich mit jedem weiteren Versuch bis auf eine Stunde (`src/guard.js`).
 | `topics` | Themenliste je Website (`open` / `used`), manuell oder von der KI |
 | `plans` | Wiederkehrende Posts: Themenbereiche, Takt, nächster Termin |
 | `articles` | Artikel mit Inhalt, SEO-Feldern, Status, Token-Verbrauch und WordPress-Bezug |
+| `channels` | Beobachtete YouTube-Kanaele je Website mit Prüfintervall und nächstem Termin |
+| `videos` | Gefundene Videos mit Status, Transkript und Bezug zum erzeugten Artikel |
 | `images` | Erzeugte Bilder mit Bildbeschreibung, Alt-Text, Unterschrift, Datei und Abrufe-Token |
 | `logs` | Protokoll mit Stufe, Bereich, Aktion, Dauer, HTTP-Status und Kontext als JSON |
 
@@ -154,6 +156,23 @@ zurück und startet erneut.
 
 Der Hub bekommt dadurch keinerlei Zugriff auf Docker oder den Server, sondern nur auf
 einen Ordner mit drei Dateien.
+
+## YouTube-Beobachtung
+
+1. Stündlich prüft der Zeitplan die fälligen Kanäle über den öffentlichen RSS-Feed
+   (`youtube.com/feeds/videos.xml?channel_id=…`). Kein Google-Schlüssel nötig.
+2. Neue Videos werden in `videos` aufgenommen. Beim ersten Lauf eines Kanals nur das neueste,
+   damit nicht das gesamte Archiv einläuft.
+3. Vor der Aufnahme prüft der Hub die Titelähnlichkeit gegen die Videos derselben Website aus
+   den letzten drei Tagen. Ab 60 Prozent gemeinsamer Wörter gilt ein Video als Dublette und wird
+   übersprungen, weil verschiedene Kanäle oft über dasselbe berichten.
+4. Für jedes neue Video holt der Hub das Transkript über einen konfigurierbaren Dienst
+   (`src/youtube.js`). Antwortet dieser mit einer Auftragsnummer, wird nachgefragt; HTTP 206 gilt
+   als Erfolg, weil Supadata bei langen Videos so antwortet.
+5. Aus dem Transkript entsteht ein eigenständiger Artikel. Das Antwortschema hat dafür ein
+   zusätzliches Feld `verwertbar`: Ist das Transkript zu dünn, entsteht kein Artikel.
+6. Beim Veröffentlichen bettet das Plugin das Quellvideo ein (nackte URL in eigener Zeile, den
+   Rest macht die automatische Einbettung von WordPress) und ergänzt unten einen Quellenhinweis.
 
 ## Plugin-Updates
 

@@ -178,8 +178,8 @@ function siteBriefing(site) {
  * Baut das Antwortschema. Kennt der Hub die Kategorien der Website, wird das Feld
  * auf genau diese Werte eingegrenzt. Dann kann Claude keine neue erfinden.
  */
-function articleSchema(kategorien = []) {
-  const schema = JSON.parse(JSON.stringify(ARTICLE_SCHEMA));
+function articleSchema(kategorien = [], vorlage = null) {
+  const schema = JSON.parse(JSON.stringify(vorlage || ARTICLE_SCHEMA));
   if (kategorien.length) {
     schema.properties.category = {
       type: 'string',
@@ -267,6 +267,14 @@ ${kategorien.length
     }))
     .filter((img) => img.motif);
 
+  return aufbereiten(data, site, imageCount, keyword, kategorien);
+}
+
+/**
+ * Gemeinsame Nachbearbeitung: Umlaute pruefen, HTML saeubern, Bildkonzepte ordnen,
+ * Platzhalter aufraeumen. Wird von der Artikel- und der Video-Erzeugung genutzt.
+ */
+function aufbereiten(data, site, imageCount, keyword, kategorien) {
   const ersatz = zaehleErsatzumlaute(data.content_html);
   if (ersatz > 2) {
     logger.warn('ai', 'umlaute', `${ersatz} Wörter in Ersatzschreibweise (fuer, ueber, groesste …) im Artikel`, {
@@ -314,6 +322,73 @@ ${kategorien.length
   };
 }
 
+const VIDEO_SCHEMA = JSON.parse(JSON.stringify(ARTICLE_SCHEMA));
+VIDEO_SCHEMA.properties.verwertbar = {
+  type: 'boolean',
+  description: 'false, wenn das Transkript zu duenn oder inhaltsleer fuer einen Artikel ist',
+};
+VIDEO_SCHEMA.properties.begruendung = {
+  type: 'string',
+  description: 'Bei verwertbar=false ein Satz, warum daraus kein Artikel entstehen kann. Sonst leer.',
+};
+VIDEO_SCHEMA.required = [...ARTICLE_SCHEMA.required, 'verwertbar', 'begruendung'];
+
+function videoSystemPrompt() {
+  return (settings.get('video_prompt') || '').trim() || require('./prompts').DEFAULT_VIDEO_PROMPT;
+}
+
+/**
+ * Artikel aus einem Video-Transkript.
+ * Vorn steht die Anweisung fuer Videos, danach unveraendert das Regelwerk fuer Artikel.
+ */
+async function generateFromVideo({ site, video, transcript, imageCount = 0, categories = [], angle = '' }) {
+  const wordCount = site.word_count || Number(settings.get('default_word_count')) || 1200;
+  const kategorien = categories.map((c) => (typeof c === 'string' ? c : c.name)).filter(Boolean);
+
+  const system = `${videoSystemPrompt()}
+
+═══════════════════════════════════════════════════════════════════
+REGELWERK FUER ARTIKEL
+═══════════════════════════════════════════════════════════════════
+
+${articleSystemPrompt()}`;
+
+  const prompt = `${siteBriefing(site)}
+
+Aufgabe: Schreibe einen Artikel auf Grundlage des folgenden Video-Transkripts.
+Titel des Videos: ${video.title}
+${angle ? `Gewünschter Blickwinkel: ${angle}\n` : ''}Ziellänge: ca. ${wordCount} Wörter als Richtwert.
+Sprache: Deutsch, mit echten Umlauten (ä, ö, ü, ß), niemals ae/oe/ue/ss.
+${kategorien.length
+    ? `Kategorie: Wähle GENAU EINE der vorhandenen Kategorien dieser Website: ${kategorien.join(' | ')}\n`
+    : ''}Bilder: ${imageCount > 0
+    ? `${imageCount} Bildkonzepte. Bild 1 ist das Titelbild, die übrigen platzierst du mit [[BILD:2]] bis [[BILD:${imageCount}]] im Text.`
+    : 'keine. Gib für "images" eine leere Liste zurück.'}
+
+Gibt das Transkript keinen eigenständigen Artikel her, setze "verwertbar" auf false und
+begründe es in einem Satz. Die übrigen Felder bleiben dann leer.
+
+TRANSKRIPT
+${transcript}`;
+
+  const { data, usage } = await runJson({
+    system,
+    prompt,
+    schema: articleSchema(kategorien, VIDEO_SCHEMA),
+    maxTokens: 32000,
+    kind: 'video',
+    meta: {
+      siteId: site.id,
+      context: { video_id: video.video_id, titel: video.title, transkript_woerter: transcript.split(' ').length },
+    },
+  });
+
+  if (data.verwertbar === false) {
+    throw new AiError(`Aus diesem Video laesst sich kein Artikel machen: ${data.begruendung || 'kein verwertbarer Inhalt'}`);
+  }
+  return { ...aufbereiten(data, site, imageCount, video.title, kategorien), ...usage };
+}
+
 const TOPICS_SCHEMA = {
   type: 'object',
   properties: {
@@ -355,4 +430,4 @@ ${existing.length ? `Diese Themen existieren bereits und dürfen NICHT wiederhol
     .filter((t) => t.keyword);
 }
 
-module.exports = { MODELS, AiError, generateArticle, suggestTopics };
+module.exports = { MODELS, AiError, generateArticle, generateFromVideo, suggestTopics };
