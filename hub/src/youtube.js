@@ -452,17 +452,22 @@ async function scanChannel(channel) {
     let uebersprungen = 0;
     for (const eintrag of kandidaten) {
       let grund = null;
+      let grundArt = null;
       if (neu >= grenzeJetzt) {
         // Alles Weitere wird trotzdem vermerkt, damit es nicht beim naechsten Durchlauf
         // erneut auftaucht. Von Hand laesst sich daraus weiter ein Artikel machen.
         grund = ersterLauf
           ? 'Altbestand beim Einrichten des Kanals'
           : `Grenze von ${grenze} Video${grenze === 1 ? '' : 's'} je Durchlauf erreicht`;
+        grundArt = ersterLauf ? 'altbestand' : 'limit';
         if (!eintrag.title) eintrag.title = `Video ${eintrag.video_id}`;
       } else {
         await ergaenzeMetadaten(eintrag);
         const dublette = findeDublette(channel.site_id, eintrag.title);
-        if (dublette) grund = `Aehnliches Video wurde bereits verarbeitet: "${dublette.title}"`;
+        if (dublette) {
+          grund = `Aehnliches Video wurde bereits verarbeitet: "${dublette.title}"`;
+          grundArt = 'dublette';
+        }
       }
 
       if (grund) uebersprungen += 1;
@@ -472,7 +477,10 @@ async function scanChannel(channel) {
         randomId('vid'), channel.id, channel.site_id, eintrag.video_id,
         eintrag.title, eintrag.description, eintrag.published_at, grund ? 'uebersprungen' : 'neu', lauf
       );
-      if (grund) db.prepare('UPDATE videos SET error = ? WHERE video_id = ?').run(grund, eintrag.video_id);
+      if (grund) {
+        db.prepare('UPDATE videos SET error = ?, skip_reason = ? WHERE video_id = ?')
+          .run(grund, grundArt, eintrag.video_id);
+      }
     }
 
     db.prepare(
@@ -519,6 +527,6 @@ const videoUrl = (videoId) => `https://www.youtube.com/watch?v=${videoId}`;
 
 module.exports = {
   YoutubeError, aktiv, resolveChannel, fetchFeed, listVideos, fetchTranscript,
-  scanChannel, runScan, offeneVideos, findeDublette, aehnlichkeit,
+  scanChannel, runScan, offeneVideos, findeDublette, aehnlichkeit, ergaenzeMetadaten,
   videoUrl,
 };

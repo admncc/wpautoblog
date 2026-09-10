@@ -796,6 +796,12 @@ async function renderSite(view, siteId) {
                   · <a href="https://www.youtube.com/watch?v=${esc(v.video_id)}" target="_blank" rel="noopener">auf YouTube</a>
                   ${v.words ? ` · ${v.words} Wörter Transkript` : ''}</div>
                 ${v.error ? `<div class="hint" style="color:var(--red)">${esc(v.error)}</div>` : ''}
+                ${v.status === 'fehler' && v.retry_at
+                  ? `<div class="hint">Neuer Anlauf am ${fmtDate(v.retry_at)} (Versuch ${Number(v.attempts) + 1}).</div>`
+                  : ''}
+                ${v.status === 'fehler' && !v.retry_at && Number(v.attempts) > 0
+                  ? '<div class="hint">Aufgegeben nach mehreren Anläufen. Ein anderes Video ist nachgerückt.</div>'
+                  : ''}
                 ${v.status === 'neu' ? `<div class="hint">${v.auto_article && v.kanal_aktiv
                   ? 'Wird beim nächsten stündlichen Durchlauf von selbst zum Artikel.'
                   : 'Wartet auf dich: Für diesen Kanal ist „automatisch" ausgeschaltet.'}</div>` : ''}</td>

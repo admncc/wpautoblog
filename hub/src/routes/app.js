@@ -98,7 +98,7 @@ router.get(
       videos: db
         .prepare(
           `SELECT v.id, v.video_id, v.title, v.status, v.published_at, v.article_id, v.error, v.words,
-                  c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
+                  v.attempts, v.retry_at, c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
            FROM videos v JOIN channels c ON c.id = v.channel_ref
            WHERE v.site_id = ?
              -- Uebersprungene Videos aelterer Durchlaeufe sind nur noch Gedaechtnis
@@ -313,7 +313,7 @@ router.post(
       videos: db
         .prepare(
           `SELECT v.id, v.video_id, v.title, v.status, v.published_at, v.article_id, v.error, v.words,
-                  c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
+                  v.attempts, v.retry_at, c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
            FROM videos v JOIN channels c ON c.id = v.channel_ref
            WHERE v.site_id = ?
              -- Uebersprungene Videos aelterer Durchlaeufe sind nur noch Gedaechtnis
@@ -602,7 +602,7 @@ router.post(
 router.post(
   '/videos/:id/skip',
   wrap((req, res) => {
-    db.prepare("UPDATE videos SET status = 'uebersprungen', error = 'von Hand uebersprungen' WHERE id = ?")
+    db.prepare("UPDATE videos SET status = 'uebersprungen', error = 'von Hand uebersprungen', skip_reason = 'manuell' WHERE id = ?")
       .run(req.params.id);
     res.json({ ok: true });
   })

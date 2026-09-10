@@ -405,6 +405,13 @@ async function main() {
       'Vorhandenes Transkript wird wiederverwendet statt erneut geholt',
       `abrufe=${transkriptZustand.transkripte - vorNeu}`);
 
+    // Ein Fehlschlag darf das Video nicht abschreiben: es kommt auf Wiedervorlage.
+    const nachFehler = db.prepare("SELECT status, attempts, retry_at FROM videos WHERE id = 'vid_1'").get();
+    pruefe(nachFehler.status === 'fehler' && nachFehler.attempts === 2 && nachFehler.retry_at,
+      'Fehlgeschlagenes Video kommt auf Wiedervorlage', JSON.stringify(nachFehler));
+    const alteArtikel = db.prepare("SELECT COUNT(*) AS n FROM articles WHERE id = ?").get(videoArtikel.daten.id);
+    pruefe(alteArtikel.n === 0, 'Leerer Fehlversuch wird beim naechsten Anlauf weggeraeumt');
+
     // Grenze je Durchlauf: mehrere neue Videos, aber nur so viele wie erlaubt.
     db.prepare("UPDATE channels SET max_per_scan = 2, last_check_at = '2026-01-01T00:00:00Z' WHERE id = ?").run(kanalId);
     const kandidaten = [
@@ -473,6 +480,24 @@ async function main() {
 
     // Nachbearbeitung eines Artikels ohne Anthropic-Aufruf. Fing zuletzt einen Fehler,
     // bei dem die Bildkonzepte in der gemeinsamen Nachbearbeitung nicht mehr bekannt waren.
+    // Sind die Anlaeufe aufgebraucht, rueckt ein anderes Video des Kanals nach,
+    // damit der Blog in diesem Zeitraum trotzdem seinen Artikel bekommt.
+    const scanNeu = db.prepare("SELECT id, video_id FROM videos WHERE video_id = 'sc_a'").get();
+    db.prepare('UPDATE videos SET attempts = 2 WHERE id = ?').run(scanNeu.id);
+    db.prepare('UPDATE channels SET auto_article = 1 WHERE id = ?').run(scanKanal);
+    await ruf(`/api/app/videos/${scanNeu.id}/article`, { method: 'POST' });
+    await new Promise((r) => setTimeout(r, 900));
+
+    const ausgefallen = db.prepare('SELECT status, attempts, retry_at FROM videos WHERE id = ?').get(scanNeu.id);
+    pruefe(ausgefallen.status === 'fehler' && !ausgefallen.retry_at && ausgefallen.attempts === 3,
+      'Nach dem letzten Anlauf wird das Video nicht weiter versucht', JSON.stringify(ausgefallen));
+    const ersatz = db.prepare(
+      "SELECT video_id, title FROM videos WHERE channel_ref = ? AND status = 'neu' AND video_id IN ('sc_b', 'sc_c')"
+    ).all(scanKanal);
+    pruefe(ersatz.length === 1, 'Genau ein zurueckgestelltes Video rueckt nach', JSON.stringify(ersatz));
+    pruefe(ersatz.length === 1 && ersatz[0].title === TITEL[ersatz[0].video_id],
+      'Beim Nachruecken wird der Titel nachgeladen', ersatz.length ? ersatz[0].title : '');
+
     console.log('\nArtikel-Nachbearbeitung');
     const ai = require('../src/ai');
     const roh = {

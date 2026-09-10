@@ -97,12 +97,21 @@ function startFromVideo(video) {
   if (!site) throw new Error('Website nicht gefunden.');
 
   const kanal = db.prepare('SELECT * FROM channels WHERE id = ?').get(video.channel_ref) || {};
+
+  // Ein frueherer Fehlversuch zu demselben Video hat nur einen leeren roten Eintrag
+  // hinterlassen. Der verschwindet, sonst sammeln sich bei mehreren Anlaeufen
+  // Karteileichen in der Artikelliste.
+  if (video.article_id) {
+    db.prepare("DELETE FROM articles WHERE id = ? AND status = 'failed' AND (content_html IS NULL OR content_html = '')")
+      .run(video.article_id);
+  }
+
   const id = randomId('art');
   db.prepare(
     `INSERT INTO articles (id, site_id, keyword, title, status, origin, source_url, source_title)
      VALUES (?, ?, ?, ?, 'generating', 'youtube', ?, ?)`
   ).run(id, site.id, video.title, video.title, youtube.videoUrl(video.video_id), video.title);
-  db.prepare("UPDATE videos SET status = 'transkribiert', article_id = ? WHERE id = ?").run(id, video.id);
+  db.prepare("UPDATE videos SET status = 'transkribiert', article_id = ?, retry_at = NULL WHERE id = ?").run(id, video.id);
 
   const timer = logger.start('article', 'video', `Artikel aus Video: "${video.title}"`, {
     siteId: site.id,
@@ -169,15 +178,85 @@ function startFromVideo(video) {
       }
       return getArticle(id);
     })
-    .catch((err) => {
+    .catch(async (err) => {
       const meldung = String(err.message || err);
       touchArticle(id, { status: 'failed', error: meldung });
-      db.prepare("UPDATE videos SET status = 'fehler', error = ? WHERE id = ?").run(meldung.slice(0, 500), video.id);
+      await nachFehlschlag(video, meldung);
       timer.fail(meldung, { siteId: site.id, articleId: id, context: { video_id: video.video_id } });
       return getArticle(id);
     });
 
   return { article: getArticle(id), promise };
+}
+
+/**
+ * Wiedervorlage nach einem Fehlschlag.
+ *
+ * Untertitel stehen bei frisch veroeffentlichten Videos oft erst nach einer Weile
+ * bereit, und auch ein ueberlasteter Dienst ist kein Grund, das Video abzuschreiben.
+ * Nach dem letzten Anlauf rueckt ein anderes Video des Kanals nach, damit der Blog
+ * in diesem Zeitraum trotzdem seinen Artikel bekommt.
+ */
+const WIEDERVORLAGE_MINUTEN = [30, 120];
+
+async function nachFehlschlag(video, meldung) {
+  const versuche = Number(video.attempts || 0) + 1;
+  const wartezeit = WIEDERVORLAGE_MINUTEN[versuche - 1];
+
+  if (wartezeit) {
+    db.prepare(
+      `UPDATE videos SET status = 'fehler', error = ?, attempts = ?,
+        retry_at = datetime('now', ?) WHERE id = ?`
+    ).run(meldung.slice(0, 500), versuche, `+${wartezeit} minutes`, video.id);
+    logger.info('article', 'video.retry', `Neuer Anlauf in ${wartezeit} Minuten (Versuch ${versuche + 1})`, {
+      siteId: video.site_id, context: { video_id: video.video_id, grund: meldung.slice(0, 200) },
+    });
+    return;
+  }
+
+  db.prepare("UPDATE videos SET status = 'fehler', error = ?, attempts = ?, retry_at = NULL WHERE id = ?")
+    .run(meldung.slice(0, 500), versuche, video.id);
+  await ersatzVideo(video);
+}
+
+/**
+ * Sucht ein anderes Video desselben Kanals, das bisher nur wegen der Grenze je
+ * Durchlauf oder als Altbestand liegen geblieben ist. Dubletten und von Hand
+ * uebersprungene Videos bleiben aussen vor, die waren eine Entscheidung.
+ */
+async function ersatzVideo(video) {
+  const kandidat = db
+    .prepare(
+      `SELECT * FROM videos WHERE channel_ref = ? AND status = 'uebersprungen'
+        AND skip_reason IN ('limit', 'altbestand')
+        AND attempts = 0
+       ORDER BY published_at DESC, created_at DESC LIMIT 1`
+    )
+    .get(video.channel_ref);
+
+  if (!kandidat) {
+    logger.warn('article', 'video.ersatz', 'Kein Ersatzvideo vorhanden, dieser Zeitraum bleibt ohne Video-Artikel', {
+      siteId: video.site_id, context: { video_id: video.video_id },
+    });
+    return null;
+  }
+
+  // Beim Ueberspringen wurden Titel und Datum nicht geladen. Fuer die Dublettenpruefung
+  // und den Artikel selbst werden sie jetzt nachgetragen.
+  if (!kandidat.title || /^Video [\w-]+$/.test(kandidat.title)) {
+    const eintrag = { video_id: kandidat.video_id, title: '', published_at: kandidat.published_at, description: '' };
+    await youtube.ergaenzeMetadaten(eintrag);
+    db.prepare('UPDATE videos SET title = ?, description = ?, published_at = ? WHERE id = ?')
+      .run(eintrag.title, eintrag.description, eintrag.published_at, kandidat.id);
+    kandidat.title = eintrag.title;
+  }
+
+  db.prepare("UPDATE videos SET status = 'neu', error = NULL, skip_reason = NULL WHERE id = ?").run(kandidat.id);
+  logger.info('article', 'video.ersatz', `Ersatzvideo rueckt nach: "${kandidat.title}"`, {
+    siteId: video.site_id,
+    context: { ausgefallen: video.video_id, ersatz: kandidat.video_id },
+  });
+  return kandidat;
 }
 
 /**
@@ -191,7 +270,9 @@ async function runVideoQueue(limit = 3) {
     .prepare(
       `SELECT v.* FROM videos v
        JOIN channels c ON c.id = v.channel_ref
-       WHERE v.status = 'neu' AND c.active = 1 AND c.auto_article = 1
+       WHERE c.active = 1 AND c.auto_article = 1
+         AND (v.status = 'neu'
+              OR (v.status = 'fehler' AND v.retry_at IS NOT NULL AND v.retry_at <= datetime('now')))
        ORDER BY v.published_at ASC LIMIT ?`
     )
     .all(Math.max(1, limit));
