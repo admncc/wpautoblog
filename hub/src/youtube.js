@@ -427,9 +427,13 @@ async function scanChannel(channel) {
   try {
     const quelle = await listVideos(channel);
     const bekannt = db.prepare('SELECT video_id FROM videos WHERE channel_ref = ?').all(channel.id).map((v) => v.video_id);
+    // Jeder Durchlauf bekommt eine Nummer. In der Oberflaeche steht damit nur das
+    // Ergebnis des juengsten Durchlaufs, aeltere Vermerke bleiben als Gedaechtnis
+    // in der Datenbank, damit dieselben Videos nicht erneut verarbeitet werden.
+    const lauf = Number(channel.scan_count || 0) + 1;
     const einfuegen = db.prepare(
-      `INSERT OR IGNORE INTO videos (id, channel_ref, site_id, video_id, title, description, published_at, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO videos (id, channel_ref, site_id, video_id, title, description, published_at, status, run_no)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     // Beim ersten Lauf nur das neueste Video aufnehmen, sonst kaeme das ganze Archiv.
@@ -466,15 +470,15 @@ async function scanChannel(channel) {
 
       einfuegen.run(
         randomId('vid'), channel.id, channel.site_id, eintrag.video_id,
-        eintrag.title, eintrag.description, eintrag.published_at, grund ? 'uebersprungen' : 'neu'
+        eintrag.title, eintrag.description, eintrag.published_at, grund ? 'uebersprungen' : 'neu', lauf
       );
       if (grund) db.prepare('UPDATE videos SET error = ? WHERE video_id = ?').run(grund, eintrag.video_id);
     }
 
     db.prepare(
-      `UPDATE channels SET last_check_at = datetime('now'), next_check_at = ?, last_error = NULL,
+      `UPDATE channels SET last_check_at = datetime('now'), next_check_at = ?, last_error = NULL, scan_count = ?,
         title = CASE WHEN title = '' THEN ? ELSE title END WHERE id = ?`
-    ).run(naechsterTermin(channel.interval_hours), quelle.title || '', channel.id);
+    ).run(naechsterTermin(channel.interval_hours), lauf, quelle.title || '', channel.id);
 
     timer.ok(`${neu} neue Videos${uebersprungen ? `, ${uebersprungen} uebersprungen` : ''}`, {
       siteId: channel.site_id,

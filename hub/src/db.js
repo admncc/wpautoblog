@@ -202,6 +202,9 @@ ensureColumn('articles', 'notice', 'TEXT');
 ensureColumn('articles', 'source_url', 'TEXT');
 ensureColumn('articles', 'source_title', 'TEXT');
 ensureColumn('channels', 'max_per_scan', 'INTEGER NOT NULL DEFAULT 1');
+// Zaehler des Durchlaufs: Die Videoliste zeigt nur, was der letzte Durchlauf gemeldet hat.
+ensureColumn('channels', 'scan_count', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('videos', 'run_no', 'INTEGER NOT NULL DEFAULT 0');
 
 const setSettingStmt = db.prepare(
   `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))

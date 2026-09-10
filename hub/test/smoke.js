@@ -440,8 +440,18 @@ async function main() {
       'Zweiter Durchlauf nimmt nur das dazugekommene Video', JSON.stringify(zweiterLauf));
     const scanBestand = db.prepare("SELECT COUNT(*) AS n FROM videos WHERE channel_ref = ?").get(scanKanal);
     pruefe(scanBestand.n === 4, 'Bekannte Videos werden nicht doppelt angelegt', `zeilen=${scanBestand.n}`);
-    const scanKanalTitel = db.prepare('SELECT title, last_error FROM channels WHERE id = ?').get(scanKanal);
+    const scanKanalTitel = db.prepare('SELECT title, last_error, scan_count FROM channels WHERE id = ?').get(scanKanal);
     pruefe(!scanKanalTitel.last_error, 'Durchlauf ohne Fehlermeldung am Kanal');
+
+    // Die Liste in der Oberflaeche zeigt nur den juengsten Durchlauf, aeltere
+    // Uebersprungene bleiben in der Datenbank, damit sie nicht erneut aufschlagen.
+    const sichtbar = db.prepare(
+      `SELECT v.video_id FROM videos v JOIN channels c ON c.id = v.channel_ref
+       WHERE v.channel_ref = ? AND (v.status <> 'uebersprungen' OR v.run_no = c.scan_count)`
+    ).all(scanKanal).map((v) => v.video_id).sort();
+    pruefe(scanKanalTitel.scan_count === 2, 'Durchlaeufe werden gezaehlt', `stand=${scanKanalTitel.scan_count}`);
+    pruefe(sichtbar.join(',') === 'sc_a,sc_d',
+      'Alte uebersprungene Videos verschwinden aus der Liste', sichtbar.join(','));
 
     // Faellt die Quelle aus, muss der Fehler den Grund nennen statt nur HTTP 404.
     settings.save({ youtube_source: 'google' });  // ohne Google-Schluessel, also nicht nutzbar

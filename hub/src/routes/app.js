@@ -100,7 +100,11 @@ router.get(
           `SELECT v.id, v.video_id, v.title, v.status, v.published_at, v.article_id, v.error, v.words,
                   c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
            FROM videos v JOIN channels c ON c.id = v.channel_ref
-           WHERE v.site_id = ? ORDER BY v.published_at DESC LIMIT 40`
+           WHERE v.site_id = ?
+             -- Uebersprungene Videos aelterer Durchlaeufe sind nur noch Gedaechtnis
+             -- und muellen die Liste zu. Offene Videos bleiben immer sichtbar.
+             AND (v.status <> 'uebersprungen' OR v.run_no = c.scan_count)
+           ORDER BY v.published_at DESC LIMIT 40`
         )
         .all(site.id),
       youtubeAktiv: youtube.aktiv(),
@@ -311,7 +315,11 @@ router.post(
           `SELECT v.id, v.video_id, v.title, v.status, v.published_at, v.article_id, v.error, v.words,
                   c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
            FROM videos v JOIN channels c ON c.id = v.channel_ref
-           WHERE v.site_id = ? ORDER BY v.published_at DESC LIMIT 40`
+           WHERE v.site_id = ?
+             -- Uebersprungene Videos aelterer Durchlaeufe sind nur noch Gedaechtnis
+             -- und muellen die Liste zu. Offene Videos bleiben immer sichtbar.
+             AND (v.status <> 'uebersprungen' OR v.run_no = c.scan_count)
+           ORDER BY v.published_at DESC LIMIT 40`
         )
         .all(site.id),
       youtubeAktiv: youtube.aktiv(),

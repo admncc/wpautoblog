@@ -785,8 +785,10 @@ async function renderSite(view, siteId) {
 
       <div class="card">
         <h2>Gefundene Videos</h2>
-        ${videos.length ? `<table><thead><tr><th>Video</th><th>Status</th><th>Veröffentlicht</th><th></th></tr></thead><tbody>
-          ${videos.map((v) => {
+        ${(() => {
+          // Uebersprungene Videos kommen in eine zugeklappte Liste, damit der letzte
+          // Fund nicht zwischen zwei Dutzend Altbestand-Zeilen untergeht.
+          const zeile = (v) => {
             const [cls, label] = VIDEO_STATUS[v.status] || ['', v.status];
             return `<tr>
               <td><strong>${esc(v.title)}</strong>
@@ -794,12 +796,9 @@ async function renderSite(view, siteId) {
                   · <a href="https://www.youtube.com/watch?v=${esc(v.video_id)}" target="_blank" rel="noopener">auf YouTube</a>
                   ${v.words ? ` · ${v.words} Wörter Transkript` : ''}</div>
                 ${v.error ? `<div class="hint" style="color:var(--red)">${esc(v.error)}</div>` : ''}
-                ${v.status === 'neu' && v.auto_article && v.kanal_aktiv
-                  ? '<div class="hint">Wird beim nächsten stündlichen Durchlauf von selbst zum Artikel.</div>'
-                  : ''}
-                ${v.status === 'neu' && !(v.auto_article && v.kanal_aktiv)
-                  ? '<div class="hint">Wartet auf dich: Für diesen Kanal ist „automatisch" ausgeschaltet.</div>'
-                  : ''}</td>
+                ${v.status === 'neu' ? `<div class="hint">${v.auto_article && v.kanal_aktiv
+                  ? 'Wird beim nächsten stündlichen Durchlauf von selbst zum Artikel.'
+                  : 'Wartet auf dich: Für diesen Kanal ist „automatisch" ausgeschaltet.'}</div>` : ''}</td>
               <td><span class="badge ${cls}">${esc(label)}</span></td>
               <td>${fmtDate(v.published_at)}</td>
               <td style="text-align:right;white-space:nowrap">
@@ -808,8 +807,19 @@ async function renderSite(view, siteId) {
                   ? `<button class="small primary" data-make="${esc(v.id)}">Artikel erzeugen</button>` : ''}
                 ${v.status === 'neu' ? `<button class="small" data-skip="${esc(v.id)}">Überspringen</button>` : ''}
               </td></tr>`;
-          }).join('')}
-        </tbody></table>` : '<div class="empty">Noch keine Videos gefunden.</div>'}
+          };
+          const tabelle = (liste) => `<table><thead><tr><th>Video</th><th>Status</th><th>Veröffentlicht</th><th></th></tr></thead>
+            <tbody>${liste.map(zeile).join('')}</tbody></table>`;
+
+          const offen = videos.filter((v) => v.status !== 'uebersprungen');
+          const beiseite = videos.filter((v) => v.status === 'uebersprungen');
+          if (!videos.length) return '<div class="empty">Noch keine Videos gefunden.</div>';
+          return `${offen.length ? tabelle(offen) : '<div class="empty">Aus dem letzten Durchlauf ist nichts offen.</div>'}
+            ${beiseite.length ? `<details style="margin-top:14px">
+              <summary class="hint" style="cursor:pointer">${beiseite.length} übersprungene Video${beiseite.length === 1 ? '' : 's'}
+                aus dem letzten Durchlauf anzeigen</summary>
+              <div style="margin-top:10px">${tabelle(beiseite)}</div></details>` : ''}`;
+        })()}
       </div>`;
 
     on('#channel-form', 'submit', (event) => {
