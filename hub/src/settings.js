@@ -24,8 +24,10 @@ const DEFAULTS = {
   image_quality: 'high',
   image_style: 'natural documentary photography, soft daylight, shallow depth of field, no text',
   images_per_article: '3',
-  // YouTube-Beobachtung. Der Google-Schluessel ist optional, der Feed genuegt meist.
+  // YouTube-Beobachtung. Voreingestellt probiert der Hub alle Wege der Reihe nach,
+  // weil der RSS-Feed von Servern aus oft nicht erreichbar ist.
   youtube_enabled: '0',
+  youtube_source: 'auto',                       // auto | feed | supadata | google | seite
   transcript_provider: 'supadata',              // supadata | custom
   transcript_url: 'https://api.supadata.ai/v1/youtube/transcript?url={video_url}&lang={lang}&text=true',
   transcript_header: 'x-api-key',

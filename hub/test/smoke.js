@@ -116,17 +116,46 @@ function starteFakeWordPress(token, siteId) {
   return { server, empfangen };
 }
 
-function starteFakeTranskript() {
+/**
+ * Stellt Supadata nach: Transkript, Kanalvideos und Video-Metadaten.
+ * Ueber kanalVideos laesst sich im Test steuern, was der Kanal gerade meldet.
+ */
+const TITEL = {
+  sc_a: 'Alpha Fahrbericht aus Muenchen',
+  sc_b: 'Beta Werkstatt und Wartung',
+  sc_c: 'Gamma Reifen im Wintertest',
+  sc_d: 'Delta Elektroautos im Alltag',
+};
+
+function starteFakeTranskript(zustand) {
   const server = http.createServer((req, res) => {
     if (!req.headers['x-api-key']) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'unauthorized', message: 'kein Schluessel' }));
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
+    const adresse = new URL(req.url, 'http://127.0.0.1');
+    const antworte = (daten) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(daten));
+    };
+
+    if (adresse.pathname === '/v1/youtube/channel/videos') {
+      zustand.abrufe += 1;
+      return antworte({ videoIds: zustand.kanalVideos, shortIds: [], liveIds: [] });
+    }
+    if (adresse.pathname === '/v1/youtube/video') {
+      const id = adresse.searchParams.get('id');
+      zustand.metadaten += 1;
+      return antworte({
+        id, title: TITEL[id] || `Video ${id}`, description: 'Kurze Beschreibung.',
+        duration: 600, channel: { id: 'UCtesttesttesttesttest12', name: 'Testkanal' },
+        tags: [], transcriptLanguages: ['de'], uploadDate: '2026-09-10T10:00:00.000Z',
+      });
+    }
+    antworte({
       lang: 'de',
       content: 'Zinsen steigen wieder an. '.repeat(30) + 'Das hat Folgen fuer Sparer und Kreditnehmer.',
-    }));
+    });
   });
   server.listen(IMG_PORT + 1);
   return server;
@@ -177,7 +206,8 @@ async function main() {
 
   let fakeWp = null;
   let fakeBild = null;
-  let fakeTranskript = starteFakeTranskript();
+  const transkriptZustand = { kanalVideos: [], abrufe: 0, metadaten: 0 };
+  let fakeTranskript = starteFakeTranskript(transkriptZustand);
 
   try {
     console.log('Sicherheit');
@@ -333,7 +363,8 @@ async function main() {
     console.log('\nYT Channel Spy');
     settings.save({
       youtube_enabled: '1',
-      transcript_url: `http://127.0.0.1:${IMG_PORT + 1}/transcript?url={video_url}&lang={lang}`,
+      transcript_url: `http://127.0.0.1:${IMG_PORT + 1}/v1/youtube/transcript?url={video_url}&lang={lang}`,
+      youtube_source: 'supadata',
       transcript_header: 'x-api-key',
     });
     settings.setTranscriptKey('sk-transkript-test');
@@ -386,6 +417,37 @@ async function main() {
 
     const kanalAus = await ruf(`/api/app/channels/${kanalId}`, { method: 'PATCH', body: { active: false } });
     pruefe(kanalAus.daten.active === 0, 'Kanal laesst sich pausieren');
+
+    // Ein echter Durchlauf ueber die Videoquelle, nicht von Hand eingesetzte Zeilen.
+    const scanKanal = 'chan_scan';
+    db.prepare(`INSERT INTO channels (id, site_id, channel_id, handle, title, interval_hours, max_per_scan, auto_article)
+                VALUES (?, ?, 'UCscanscanscanscanscan1', '@scantest', '', 24, 1, 0)`).run(scanKanal, siteId);
+    transkriptZustand.kanalVideos = ['sc_a', 'sc_b', 'sc_c'];
+
+    const ersterLauf = await youtube.scanChannel(db.prepare('SELECT * FROM channels WHERE id = ?').get(scanKanal));
+    pruefe(ersterLauf.quelle === 'supadata' && ersterLauf.neu === 1 && ersterLauf.uebersprungen === 2,
+      'Erster Durchlauf nimmt nur das neueste Video auf', JSON.stringify(ersterLauf));
+    const scanTitel = db.prepare("SELECT title FROM videos WHERE video_id = 'sc_a'").get();
+    pruefe(scanTitel && scanTitel.title === TITEL.sc_a, 'Titel wird nachgeladen, wenn die Quelle keinen liefert');
+    pruefe(transkriptZustand.metadaten === 1,
+      'Fuer uebersprungene Videos werden keine Metadaten abgerufen', `abrufe=${transkriptZustand.metadaten}`);
+
+    // Zweiter Durchlauf: ein neues Video kommt dazu, bekannte bleiben unberuehrt.
+    db.prepare('UPDATE channels SET max_per_scan = 2 WHERE id = ?').run(scanKanal);
+    transkriptZustand.kanalVideos = ['sc_d', 'sc_a', 'sc_b', 'sc_c'];
+    const zweiterLauf = await youtube.scanChannel(db.prepare('SELECT * FROM channels WHERE id = ?').get(scanKanal));
+    pruefe(zweiterLauf.neu === 1 && zweiterLauf.uebersprungen === 0,
+      'Zweiter Durchlauf nimmt nur das dazugekommene Video', JSON.stringify(zweiterLauf));
+    const scanBestand = db.prepare("SELECT COUNT(*) AS n FROM videos WHERE channel_ref = ?").get(scanKanal);
+    pruefe(scanBestand.n === 4, 'Bekannte Videos werden nicht doppelt angelegt', `zeilen=${scanBestand.n}`);
+    const scanKanalTitel = db.prepare('SELECT title, last_error FROM channels WHERE id = ?').get(scanKanal);
+    pruefe(!scanKanalTitel.last_error, 'Durchlauf ohne Fehlermeldung am Kanal');
+
+    // Faellt die Quelle aus, muss der Fehler den Grund nennen statt nur HTTP 404.
+    settings.save({ youtube_source: 'google' });  // ohne Google-Schluessel, also nicht nutzbar
+    const ohneQuelle = await youtube.scanChannel(db.prepare('SELECT * FROM channels WHERE id = ?').get(scanKanal));
+    pruefe(!!ohneQuelle.fehler, 'Nicht erreichbare Quelle wird als Fehler gemeldet', String(ohneQuelle.fehler).slice(0, 80));
+    settings.save({ youtube_source: 'supadata' });
 
     console.log('\nDiagnose');
     const diag = await ruf('/api/app/diagnostics/enable', { method: 'POST' });

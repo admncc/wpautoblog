@@ -1441,9 +1441,9 @@ async function renderSettings(view) {
 
     <div class="card">
       <h2>YouTube-Kanäle und Transkripte</h2>
-      <p class="sub">Für den Reiter „YT Channel Spy" bei den Websites. Die Kanalbeobachtung läuft über den
-        öffentlichen RSS-Feed und braucht keinen Google-Schlüssel. Nur für die Transkripte wird ein
-        Dienst gebraucht, weil YouTube dafür keine offene Schnittstelle hat.</p>
+      <p class="sub">Für den Reiter „YT Channel Spy" bei den Websites. Für die Transkripte wird ein
+        Dienst gebraucht, weil YouTube dafür keine offene Schnittstelle hat. Derselbe Schlüssel
+        findet auch die neuen Videos eines Kanals.</p>
       <div class="field" style="margin-top:14px">
         <label><input type="checkbox" id="youtube_enabled" ${data.youtube_enabled === '1' ? 'checked' : ''}
           style="width:auto;margin-right:8px" />Kanalbeobachtung einschalten</label>
@@ -1463,10 +1463,23 @@ async function renderSettings(view) {
           <input id="transcript_header" value="${esc(data.transcript_header)}" placeholder="x-api-key" />
           <div class="hint">Bei „authorization" wird automatisch „Bearer" vorangestellt.</div></div>
       </div>
-      <div class="field">
-        <label for="youtube_api_key">Google API-Schlüssel (optional)</label>
-        <input id="youtube_api_key" type="password" placeholder="${data.youtubeKey.configured ? `hinterlegt (${esc(data.youtubeKey.hint)})` : 'wird normalerweise nicht gebraucht'}" />
-        <div class="hint">Nur als Rückfallweg, falls der RSS-Feed einmal nicht erreichbar ist.</div>
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="youtube_source">Woher die Videoliste kommt</label>
+          <select id="youtube_source">
+            ${[['auto', 'Automatisch (empfohlen)'], ['supadata', 'Nur Supadata'], ['feed', 'Nur RSS-Feed'],
+               ['google', 'Nur YouTube Data API'], ['seite', 'Nur Kanalseite']]
+              .map(([wert, text]) => `<option value="${wert}" ${data.youtube_source === wert ? 'selected' : ''}>${text}</option>`)
+              .join('')}
+          </select>
+          <div class="hint">Automatisch probiert der Reihe nach: RSS-Feed, Supadata, Google, Kanalseite.
+            YouTube beantwortet den RSS-Feed von Servern aus oft mit 404, dann greift Supadata.</div>
+        </div>
+        <div class="field">
+          <label for="youtube_api_key">Google API-Schlüssel (optional)</label>
+          <input id="youtube_api_key" type="password" placeholder="${data.youtubeKey.configured ? `hinterlegt (${esc(data.youtubeKey.hint)})` : 'wird normalerweise nicht gebraucht'}" />
+          <div class="hint">Nur ein weiterer Rückfallweg. Ohne ihn funktioniert alles genauso.</div>
+        </div>
       </div>
       <div class="field">
         <label for="video_prompt">Anweisung für Artikel aus Videos</label>
@@ -1512,7 +1525,8 @@ async function renderSettings(view) {
     for (const field of ['hub_name', 'model', 'effort', 'brand_name', 'brand_description', 'default_language',
       'default_word_count', 'default_tone', 'global_prompt', 'article_prompt', 'topic_prompt',
       'image_provider', 'images_per_article', 'image_base_url', 'image_model', 'image_size',
-      'image_quality', 'image_style', 'transcript_url', 'transcript_header', 'video_prompt']) {
+      'image_quality', 'image_style', 'transcript_url', 'transcript_header', 'video_prompt',
+      'youtube_source']) {
       const el = root.querySelector(`#${field}`);
       if (el) body[field] = el.value;
     }
