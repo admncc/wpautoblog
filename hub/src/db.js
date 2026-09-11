@@ -206,6 +206,8 @@ ensureColumn('articles', 'source_title', 'TEXT');
 ensureColumn('channels', 'max_per_scan', 'INTEGER NOT NULL DEFAULT 1');
 // Zaehler des Durchlaufs: Die Videoliste zeigt nur, was der letzte Durchlauf gemeldet hat.
 ensureColumn('channels', 'scan_count', 'INTEGER NOT NULL DEFAULT 0');
+// Fertige Artikel aus diesem Kanal von selbst an WordPress senden.
+ensureColumn('channels', 'auto_publish', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('videos', 'run_no', 'INTEGER NOT NULL DEFAULT 0');
 // Fehlgeschlagene Videos bekommen mehrere Anlaeufe, bevor ein anderes nachrueckt.
 ensureColumn('videos', 'attempts', 'INTEGER NOT NULL DEFAULT 0');

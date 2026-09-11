@@ -654,15 +654,17 @@ router.post(
       const gefunden = await youtube.resolveChannel(req.body.input);
       const id = randomId('chan');
       db.prepare(
-        `INSERT INTO channels (id, site_id, channel_id, handle, title, interval_hours, max_per_scan, angle, auto_article, embed_video)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO channels (id, site_id, channel_id, handle, title, interval_hours, max_per_scan, angle,
+            auto_article, embed_video, auto_publish)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id, site.id, gefunden.channel_id, gefunden.handle, sanitizeText(req.body.title || gefunden.title, 160),
         Math.max(1, Math.min(720, Number(req.body.interval_hours) || 24)),
         Math.max(1, Math.min(10, Number(req.body.max_per_scan) || 1)),
         sanitizeText(req.body.angle, 300),
         req.body.auto_article === false ? 0 : 1,
-        req.body.embed_video === false ? 0 : 1
+        req.body.embed_video === false ? 0 : 1,
+        req.body.auto_publish ? 1 : 0
       );
       logger.info('youtube', 'channel', `Kanal aufgenommen: ${gefunden.title || gefunden.channel_id}`, {
         siteId: site.id, requestId: req.requestId, context: { channel_id: gefunden.channel_id },
@@ -688,6 +690,7 @@ router.patch(
     if ('max_per_scan' in req.body) patch.max_per_scan = Math.max(1, Math.min(10, Number(req.body.max_per_scan) || 1));
     if ('active' in req.body) patch.active = req.body.active ? 1 : 0;
     if ('auto_article' in req.body) patch.auto_article = req.body.auto_article ? 1 : 0;
+    if ('auto_publish' in req.body) patch.auto_publish = req.body.auto_publish ? 1 : 0;
     if ('embed_video' in req.body) patch.embed_video = req.body.embed_video ? 1 : 0;
 
     if (Object.keys(patch).length) {

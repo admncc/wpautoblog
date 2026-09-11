@@ -330,6 +330,21 @@ async function ersatzVideo(video) {
 }
 
 /**
+ * Darf dieser Artikel aus einem Video von selbst hinausgehen?
+ *
+ * Drei Bedingungen, alle drei muessen erfuellt sein: Der Kanal erlaubt es, der
+ * Artikel ist auch wirklich fertig geworden, und die Wortlaut-Pruefung hat nicht
+ * angeschlagen. Der letzte Punkt ist der Grund, warum es diese Funktion gibt: Ein
+ * Hinweis "liegt nah am Transkript" an einem laengst veroeffentlichten Beitrag
+ * waere wertlos.
+ */
+function darfSenden(kanal, artikel) {
+  if (!kanal || !kanal.auto_publish) return false;
+  if (!artikel || artikel.status !== 'draft') return false;
+  return !artikel.notice;
+}
+
+/**
  * Arbeitet neu gefundene Videos ab. Bewusst nacheinander und begrenzt,
  * damit ein Schwung neuer Videos nicht alles blockiert.
  */
@@ -351,8 +366,23 @@ async function runVideoQueue(limit = 3) {
   for (const video of offen) {
     try {
       const { promise } = startFromVideo(video);
-      await promise;
+      const artikel = await promise;
       verarbeitet += 1;
+
+      // Senden nur auf dem selbsttaetigen Weg und nur, wenn der Kanal es darf.
+      // Schlaegt die Wortlaut-Pruefung an, bleibt der Beitrag Entwurf: Genau dafuer
+      // ist sie da, und ein Hinweis an einem laengst veroeffentlichten Text waere
+      // wertlos. Ein von Hand angestossener Artikel geht ebenfalls nie von selbst
+      // hinaus, wer klickt, will hinsehen.
+      const kanal = db.prepare('SELECT auto_publish, title FROM channels WHERE id = ?').get(video.channel_ref);
+      if (darfSenden(kanal, artikel)) {
+        await publish(artikel.id);
+      } else if (kanal && kanal.auto_publish && artikel && artikel.notice) {
+        logger.warn('article', 'video.halt', 'Bleibt Entwurf: Die Wortlaut-Pruefung hat angeschlagen', {
+          siteId: video.site_id, articleId: artikel.id,
+          context: { video_id: video.video_id, kanal: kanal.title, hinweis: artikel.notice },
+        });
+      }
     } catch (err) {
       logger.error('article', 'video', `Video konnte nicht verarbeitet werden: ${err.message || err}`, {
         siteId: video.site_id, context: { video_id: video.video_id },
@@ -563,5 +593,5 @@ async function runRecurring() {
 
 module.exports = {
   startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
-  computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer,
+  computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer, darfSenden,
 };

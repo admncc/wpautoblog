@@ -468,6 +468,23 @@ async function main() {
     pruefe(grenzeGesetzt.daten.max_per_scan === 5 && grenzeGesetzt.daten.interval_hours === 72,
       'Intervall und Grenze lassen sich aendern');
 
+    // Artikel aus Videos gehen nur hinaus, wenn der Kanal es ausdruecklich darf.
+    const standard = db.prepare('SELECT auto_publish FROM channels WHERE id = ?').get(kanalId);
+    pruefe(standard.auto_publish === 0, 'Ein Kanal sendet von Haus aus nicht automatisch');
+    const sendet = await ruf(`/api/app/channels/${kanalId}`, { method: 'PATCH', body: { auto_publish: true } });
+    pruefe(sendet.daten.auto_publish === 1, 'Automatisches Senden laesst sich je Kanal einschalten');
+    await ruf(`/api/app/channels/${kanalId}`, { method: 'PATCH', body: { auto_publish: false } });
+
+    const darf = require('../src/service').darfSenden;
+    pruefe(darf({ auto_publish: 1 }, { status: 'draft', notice: null }) === true,
+      'Fertiger Artikel eines sendenden Kanals geht hinaus');
+    pruefe(darf({ auto_publish: 1 }, { status: 'draft', notice: 'liegt nah am Transkript' }) === false,
+      'Ein Treffer der Wortlaut-Pruefung haelt den Artikel zurueck');
+    pruefe(darf({ auto_publish: 0 }, { status: 'draft', notice: null }) === false,
+      'Ohne Erlaubnis des Kanals bleibt alles Entwurf');
+    pruefe(darf({ auto_publish: 1 }, { status: 'failed', error: 'kaputt' }) === false,
+      'Ein gescheiterter Artikel wird nicht gesendet');
+
     const kanalAus = await ruf(`/api/app/channels/${kanalId}`, { method: 'PATCH', body: { active: false } });
     pruefe(kanalAus.daten.active === 0, 'Kanal laesst sich pausieren');
 

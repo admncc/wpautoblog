@@ -1310,6 +1310,8 @@ async function renderSite(view, siteId) {
               <span><b>Automatisch Artikel erzeugen</b><i>Ohne Haken sammelt der Hub nur, du entscheidest je Video.</i></span></label>
             <label class="check"><input type="checkbox" id="chan-embed" checked />
               <span><b>Video einbetten</b><i>Erscheint im Beitrag und wird als Quelle genannt.</i></span></label>
+            <label class="check"><input type="checkbox" id="chan-publish" />
+              <span><b>Automatisch senden</b><i>Ohne Haken bleibt der Artikel Entwurf im Hub.</i></span></label>
             <span class="spacer"></span>
             <button class="btn primary" type="submit">${ic('plus', 'sm')}Kanal hinzufügen</button>
           </div>
@@ -1325,7 +1327,8 @@ async function renderSite(view, siteId) {
               <span class="grow">
                 <span class="ttl">${esc(k.title || k.channel_id)}
                   ${k.active ? '' : '<span class="badge">pausiert</span>'}
-                  ${k.auto_article && k.active ? '<span class="badge info">automatisch</span>' : ''}</span>
+                  ${k.auto_article && k.active ? '<span class="badge info">automatisch</span>' : ''}
+                  ${k.auto_publish && k.active ? '<span class="badge info">sendet automatisch</span>' : ''}</span>
                 <span class="kv">
                   <span>${esc(k.handle || k.channel_id)}</span>
                   <span>${esc(intervallText(k.interval_hours))}</span>
@@ -1354,7 +1357,9 @@ async function renderSite(view, siteId) {
               <div class="field" style="margin:0;flex:1;min-width:200px"><label>Blickwinkel</label>
                 <input data-angle="${esc(k.id)}" value="${esc(k.angle)}" placeholder="optional" /></div>
               <label class="check" style="margin-bottom:6px"><input type="checkbox" data-auto="${esc(k.id)}"
-                ${k.auto_article ? 'checked' : ''} /><span>automatisch</span></label>
+                ${k.auto_article ? 'checked' : ''} /><span>Artikel automatisch</span></label>
+              <label class="check" style="margin-bottom:6px"><input type="checkbox" data-publish="${esc(k.id)}"
+                ${k.auto_publish ? 'checked' : ''} /><span>automatisch senden</span></label>
               <button class="btn sm primary" data-save-chan="${esc(k.id)}">Speichern</button>
               <button class="btn sm danger" data-del-chan="${esc(k.id)}">${ic('trash', 'sm')}Entfernen</button>
             </div>` : ''}
@@ -1401,6 +1406,7 @@ async function renderSite(view, siteId) {
             angle: root.querySelector('#chan-angle').value,
             auto_article: root.querySelector('#chan-auto').checked,
             embed_video: root.querySelector('#chan-embed').checked,
+            auto_publish: root.querySelector('#chan-publish').checked,
           },
         });
         toast('Kanal wird jetzt beobachtet.');
@@ -1421,6 +1427,7 @@ async function renderSite(view, siteId) {
           max_per_scan: root.querySelector(`[data-max="${id}"]`).value,
           angle: root.querySelector(`[data-angle="${id}"]`).value,
           auto_article: root.querySelector(`[data-auto="${id}"]`).checked,
+          auto_publish: root.querySelector(`[data-publish="${id}"]`).checked,
         },
       });
       toast('Gespeichert.');
