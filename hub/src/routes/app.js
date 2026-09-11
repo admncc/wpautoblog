@@ -58,8 +58,89 @@ router.get(
         "SELECT COUNT(*) AS n FROM articles WHERE status = 'published' AND published_at >= datetime('now','-30 days')"
       ).get().n,
     };
+    /**
+     * Was klemmt gerade?
+     *
+     * Die Uebersicht soll die eine Frage beantworten, mit der man sie oeffnet:
+     * Muss ich etwas tun? Deshalb sammelt der Hub die offenen Punkte hier und
+     * nicht die Oberflaeche: Sie kaeme sonst nur an das, was sie ohnehin laedt.
+     * Reihenfolge nach Dringlichkeit, hoechstens acht Punkte.
+     */
+    const klemmt = [];
+
+    const gescheitert = db
+      .prepare("SELECT COUNT(*) AS n FROM articles WHERE status = 'failed' AND archived = 0")
+      .get().n;
+    if (gescheitert) {
+      const letzter = db
+        .prepare("SELECT error FROM articles WHERE status = 'failed' AND archived = 0 ORDER BY updated_at DESC LIMIT 1")
+        .get();
+      klemmt.push({
+        stufe: 'err',
+        titel: gescheitert === 1 ? 'Ein Artikel ist fehlgeschlagen' : `${gescheitert} Artikel sind fehlgeschlagen`,
+        grund: sanitizeText(letzter && letzter.error, 200) || 'Grund steht am Artikel.',
+        ziel: '#/articles', aktion: 'Artikel ansehen',
+      });
+    }
+
+    for (const site of db.prepare("SELECT id, name FROM sites WHERE status <> 'connected'").all()) {
+      klemmt.push({
+        stufe: 'warn',
+        titel: `${site.name} ist nicht verbunden`,
+        grund: 'Das Begleit-Plugin hat sich noch nicht gemeldet.',
+        ziel: `#/site/${site.id}`, aktion: 'Verbindung einrichten',
+      });
+    }
+
+    if (!settings.apiKeyInfo().configured) {
+      klemmt.push({
+        stufe: 'err',
+        titel: 'Kein Anthropic-Schlüssel hinterlegt',
+        grund: 'Ohne Schlüssel entsteht kein einziger Artikel.',
+        ziel: '#/settings', aktion: 'Schlüssel eintragen',
+      });
+    } else if (settings.get('image_provider') !== 'none' && !settings.imageKeyInfo().configured) {
+      klemmt.push({
+        stufe: 'warn',
+        titel: 'Kein Schlüssel für den Bilddienst',
+        grund: 'Artikel entstehen weiter, aber ohne Bilder.',
+        ziel: '#/settings', aktion: 'Schlüssel eintragen',
+      });
+    }
+
+    const videoFehler = db
+      .prepare(
+        `SELECT v.title, v.error, v.retry_at, v.site_id FROM videos v
+         WHERE v.status = 'fehler' ORDER BY v.retry_at IS NULL DESC, v.id DESC LIMIT 3`
+      )
+      .all();
+    for (const video of videoFehler) {
+      klemmt.push({
+        stufe: video.retry_at ? 'warn' : 'err',
+        titel: video.retry_at ? 'Ein Video wartet auf einen neuen Anlauf' : 'Ein Video wurde aufgegeben',
+        grund: `„${sanitizeText(video.title, 60)}": ${sanitizeText(video.error, 140)}`,
+        ziel: `#/site/${video.site_id}`, aktion: 'Kanal ansehen',
+      });
+    }
+
+    const steckt = db
+      .prepare("SELECT COUNT(*) AS n FROM articles WHERE status = 'publishing' AND updated_at <= datetime('now','-30 minutes')")
+      .get().n;
+    if (steckt) {
+      klemmt.push({
+        stufe: 'warn',
+        titel: `${steckt} Artikel hängt beim Senden`,
+        grund: 'Seit über einer halben Stunde unterwegs zu WordPress.',
+        ziel: '#/logs', aktion: 'Protokoll öffnen',
+      });
+    }
+
     res.json({
       stats,
+      klemmt: klemmt.slice(0, 8),
+      naechsterLauf: (db.prepare(
+        "SELECT next_run_at FROM plans WHERE active = 1 AND next_run_at IS NOT NULL ORDER BY next_run_at LIMIT 1"
+      ).get() || {}).next_run_at || null,
       sites: db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all().map(publicSite),
       recentArticles: db
         .prepare(
@@ -93,6 +174,9 @@ router.get(
     if (!site) return res.status(404).json({ error: 'Website nicht gefunden.' });
     res.json({
       pluginVersion: pack.verfuegbar() ? pack.version() : null,
+      // Kurzlebige Adresse fuer den Fall, dass WordPress den Hub nicht erreicht
+      // und das Paket von Hand hochgeladen werden muss.
+      pluginDownload: pack.verfuegbar() ? pack.downloadUrl(site.id) : null,
       site: publicSite(site),
       topics: db.prepare('SELECT * FROM topics WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
       plans: db.prepare('SELECT * FROM plans WHERE site_id = ? ORDER BY created_at DESC').all(site.id),
