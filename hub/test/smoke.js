@@ -634,6 +634,39 @@ async function main() {
       'Die uebernommene Stelle wird benannt', abgeschrieben.stelle.slice(0, 40));
     pruefe(!pruefeUebernahme('<p>Zu kurz.</p>', quelltext).auffaellig, 'Sehr kurze Texte schlagen nicht an');
 
+    // Was die QA gefunden hat, darf nicht zurueckkommen.
+    console.log('\nHaerteprüfungen');
+    const { safeLink, sanitizeHtml } = require('../src/sanitize');
+    pruefe(safeLink('https://a.de/x') === 'https://a.de/x' && safeLink('http://a.de') === 'http://a.de',
+      'Gewoehnliche Adressen bleiben erhalten');
+    pruefe(!safeLink('javascript:alert(1)') && !safeLink('  JaVaScRiPt:alert(1)')
+      && !safeLink('data:text/html,x') && !safeLink('/relativ') && !safeLink(''),
+      'Adressen mit ausfuehrbarem Schema werden abgewiesen');
+    pruefe(/rel="noopener noreferrer"/.test(sanitizeHtml('<a href="https://x.de" target="_blank">x</a>')),
+      'Ein Link ins neue Fenster bekommt rel="noopener"');
+
+    const gemeldet = await alsPlugin('/api/plugin/result', siteId, token, {
+      article_id: 'art_pull', ok: true, post_id: 7, url: "javascript:fetch('/api/app/settings')",
+    });
+    const gespeicherteAdresse = db.prepare("SELECT wp_url FROM articles WHERE id = 'art_pull'").get();
+    pruefe(gemeldet.status === 200 && !gespeicherteAdresse.wp_url,
+      'Eine gemeldete javascript-Adresse landet nicht in der Datenbank',
+      JSON.stringify(gespeicherteAdresse.wp_url));
+
+    // Gemeint ist der Download-Pfad, nicht die Plugin-Schnittstelle unter /api/plugin/.
+    const protokoll = db.prepare(
+      "SELECT COUNT(*) AS n FROM logs WHERE message LIKE '% /plugin/%' AND message NOT LIKE '% /plugin/…%'"
+    ).get();
+    pruefe(protokoll.n === 0, 'Signierte Einmal-Adressen stehen nicht im Protokoll', `Treffer=${protokoll.n}`);
+
+    const sitzung = await ruf('/api/session', { mitCookie: false });
+    pruefe(!sitzung.daten.hubName && !sitzung.daten.version,
+      'Ohne Anmeldung verraet der Hub weder Namen noch Version');
+
+    const listeOhneToken = await ruf('/api/app/sites');
+    pruefe(Array.isArray(listeOhneToken.daten) && listeOhneToken.daten.every((s) => !s.token),
+      'Die Websiteliste enthaelt keine Tokens');
+
     console.log('\nDiagnose');
     const diag = await ruf('/api/app/diagnostics/enable', { method: 'POST' });
     pruefe(diag.daten.url && diag.daten.token, 'Diagnose-Link erzeugt');

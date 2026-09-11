@@ -141,7 +141,10 @@ router.get(
       naechsterLauf: (db.prepare(
         "SELECT next_run_at FROM plans WHERE active = 1 AND next_run_at IS NOT NULL ORDER BY next_run_at LIMIT 1"
       ).get() || {}).next_run_at || null,
-      sites: db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all().map(publicSite),
+      // Ohne Token: Die Uebersicht braucht ihn nicht, und was nicht ausgeliefert wird,
+      // kann auch nicht abgegriffen werden.
+      sites: db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all()
+        .map(publicSite).map(({ token, ...rest }) => rest),
       recentArticles: db
         .prepare(
           `SELECT a.*, s.name AS site_name FROM articles a
@@ -158,12 +161,35 @@ router.get(
   })
 );
 
+/**
+ * Die drei Zahlen fuer die Navigation. Bewusst ein eigener, sehr kleiner Endpunkt:
+ * Er wird bei jedem Seitenwechsel abgefragt, da waere der volle Uebersichtsbericht
+ * unnoetig teuer.
+ */
+router.get(
+  '/uebersicht-marken',
+  wrap((req, res) => {
+    const zaehle = (sql) => db.prepare(sql).get().n;
+    const fehlgeschlagen = zaehle("SELECT COUNT(*) AS n FROM articles WHERE status = 'failed' AND archived = 0");
+    const nichtVerbunden = zaehle("SELECT COUNT(*) AS n FROM sites WHERE status <> 'connected'");
+    const videoFehler = zaehle("SELECT COUNT(*) AS n FROM videos WHERE status = 'fehler'");
+    const ohneSchluessel = settings.apiKeyInfo().configured ? 0 : 1;
+    res.json({
+      fehlgeschlagen,
+      nichtVerbunden,
+      klemmt: (fehlgeschlagen ? 1 : 0) + nichtVerbunden + videoFehler + ohneSchluessel,
+    });
+  })
+);
+
 // -------------------------------------------------------------------- Sites
 
 router.get(
   '/sites',
   wrap((req, res) => {
-    res.json(db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all().map(publicSite));
+    // Der Token steht nur auf der Detailseite, wo er auch gebraucht wird.
+    res.json(db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all()
+      .map(publicSite).map(({ token, ...rest }) => rest));
   })
 );
 

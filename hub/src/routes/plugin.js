@@ -5,6 +5,7 @@ const { logger } = require('./../logger');
 const images = require('./../images');
 const pack = require('./../pluginpack');
 const { sign, safeEqual, decrypt, normalizeUrl } = require('./../util');
+const { safeLink } = require('./../sanitize');
 const settings = require('./../settings');
 const { VERSION } = require('./../config');
 
@@ -233,7 +234,7 @@ router.post('/result', verifySignature, (req, res) => {
        updated_at = datetime('now') WHERE id = ?`
   ).run(
     Number(req.body.post_id) || null,
-    String(req.body.url || '') || null,
+    safeLink(req.body.url),
     bildFehler.length ? bildFehler.join(' ') : null,
     article.id
   );

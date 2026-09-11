@@ -39,6 +39,21 @@ function unsafeUrl(value) {
   return /^(?:javascript|data|vbscript|file|about):/.test(blank);
 }
 
+/**
+ * Eine Adresse, die spaeter in einem Link stehen soll.
+ *
+ * Gibt die Adresse zurueck, wenn sie mit http oder https beginnt, sonst nichts.
+ * Bewusst streng: Alles, was hier hereinkommt, stammt von aussen (WordPress meldet,
+ * wo der Beitrag liegt), und ein "javascript:" an dieser Stelle waere ein Einfallstor
+ * in die eigene Oberflaeche.
+ */
+function safeLink(value) {
+  const adresse = String(value || '').trim();
+  if (!adresse) return null;
+  if (unsafeUrl(adresse)) return null;
+  return /^https?:\/\//i.test(adresse) ? adresse.slice(0, 2000) : null;
+}
+
 const escapeText = (text) => String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** Baut ein einzelnes Tag neu auf oder verwirft es. */
@@ -64,6 +79,14 @@ function rebuildTag(raw) {
     if (!erlaubt.includes(name)) continue;
     if ((name === 'href' || name === 'src') && unsafeUrl(wert)) continue;
     behalten.push(`${name}="${wert.replace(/"/g, '&quot;')}"`);
+  }
+
+  // Ein Link, der ein neues Fenster oeffnet, darf dem Ziel keinen Zugriff auf das
+  // eigene Fenster geben. Moderne Browser tun das von sich aus, aeltere nicht.
+  if (tag === 'a' && behalten.some((a) => a.startsWith('target='))) {
+    const ohneRel = behalten.filter((a) => !a.startsWith('rel='));
+    behalten.length = 0;
+    behalten.push(...ohneRel, 'rel="noopener noreferrer"');
   }
 
   const inhalt = behalten.length ? ` ${behalten.join(' ')}` : '';
@@ -93,4 +116,4 @@ function sanitizeText(input, maxLength = 300) {
   return String(input || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-module.exports = { sanitizeHtml, sanitizeText, unsafeUrl };
+module.exports = { sanitizeHtml, sanitizeText, unsafeUrl, safeLink };

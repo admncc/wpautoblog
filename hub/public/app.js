@@ -195,7 +195,53 @@ function parseHash() {
   return { route: ROUTES[route] ? route : 'dashboard', param: parts[1] || null };
 }
 
+/**
+ * Neuzeichnen, ohne Eingaben zu verlieren.
+ *
+ * Suchen, Aufklappen, Sortieren und Anhaken zeichnen die ganze Ansicht neu. Wer
+ * daneben schon etwas eingetippt hatte, saehe es sonst verschwinden. Deshalb werden
+ * die Werte vorher gemerkt und danach in die gleichnamigen Felder zurueckgeschrieben.
+ * Nur fuer diese reinen Anzeigevorgaenge: Nach dem Speichern soll der Serverstand
+ * gelten, nicht der alte Tastaturstand.
+ */
+async function zeichneMitEingaben() {
+  const gemerkt = new Map();
+  root.querySelectorAll('#view input[id], #view select[id], #view textarea[id]').forEach((el) => {
+    if (el.type === 'checkbox' || el.type === 'radio') gemerkt.set(el.id, el.checked);
+    else gemerkt.set(el.id, el.value);
+  });
+
+  const fokus = document.activeElement && document.activeElement.id;
+  const cursor = document.activeElement && typeof document.activeElement.selectionStart === 'number'
+    ? document.activeElement.selectionStart : null;
+
+  await render();
+
+  for (const [id, wert] of gemerkt) {
+    const el = root.querySelector(`#view #${CSS.escape(id)}`);
+    if (!el) continue;
+    if (el.type === 'checkbox' || el.type === 'radio') el.checked = wert;
+    else el.value = wert;
+  }
+  if (fokus) {
+    const el = root.querySelector(`#view #${CSS.escape(fokus)}`);
+    if (el) {
+      el.focus();
+      if (cursor != null && typeof el.setSelectionRange === 'function') el.setSelectionRange(cursor, cursor);
+    }
+  }
+}
+
 window.addEventListener('hashchange', render);
+
+// Die Escape-Taste schliesst jeden Dialog. Ausgenommen die Systemaktualisierung:
+// die laeuft weiter, egal was man drueckt.
+window.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  document.querySelectorAll('.modal-backdrop').forEach((el) => {
+    if (el.id !== 'update-overlay') el.remove();
+  });
+});
 
 /* Aufklappbare Bloecke und sortierbare Spalten gelten ueberall. Ein einziger
    Zuhoerer am Wurzelelement, damit er auch fuer spaeter gezeichnete Teile gilt. */
@@ -205,14 +251,14 @@ root.addEventListener('click', (event) => {
     event.preventDefault();
     const key = auf.dataset.disc;
     state.offen[key] = !state.offen[key];
-    return render();
+    return zeichneMitEingaben();
   }
   const spalte = event.target.closest('[data-sort]');
   if (spalte) {
     const [key, feld] = spalte.dataset.sort.split(':');
     const [jetzt, richtung] = state[key];
     state[key] = [feld, jetzt === feld && richtung === 'ab' ? 'auf' : 'ab'];
-    return render();
+    return zeichneMitEingaben();
   }
   return undefined;
 });
@@ -274,33 +320,101 @@ async function render() {
           <span class="brand" style="padding:0"><span class="mark">AB</span></span>
           <span style="font-weight:600;font-size:14px">${esc(state.session.hubName || 'Autoblog Hub')}</span>
           <span class="spacer"></span>
-          <button class="btn quiet sm" data-th="${themaWunsch() === 'dark' ? 'light' : 'dark'}">
-            ${ic(themaWunsch() === 'dark' ? 'sun' : 'moon', 'sm')}</button>
+          <span class="seg">
+            <button data-th="light" title="Hell">${ic('sun', 'sm')}</button>
+            <button data-th="auto" title="Dem System folgen">${ic('auto', 'sm')}</button>
+            <button data-th="dark" title="Dunkel">${ic('moon', 'sm')}</button>
+          </span>
+          <button class="btn quiet icon" id="do-update-mobil" title="System aktualisieren">${ic('down', 'sm')}</button>
+          <button class="btn quiet icon" id="logout-mobil" title="Abmelden">${ic('out', 'sm')}</button>
         </div>
-        <div class="wrap" id="view"><div class="empty">Lädt …</div></div>
+        <div class="wrap" id="view">${skelett()}</div>
       </main>
       <nav class="mobilebar">
-        ${[...NAV, NAV2[0]].map(([r, symbol, label]) =>
+        ${[...NAV, ...NAV2].map(([r, symbol, label]) =>
           `<a href="#/${r}" class="${aktiv(r) ? 'on' : ''}">${ic(symbol)}<span>${label}</span>${marke(r)}</a>`).join('')}
       </nav>
     </div>`;
 
+  // Ein offener Dialog gehoert zur Ansicht, die ihn geoeffnet hat. Wechselt sie,
+  // muss er weg, sonst liegt er ueber der neuen Ansicht und sperrt sie.
+  document.querySelectorAll('.modal-backdrop').forEach((el) => {
+    if (el.id !== 'update-overlay') el.remove();
+  });
+
   markiereThema();
   on('[data-th]', 'click', (event) => setzeThema(event.currentTarget.dataset.th));
+  zeichneMarken();
 
-  on('#logout', 'click', async () => {
+  const abmelden = async () => {
     await api('/api/logout', { method: 'POST' });
     state.session = null;
     location.hash = '';
     await render();
-  });
+  };
+  on('#logout', 'click', abmelden);
+  on('#logout-mobil', 'click', abmelden);
 
   renderUpdateBox();
 
   try {
     await ROUTES[route].render(document.getElementById('view'), param);
+    // Auf schmalen Fenstern scrollt die Reiterleiste. Der gewaehlte Reiter muss
+    // zu sehen sein, sonst wirkt die Seite wie ohne Auswahl.
+    const aktiverReiter = root.querySelector('.tabs button.active, .tabs button[aria-selected="true"]');
+    if (aktiverReiter && aktiverReiter.parentElement.scrollWidth > aktiverReiter.parentElement.clientWidth) {
+      aktiverReiter.scrollIntoView({ inline: 'center', block: 'nearest' });
+    }
   } catch (err) {
     document.getElementById('view').innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
+  }
+}
+
+/* Wartefläche in der Form dessen, was gleich kommt. Ein grauer Satz sagt nur,
+   dass etwas fehlt; das hier sagt, dass gleich etwas da ist. */
+const skelett = () => `
+  <div class="page-head"><div>
+    <div class="skeleton" style="width:220px;height:26px"></div>
+    <div class="skeleton" style="width:320px;height:14px;margin-top:8px"></div>
+  </div></div>
+  <div class="card"><div class="skeleton" style="height:18px;width:40%"></div>
+    <div class="skeleton" style="height:12px;width:80%;margin-top:12px"></div>
+    <div class="skeleton" style="height:12px;width:65%;margin-top:8px"></div></div>
+  <div class="card"><div class="skeleton" style="height:18px;width:30%"></div>
+    <div class="skeleton" style="height:12px;width:90%;margin-top:12px"></div>
+    <div class="skeleton" style="height:12px;width:70%;margin-top:8px"></div></div>`;
+
+/**
+ * Die Zahlen neben den Navigationspunkten.
+ *
+ * Sie kommen aus einer einzigen Quelle, sonst zeigt jede Ansicht etwas anderes und
+ * die Zahl hinkt der Wirklichkeit hinterher. Nachgetragen wird direkt im fertigen
+ * Geruest, damit kein zweites Zeichnen noetig ist.
+ */
+async function zeichneMarken() {
+  let daten;
+  try {
+    daten = await api('/api/app/uebersicht-marken');
+  } catch {
+    return;
+  }
+  const marken = {
+    dashboard: daten.klemmt || 0,
+    sites: daten.nichtVerbunden || 0,
+    articles: daten.fehlgeschlagen || 0,
+  };
+  state.data.marken = marken;
+
+  for (const [route, n] of Object.entries(marken)) {
+    root.querySelectorAll(`.nav a[href="#/${route}"], .mobilebar a[href="#/${route}"]`).forEach((link) => {
+      const alt = link.querySelector('.tag');
+      if (alt) alt.remove();
+      if (!n) return;
+      const marke = document.createElement('span');
+      marke.className = `tag ${route === 'sites' ? 'warn' : 'err'}`;
+      marke.textContent = String(n);
+      link.appendChild(marke);
+    });
   }
 }
 
@@ -344,8 +458,9 @@ async function renderUpdateBox() {
           ${gescheitert ? 'Noch einmal' : 'System aktualisieren'}</button>
         ${gescheitert && info.log ? '<button class="btn sm quiet" id="show-update-log">Protokoll</button>' : ''}
       </div>`}
-      ${info.runnerInstalled ? '' : `<div class="when" style="color:var(--warn);margin-top:6px">
-        ${ic('alert', 'sm')}Update-Helfer nicht eingerichtet</div>`}
+      ${info.runnerInstalled ? '' : `<div class="when"
+        style="color:var(--warn);margin-top:6px;display:flex;gap:6px;align-items:center">
+        ${ic('alert', 'sm')}<span>Update-Helfer nicht eingerichtet</span></div>`}
     </div>`;
 
   on('#show-update-log', 'click', (event) => {
@@ -372,7 +487,7 @@ async function renderUpdateBox() {
     });
   });
 
-  on('#do-update', 'click', async () => {
+  const updateStarten = async () => {
     if (!confirm(
       'System jetzt aktualisieren?\n\nDer Hub lädt den neuesten Stand aus dem Repository und startet neu. ' +
       'Das dauert ein bis zwei Minuten, in denen die Oberfläche nicht erreichbar ist. ' +
@@ -385,7 +500,9 @@ async function renderUpdateBox() {
     } catch (err) {
       toast(err.message, 'err');
     }
-  });
+  };
+  on('#do-update', 'click', updateStarten);
+  on('#do-update-mobil', 'click', updateStarten);
 }
 
 /**
@@ -572,12 +689,6 @@ async function renderDashboard(view) {
   const { stats } = data;
   const klemmt = data.klemmt || [];
 
-  // Die Zahl neben dem Navigationspunkt kommt aus denselben Daten.
-  state.data.marken = {
-    dashboard: klemmt.length || 0,
-    sites: stats.sites - stats.connected || 0,
-  };
-
   const attn = klemmt.length
     ? `<section class="attn">
         <div class="attn-head">${ic('alert')}<h2>Das klemmt gerade</h2>
@@ -671,7 +782,6 @@ async function renderDashboard(view) {
 
 async function renderSites(view) {
   const sites = await api('/api/app/sites');
-  state.data.marken = { ...(state.data.marken || {}), sites: sites.filter((s) => !s.connected).length };
 
   view.innerHTML = `
     <div class="page-head">
@@ -855,7 +965,8 @@ async function renderSite(view, siteId) {
               <button data-catfilter="aus" aria-pressed="${filter === 'aus'}">Ausgeschlossen</button>
             </span>
             <span class="spacer"></span>
-            <span class="count">${sichtbar.length} sichtbar</span>
+            <span class="count">${vieleChips ? `${Math.min(sichtbar.length, 14)} von ${sichtbar.length}`
+              : `${sichtbar.length}`} sichtbar</span>
           </div>
           ${sichtbar.length ? `
             <div class="chipfield ${vieleChips ? 'clipped' : ''}">
@@ -911,18 +1022,15 @@ async function renderSite(view, siteId) {
 
     on('#cat-q', 'input', (event) => {
       state.data.catQuery = event.target.value;
-      render().then(() => {
-        const feld = root.querySelector('#cat-q');
-        if (feld) { feld.focus(); feld.setSelectionRange(feld.value.length, feld.value.length); }
-      });
+      zeichneMitEingaben();
     });
     on('[data-catfilter]', 'click', (event) => {
       state.data.catFilter = event.currentTarget.dataset.catfilter;
-      render();
+      zeichneMitEingaben();
     });
     on('[data-catopen]', 'click', (event) => {
       state.data.catOpen = event.currentTarget.dataset.catopen === '1';
-      render();
+      zeichneMitEingaben();
     });
     on('[data-catreset]', 'click', () => {
       state.data.catQuery = '';
@@ -1086,16 +1194,13 @@ async function renderSite(view, siteId) {
 
     on('#topic-q', 'input', (event) => {
       state.data.topicQuery = event.target.value;
-      render().then(() => {
-        const feld = root.querySelector('#topic-q');
-        if (feld) { feld.focus(); feld.setSelectionRange(feld.value.length, feld.value.length); }
-      });
+      zeichneMitEingaben();
     });
     on('[data-sel]', 'change', (event) => {
       const id = event.currentTarget.dataset.sel;
       const aktuell = state.data.topicSel || [];
       state.data.topicSel = aktuell.includes(id) ? aktuell.filter((x) => x !== id) : [...aktuell, id];
-      render();
+      zeichneMitEingaben();
     });
     on('[data-selnone]', 'click', () => { state.data.topicSel = []; render(); });
     on('#del-selected', 'click', (event) => guard(event.currentTarget, async () => {
@@ -1148,7 +1253,7 @@ async function renderSite(view, siteId) {
     ];
 
     const videoZeile = (v) => {
-      const [cls, symbol, label] = VST[v.status] || ['', 'doc', v.status];
+      const [cls, symbol, label] = VST[v.status] || ['', 'doc', esc(v.status)];
       return `<tr class="${vspur[v.status] || 'is-idle'}">
         <td><span class="ttl">${esc(v.title)}</span>
           <span class="meta">${esc(v.kanal || '')}${v.words ? ` · ${v.words} Wörter Transkript` : ''}</span>
@@ -1234,8 +1339,8 @@ async function renderSite(view, siteId) {
               </span>
               <span class="acts">
                 <button class="btn sm" data-scan="${esc(k.id)}">${ic('refresh', 'sm')}Jetzt prüfen</button>
-                <button class="btn sm quiet icon" data-toggle-chan="${esc(k.id)}" data-active="${k.active}"
-                  title="${k.active ? 'Pausieren' : 'Aktivieren'}">${ic(k.active ? 'pause' : 'play', 'sm')}</button>
+                <button class="btn sm" data-toggle-chan="${esc(k.id)}" data-active="${k.active}">
+                  ${ic(k.active ? 'pause' : 'play', 'sm')}${k.active ? 'Pausieren' : 'Aktivieren'}</button>
                 <button class="btn sm quiet" data-disc="chan:${esc(k.id)}">${ic('sliders', 'sm')}Einstellungen</button>
               </span>
             </div>
@@ -1347,7 +1452,7 @@ async function renderSite(view, siteId) {
         <h2>Artikel schreiben</h2>
         <div class="sub">Ein einzelner Beitrag für diese Website, ohne Umweg über die Themenliste.</div>
         <form id="write-form" class="row" style="align-items:flex-end;margin-top:14px">
-          <div class="field" style="flex:1;min-width:240px;margin:0">
+          <div class="field" style="flex:1 1 240px;min-width:0;margin:0">
             <label for="keyword">Thema oder Suchbegriff</label>
             <input id="keyword" required placeholder="z. B. Kaffeemaschine entkalken" /></div>
           <button class="btn primary" type="submit">${ic('spark', 'sm')}Artikel erzeugen</button>
@@ -1393,18 +1498,37 @@ async function renderSite(view, siteId) {
 
       document.body.insertAdjacentHTML('beforeend', `
         <div class="modal-backdrop" id="test-overlay">
-          <div class="modal">
-            <h2>Verbindung konnte nicht aufgebaut werden</h2>
-            <div class="notice err">${esc(err.message)}</div>
-            ${schritte.length ? `<h3 style="margin-top:16px">Was der Hub geprüft hat</h3>
-              <div>${schritte.map((s) => `<div class="logline">
-                <span>${s.ok ? '<span class="badge ok">ok</span>' : '<span class="badge err">Problem</span>'}</span>
-                <span>${esc(s.text)}</span></div>`).join('')}</div>` : ''}
-            <button id="test-close" style="margin-top:16px">Schließen</button>
+          <div class="modal wide" role="dialog" aria-modal="true">
+            <header>${ic('alert', 'lg')}<h2>Verbindung fehlgeschlagen</h2>
+              <button class="btn quiet icon" data-zu="1">${ic('x', 'sm')}</button></header>
+            <div class="body">
+              <div class="notice err">${ic('alert')}<div class="grow">${esc(err.message)}</div></div>
+              ${schritte.length ? `<h3 style="margin:16px 0 8px">Was der Hub geprüft hat</h3>
+                ${schritte.map((schritt) => `<div class="item ${schritt.ok ? 'is-ok' : 'is-err'}">
+                  ${ic(schritt.ok ? 'check' : 'alert', 'sm')}
+                  <span class="grow">${esc(schritt.text)}</span>
+                </div>`).join('')}` : ''}
+              <p style="margin-top:14px;color:var(--ink-2);font-size:13.5px">
+                Am häufigsten liegt es daran, dass das Plugin in WordPress noch nicht aktiviert ist
+                oder der Token dort nicht eingetragen wurde.</p>
+            </div>
+            <footer><button class="btn" data-zu="1">Schließen</button>
+              <button class="btn primary" id="test-again">${ic('refresh', 'sm')}Noch einmal versuchen</button></footer>
           </div>
         </div>`);
-      document.getElementById('test-close').addEventListener('click', () =>
-        document.getElementById('test-overlay').remove());
+      const zu = () => {
+        const overlay = document.getElementById('test-overlay');
+        if (overlay) overlay.remove();
+      };
+      document.querySelectorAll('#test-overlay [data-zu]').forEach((el) => el.addEventListener('click', zu));
+      document.getElementById('test-overlay').addEventListener('click', (e) => {
+        if (e.target.id === 'test-overlay') zu();
+      });
+      document.getElementById('test-again').addEventListener('click', () => {
+        zu();
+        const knopfNeu = root.querySelector('#test-connection');
+        if (knopfNeu) knopfNeu.click();
+      });
     } finally {
       knopf.disabled = false;
       knopf.textContent = beschriftung;
@@ -1526,8 +1650,8 @@ async function renderPosts(view) {
               </span>
               <span class="acts">
                 <button class="btn sm" data-run-plan="${esc(plan.id)}">${ic('play', 'sm')}Jetzt ausführen</button>
-                <button class="btn sm quiet icon" data-toggle-plan="${esc(plan.id)}" data-active="${plan.active}"
-                  title="${plan.active ? 'Pausieren' : 'Aktivieren'}">${ic(plan.active ? 'pause' : 'play', 'sm')}</button>
+                <button class="btn sm" data-toggle-plan="${esc(plan.id)}" data-active="${plan.active}">
+                  ${ic(plan.active ? 'pause' : 'play', 'sm')}${plan.active ? 'Pausieren' : 'Aktivieren'}</button>
                 <button class="btn sm quiet" data-disc="plan:${esc(plan.id)}">${ic('sliders', 'sm')}Bearbeiten</button>
               </span>
             </div>
@@ -1734,8 +1858,8 @@ function articleTable(articles) {
           ${a.origin === 'youtube' ? `<span class="badge info">${ic('video', 'sm')}Video</span>` : ''}
           ${a.origin === 'target' ? `<span class="badge info">${ic('search', 'sm')}gezielt</span>` : ''}
           ${a.archived ? '<span class="badge">archiviert</span>' : ''}</span>
-        ${a.wp_url ? `<span class="meta"><a href="${esc(a.wp_url)}" target="_blank" rel="noopener"
-          onclick="event.stopPropagation()">${esc(a.wp_url)} ${ic('ext', 'sm')}</a></span>` : ''}
+        ${a.wp_url ? `<span class="meta"><a class="stop" href="${esc(a.wp_url)}" target="_blank"
+          rel="noopener noreferrer">${esc(a.wp_url)} ${ic('ext', 'sm')}</a></span>` : ''}
         ${a.status === 'failed' && a.error ? `<span class="meta" style="color:var(--stop)">${esc(a.error)}</span>` : ''}</td>
       <td data-label="Status">${statusBadge(a.status)}</td>
       <td data-label="Wörter" class="right">${a.word_count || '–'}</td>
@@ -1752,9 +1876,6 @@ async function renderArticles(view) {
 
   const [data, sites] = await Promise.all([api(`/api/app/articles?${query}`), api('/api/app/sites')]);
   const { articles, counts } = data;
-
-  const fehler = articles.filter((a) => a.status === 'failed').length;
-  state.data.marken = { ...(state.data.marken || {}), articles: fehler || 0 };
 
   view.innerHTML = `
     <div class="page-head">
@@ -1789,6 +1910,13 @@ async function renderArticles(view) {
   on('#filter-site', 'change', (event) => { state.data.filterSite = event.target.value; render(); });
   on('[data-article]', 'click', (event) => navigate('article', event.currentTarget.dataset.article));
 }
+
+/* Ein Link in einer anklickbaren Zeile soll nur den Link oeffnen, nicht auch die
+   Zeile. Als eigener Zuhoerer, weil die Sicherheitsrichtlinie kein onclick im
+   Seitentext erlaubt. */
+root.addEventListener('click', (event) => {
+  if (event.target.closest('a.stop')) event.stopPropagation();
+}, true);
 
 async function renderArticle(view, articleId) {
   const article = await api(`/api/app/articles/${articleId}`);
@@ -2179,9 +2307,31 @@ async function renderSettings(view) {
     </section>
 
     </div>
-    <nav class="jump">${SETS.map(([id, t], i) =>
-      `<a href="#${id}" class="${i === 0 ? 'on' : ''}">${esc(t)}</a>`).join('')}</nav>
+    <nav class="jump">${SETS.map(([id, t]) =>
+      `<a href="#/settings" data-jump="${id}">${esc(t)}</a>`).join('')}</nav>
     </div>`;
+
+  // Die Sprungmarken duerfen den Hash nicht anfassen, sonst liest der Router sie als
+  // Route und wirft einen auf die Uebersicht. Also selbst scrollen.
+  on('[data-jump]', 'click', (event) => {
+    event.preventDefault();
+    const ziel = document.getElementById(event.currentTarget.dataset.jump);
+    if (ziel) ziel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // Die Marke folgt dem, was gerade oben steht.
+  const beobachter = new IntersectionObserver((eintraege) => {
+    for (const eintrag of eintraege) {
+      if (!eintrag.isIntersecting) continue;
+      root.querySelectorAll('[data-jump]').forEach((a) => {
+        a.classList.toggle('on', a.dataset.jump === eintrag.target.id);
+      });
+    }
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  SETS.forEach(([id]) => {
+    const abschnitt = document.getElementById(id);
+    if (abschnitt) beobachter.observe(abschnitt);
+  });
 
   const saveSettings = (event) => guard(event.currentTarget, async () => {
     const body = {};
@@ -2302,7 +2452,9 @@ async function renderLogs(view) {
         <span class="spacer"></span>
         <span class="count">${zeilen.length} Zeilen</span>
       </div>
-      ${zeilen.length ? `<div class="tblwrap"><table>
+      ${zeilen.length ? `<div class="tblwrap"><table class="breit">
+        <colgroup><col style="width:130px" /><col style="width:88px" /><col style="width:170px" />
+          <col style="width:78px" /><col /></colgroup>
         <thead><tr>
           ${sortKopf('sortL', 'zeit', 'Zeit', 'nowrap')}
           ${sortKopf('sortL', 'stufe', 'Stufe')}
@@ -2316,7 +2468,7 @@ async function renderLogs(view) {
             : entry.level === 'warn' ? 'warn' : entry.level === 'debug' ? '' : 'info'}">${esc(entry.level)}</span></td>
           <td data-label="Bereich"><span class="num">${esc(entry.category)}${entry.action ? `/${esc(entry.action)}` : ''}</span></td>
           <td data-label="Dauer" class="right">${entry.duration_ms != null ? `${esc(entry.duration_ms)} ms` : ''}</td>
-          <td>${esc(entry.message)}
+          <td class="dehnbar">${esc(entry.message)}
             ${entry.context ? disclose(`log:${entry.id}`, 'Einzelheiten',
               `<pre class="code">${esc(JSON.stringify(JSON.parse(entry.context), null, 2))}</pre>`) : ''}</td>
         </tr>`).join('')}</tbody>
@@ -2330,10 +2482,7 @@ async function renderLogs(view) {
 
   on('#log-q', 'input', (event) => {
     state.data.logQuery = event.target.value;
-    render().then(() => {
-      const feld = root.querySelector('#log-q');
-      if (feld) { feld.focus(); feld.setSelectionRange(feld.value.length, feld.value.length); }
-    });
+    zeichneMitEingaben();
   });
 
   const update = (key) => (event) => {

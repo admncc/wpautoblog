@@ -41,11 +41,11 @@ app.use(httpLogger); // protokolliert jede Anfrage mit Dauer und Status
 
 app.get('/api/session', (req, res) => {
   const userId = auth.readToken(req.cookies[auth.COOKIE]);
+  // Name und Version verraten, welcher Hub hier steht. Das geht nur Angemeldete an.
   res.json({
     authenticated: Boolean(userId),
     needsSetup: auth.userCount() === 0,
-    hubName: settings.get('hub_name'),
-    version: config.VERSION,
+    ...(userId ? { hubName: settings.get('hub_name'), version: config.VERSION } : {}),
   });
 });
 

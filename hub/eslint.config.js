@@ -41,6 +41,7 @@ module.exports = [
         setTimeout: 'readonly', clearTimeout: 'readonly', setInterval: 'readonly', clearInterval: 'readonly',
         alert: 'readonly', confirm: 'readonly', prompt: 'readonly', navigator: 'readonly',
         URL: 'readonly', URLSearchParams: 'readonly', FormData: 'readonly', Event: 'readonly',
+        CSS: 'readonly', IntersectionObserver: 'readonly', matchMedia: 'readonly',
       },
     },
   },

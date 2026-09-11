@@ -72,6 +72,17 @@ function redact(value, depth = 0) {
   return out;
 }
 
+/**
+ * Adressen, die selbst ein Geheimnis tragen, gehoeren nicht ins Protokoll.
+ *
+ * Der Diagnose-Bericht gibt das Protokoll an Dritte weiter. Stuenden dort die
+ * signierten Einmal-Adressen im Klartext, haette der Helfer damit gueltige Links
+ * fuer Plugin-Paket, Bilder und den Diagnose-Zugang selbst in der Hand.
+ */
+const GEHEIME_PFADE = /^\/(plugin|media|diagnose)\/[^/]+/;
+const pfadKuerzen = (adresse) =>
+  String(adresse || '').replace(GEHEIME_PFADE, (treffer) => `${treffer.split('/').slice(0, 2).join('/')}/…`);
+
 /** Express-Middleware: protokolliert jede HTTP-Anfrage samt Dauer und Status. */
 function httpLogger(req, res, next) {
   req.requestId = newRequestId();
@@ -83,7 +94,7 @@ function httpLogger(req, res, next) {
     const isAsset = /\.(css|js|ico|png|svg|woff2?)$/i.test(req.path);
     const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : isAsset ? 'debug' : 'info';
 
-    log(level, `${req.method} ${req.originalUrl} → ${res.statusCode} (${durationMs} ms)`, {
+    log(level, `${req.method} ${pfadKuerzen(req.originalUrl)} → ${res.statusCode} (${durationMs} ms)`, {
       category: 'http',
       action: 'request',
       requestId: req.requestId,

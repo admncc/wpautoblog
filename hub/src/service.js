@@ -8,6 +8,7 @@ const youtube = require('./youtube');
 const { randomId } = require('./util');
 const { PUBLIC_URL } = require('./config');
 const { pruefeUebernahme } = require('./textvergleich');
+const { safeLink } = require('./sanitize');
 
 const getSite = (id) => db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
 
@@ -412,7 +413,7 @@ async function publish(articleId) {
     touchArticle(articleId, {
       status: 'published',
       wp_post_id: result.post_id || null,
-      wp_url: result.url || null,
+      wp_url: safeLink(result.url),
       published_at: new Date().toISOString(),
       archived: 1,
       archived_at: new Date().toISOString(),

@@ -18,7 +18,7 @@
 
   --ink:          #15201f;   /* Fließtext, Überschriften */
   --ink-2:        #4e5d5b;   /* Sekundärtext */
-  --ink-3:        #7b8785;   /* Hinweise, Platzhalter */
+  --ink-3:        #5f6c6a;   /* Hinweise, Platzhalter; dunkel genug fuer 12,5 px auf Weiss */
 
   --brand:        #0d5b60;   /* der Hub arbeitet · Hauptaktion */
   --brand-2:      #09464a;
@@ -357,8 +357,8 @@ html[data-theme="dark"] .btn.primary { color: #08252a; }
 }
 .btn.quiet:hover { background: var(--panel-3); color: var(--ink); border-color: transparent; }
 
-.btn.danger { border-color: transparent; background: transparent; color: var(--ink-3); }
-.btn.danger:hover { background: var(--stop-soft); color: var(--stop); border-color: var(--stop-line); }
+.btn.danger { border-color: transparent; background: transparent; color: var(--stop); }
+.btn.danger:hover { background: var(--stop-soft); border-color: var(--stop-line); }
 
 .btn.sm { padding: 5px 9px; font-size: 12.5px; border-radius: 7px; }
 .btn.icon { padding: 6px; }
@@ -402,7 +402,7 @@ html[data-theme="dark"] .btn.primary { color: #08252a; }
 .grid { display: grid; gap: 16px; }
 .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.row { display: flex; gap: 12px; align-items: center; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
 /* ---------- 9. Statusspur -------------------------------- */
 /* Der Zustand einer Zeile ist eine bauliche Eigenschaft, keine
@@ -732,6 +732,8 @@ select {
 
 /* Fußzeile eines Formulars. Mit .sticky klebt sie am unteren Rand —
    nur sinnvoll, wenn die Seite genau ein langes Formular trägt. */
+.formfoot { flex-wrap: wrap; }
+.formfoot .state { flex: 1 1 240px; }
 .formfoot {
   display: flex; align-items: center; gap: 10px;
   margin: 18px -18px -18px;
@@ -790,11 +792,10 @@ html[data-theme="dark"] .bulk { color: var(--ink); }
   gap: 7px;
   padding: 16px;
 }
+/* Auf volle Reihen begrenzen, sonst lugen halbe Chips hervor. */
 .chipfield.clipped {
-  max-height: 96px;
+  max-height: 84px;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(180deg, #000 58px, transparent 96px);
-  mask-image: linear-gradient(180deg, #000 58px, transparent 96px);
 }
 .chip {
   display: inline-flex; align-items: center;
@@ -887,6 +888,9 @@ td .acts { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* Zustandsstreifen auch in Tabellen */
 tbody tr td:first-child { box-shadow: inset 3px 0 0 transparent; }
+/* Ein Titel ohne Leerzeichen darf die Spalte nicht aufziehen. */
+tbody td { overflow-wrap: anywhere; }
+h1, h2, .ttl, .page-head h1 { overflow-wrap: anywhere; }
 tbody tr.is-ok   td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
 tbody tr.is-warn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 tbody tr.is-err  td:first-child { box-shadow: inset 3px 0 0 var(--stop); }
@@ -1046,7 +1050,16 @@ tbody tr.is-run  td:first-child { box-shadow: inset 3px 0 0 var(--brand); }
   color: var(--ink-2);
   margin: 0;
 }
-textarea.code { white-space: pre; }
+textarea.code { white-space: pre-wrap; min-height: 320px; }
+/* Ein aufgeklappter Block in einer Tabelle darf die Spalte nicht aufziehen.
+   max-width:0 zusammen mit width:100% heisst fuer eine Tabellenzelle: nimm den
+   Platz, der uebrig ist, und nicht den, den dein Inhalt gerne haette. */
+table.breit { table-layout: fixed; width: 100%; }
+/* Auf dem Handy wird die Zeile zur Karte, feste Spaltenbreiten waeren dort falsch. */
+@container (max-width: 900px) { table.breit { table-layout: auto; } table.breit colgroup { display: none; } }
+td .disclose { max-width: 100%; }
+td pre.code { max-width: 100%; overflow-x: auto; }
+td.dehnbar { max-width: 0; width: 100%; }
 
 /* ---------- 23. Kurzmeldung und Dialog ------------------- */
 
@@ -1101,7 +1114,7 @@ textarea.code { white-space: pre; }
 .modal header h2 { flex: 1 1 auto; font-size: 16px; }
 .modal .body { padding: 18px; }
 .modal footer {
-  display: flex; gap: 8px; justify-content: flex-end;
+  display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;
   padding: 14px 18px;
   border-top: 1px solid var(--line);
   background: var(--panel-2);
@@ -1269,7 +1282,10 @@ textarea.code { white-space: pre; }
   tbody tr.is-idle::before { background: var(--line-2); }
   tbody td { border: 0; padding: 2px 0; }
   tbody td.right, tbody th.right { text-align: left; }
-  tbody tr td:first-child { box-shadow: none; margin-bottom: 4px; }
+  /* Die Zeile traegt ihren Streifen jetzt selbst (::before). Der Streifen der ersten
+     Zelle muss weg, sonst liegt er auf dem ersten Buchstaben. Gleiche Spezifitaet
+     wie die Zustandsregeln oben, sonst gewinnen die. */
+  tbody tr[class] td:first-child { box-shadow: none; margin-bottom: 4px; }
   tbody tr td:first-child .ttl { font-size: 15px; }
   tbody td[data-label]::before {
     content: attr(data-label) " ";
