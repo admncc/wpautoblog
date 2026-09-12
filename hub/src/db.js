@@ -208,6 +208,25 @@ ensureColumn('channels', 'max_per_scan', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('channels', 'scan_count', 'INTEGER NOT NULL DEFAULT 0');
 // Fertige Artikel aus diesem Kanal von selbst an WordPress senden.
 ensureColumn('channels', 'auto_publish', 'INTEGER NOT NULL DEFAULT 0');
+
+// Backlink-Auftraege: ein Ziel, ein Keyword, mehrere Websites.
+db.exec(`
+CREATE TABLE IF NOT EXISTS backlinks (
+  id           TEXT PRIMARY KEY,
+  url          TEXT NOT NULL,
+  keyword      TEXT NOT NULL,
+  extra        TEXT NOT NULL DEFAULT '',   -- weitere Keywords, kommagetrennt
+  anchor_mode  TEXT NOT NULL DEFAULT 'gemischt',
+  rel          TEXT NOT NULL DEFAULT '',   -- leer | sponsored | nofollow
+  note         TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);`);
+
+ensureColumn('articles', 'backlink_id', 'TEXT');
+ensureColumn('articles', 'backlink_url', 'TEXT');
+ensureColumn('articles', 'backlink_anchor', 'TEXT');
+ensureColumn('articles', 'longtails', 'TEXT');          // als JSON abgelegt
+ensureColumn('articles', 'keyword_density', 'REAL');
 ensureColumn('videos', 'run_no', 'INTEGER NOT NULL DEFAULT 0');
 // Fehlgeschlagene Videos bekommen mehrere Anlaeufe, bevor ein anderes nachrueckt.
 ensureColumn('videos', 'attempts', 'INTEGER NOT NULL DEFAULT 0');

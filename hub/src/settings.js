@@ -4,6 +4,7 @@ const { encrypt, decrypt } = require('./util');
 const { ENV_ANTHROPIC_KEY, DEFAULT_MODEL } = require('./config');
 const {
   DEFAULT_ARTICLE_PROMPT, DEFAULT_TOPIC_PROMPT, DEFAULT_VIDEO_PROMPT, DEFAULT_TARGET_PROMPT,
+  DEFAULT_BACKLINK_PROMPT,
 } = require('./prompts');
 
 const DEFAULTS = {
@@ -35,6 +36,7 @@ const DEFAULTS = {
   transcript_header: 'x-api-key',
   video_prompt: DEFAULT_VIDEO_PROMPT,
   target_prompt: DEFAULT_TARGET_PROMPT,
+  backlink_prompt: DEFAULT_BACKLINK_PROMPT,
 };
 
 function all() {
@@ -117,6 +119,7 @@ function resetPrompts() {
   setSetting('topic_prompt', DEFAULTS.topic_prompt);
   setSetting('video_prompt', DEFAULTS.video_prompt);
   setSetting('target_prompt', DEFAULTS.target_prompt);
+  setSetting('backlink_prompt', DEFAULTS.backlink_prompt);
 }
 
 module.exports = {

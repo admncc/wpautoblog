@@ -405,6 +405,104 @@ ${rechercheBlock(briefing)}`;
   return { ...aufbereiten(data, site, imageCount, keyword, kategorien), ...usage };
 }
 
+/* ------------------------------------------------------------------ Backlink */
+
+const BACKLINK_SCHEMA = JSON.parse(JSON.stringify(ARTICLE_SCHEMA));
+BACKLINK_SCHEMA.properties.longtails = {
+  type: 'array',
+  description: '6 bis 10 abgeleitete Suchbegriffe, die im Text tatsaechlich vorkommen',
+  items: { type: 'string' },
+};
+BACKLINK_SCHEMA.properties.anchor_satz = {
+  type: 'string',
+  description: 'Der Satz, in dem der Platzhalter [[BACKLINK]] steht',
+};
+BACKLINK_SCHEMA.required = [...BACKLINK_SCHEMA.required, 'longtails'];
+
+function backlinkSystemPrompt() {
+  return (settings.get('backlink_prompt') || '').trim() || require('./prompts').DEFAULT_BACKLINK_PROMPT;
+}
+
+/**
+ * Wie oft steht das Keyword im Text, gemessen am Gesamtumfang?
+ *
+ * Gezaehlt wird als Wortfolge, nicht als Zeichenkette: "kaffee entkalken" trifft
+ * auch "Kaffee entkalken", aber nicht "Kaffeemaschine". Unter 0,3 Prozent ist der
+ * Text am Thema vorbei, ueber 2,5 Prozent wird es Stuffing.
+ */
+function keywordDichte(html, keyword) {
+  const worte = String(html || '').replace(/<[^>]*>/g, ' ').toLowerCase()
+    .replace(/[^a-zäöüß0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+  const gesucht = String(keyword || '').toLowerCase()
+    .replace(/[^a-zäöüß0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+  if (!worte.length || !gesucht.length) return { treffer: 0, woerter: worte.length, prozent: 0 };
+
+  let treffer = 0;
+  for (let i = 0; i + gesucht.length <= worte.length; i += 1) {
+    if (gesucht.every((wort, n) => worte[i + n] === wort)) treffer += 1;
+  }
+  return {
+    treffer,
+    woerter: worte.length,
+    prozent: Math.round(((treffer * gesucht.length) / worte.length) * 10000) / 100,
+  };
+}
+
+/**
+ * Ein Beitrag, der genau einmal auf eine bestimmte Seite verweist.
+ *
+ * Den Link setzt der Hub, nicht das Modell: Das Modell schreibt nur den Platzhalter,
+ * damit Adresse und rel-Angabe verlaesslich stimmen und nicht mehr als ein Verweis
+ * entsteht.
+ */
+async function generateBacklink({ site, auftrag, anchor, imageCount = 0, categories = [] }) {
+  const wordCount = Number(site.word_count) || Number(settings.get('default_word_count')) || 1200;
+  const kategorien = categories.map((c) => (typeof c === 'string' ? c : c.name)).filter(Boolean);
+
+  const system = `${backlinkSystemPrompt()}
+
+═══════════════════════════════════════════════════════════════════
+REGELWERK FUER ARTIKEL
+═══════════════════════════════════════════════════════════════════
+
+${articleSystemPrompt()}`;
+
+  const prompt = `${siteBriefing(site)}
+
+Aufgabe: Schreibe einen Beitrag für diese Website, der genau einmal auf die
+Zielseite verweist.
+Hauptkeyword: ${auftrag.keyword}
+${auftrag.extra ? `Weitere Keywords, wo sie passen: ${auftrag.extra}\n` : ''}Ankertext für den Verweis: ${anchor}
+Worum es auf der Zielseite geht: ${auftrag.note || 'nicht näher beschrieben, leite es aus dem Keyword ab'}
+Ziellänge: ca. ${wordCount} Wörter als Richtwert.
+${sprachHinweis(site)}
+${kategorien.length
+    ? `Kategorie: Wähle GENAU EINE der vorhandenen Kategorien dieser Website: ${kategorien.join(' | ')}\n`
+    : ''}Bilder: ${imageCount > 0
+    ? `${imageCount} Bildkonzepte. Bild 1 ist das Titelbild, die übrigen platzierst du mit [[BILD:2]] bis [[BILD:${imageCount}]] im Text.`
+    : 'keine. Gib für "images" eine leere Liste zurück und setze keine Platzhalter in den Text.'}
+
+Der Platzhalter [[BACKLINK]] steht genau einmal im Fließtext, im mittleren Drittel,
+mitten in einem Satz. Der Ankertext selbst gehört nicht in den Text, nur der
+Platzhalter; der Satz muss so gebaut sein, dass "${anchor}" an dieser Stelle
+eingesetzt werden kann und sich natürlich liest.`;
+
+  const { data, usage } = await runJson({
+    system,
+    prompt,
+    schema: articleSchema(kategorien, BACKLINK_SCHEMA),
+    maxTokens: 32000,
+    kind: 'backlink',
+    meta: { siteId: site.id, context: { keyword: auftrag.keyword, ziel: auftrag.url, anchor } },
+  });
+
+  const fertig = aufbereiten(data, site, imageCount, auftrag.keyword, kategorien);
+  const longtails = (Array.isArray(data.longtails) ? data.longtails : [])
+    .map((t) => sanitizeText(t, 120)).filter(Boolean).slice(0, 12);
+
+  return { ...fertig, longtails, anchor_satz: sanitizeText(data.anchor_satz, 400), ...usage };
+}
+
 const VIDEO_SCHEMA = JSON.parse(JSON.stringify(ARTICLE_SCHEMA));
 VIDEO_SCHEMA.properties.verwertbar = {
   type: 'boolean',
@@ -516,5 +614,6 @@ ${existing.length ? `Diese Themen existieren bereits und dürfen NICHT wiederhol
 
 // aufbereiten wird von der Funktionspruefung direkt aufgerufen, ohne Anthropic zu behelligen.
 module.exports = {
-  MODELS, AiError, generateArticle, generateFromVideo, generateTargeted, suggestTopics, aufbereiten,
+  MODELS, AiError, generateArticle, generateFromVideo, generateTargeted, generateBacklink,
+  suggestTopics, aufbereiten, keywordDichte,
 };

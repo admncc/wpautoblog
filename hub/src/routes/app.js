@@ -3,7 +3,7 @@ const express = require('express');
 const { db } = require('./../db');
 const { logger } = require('./../logger');
 const { randomId, siteToken, encrypt, decrypt, normalizeUrl, countWords, slugify } = require('./../util');
-const { sanitizeHtml, sanitizeText } = require('./../sanitize');
+const { sanitizeHtml, sanitizeText, safeLink } = require('./../sanitize');
 const settings = require('./../settings');
 const service = require('./../service');
 const ai = require('./../ai');
@@ -495,8 +495,14 @@ router.get(
       .prepare('SELECT a.*, s.name AS site_name, s.wp_status FROM articles a JOIN sites s ON s.id = a.site_id WHERE a.id = ?')
       .get(req.params.id);
     if (!article) return res.status(404).json({ error: 'Artikel nicht gefunden.' });
+    let longtails = [];
+    try {
+      longtails = JSON.parse(article.longtails || '[]');
+    } catch { /* nichts abgelegt */ }
+
     res.json({
       ...article,
+      longtails: Array.isArray(longtails) ? longtails : [],
       images: images.forArticle(article.id).map((img) => ({
         id: img.id, slot: img.slot, alt: img.alt, caption: img.caption, motif: img.motif,
         status: img.status, error: img.error, bytes: img.bytes,
@@ -835,6 +841,55 @@ router.post(
     const result = await service.runPlan(plan);
     if (result.fehler) return res.status(400).json({ error: result.fehler });
     res.json({ ok: true, produced: result.produced, article: result.article || null });
+  })
+);
+
+// -------------------------------------------------------------- Backlinks
+
+router.get(
+  '/backlinks',
+  wrap((req, res) => {
+    res.json(
+      db.prepare(
+        `SELECT b.*, COUNT(a.id) AS artikel,
+                SUM(CASE WHEN a.status = 'published' THEN 1 ELSE 0 END) AS veroeffentlicht,
+                SUM(CASE WHEN a.status = 'failed' THEN 1 ELSE 0 END) AS fehler
+         FROM backlinks b LEFT JOIN articles a ON a.backlink_id = b.id
+         GROUP BY b.id ORDER BY b.created_at DESC LIMIT 50`
+      ).all()
+    );
+  })
+);
+
+router.post(
+  '/backlinks',
+  wrap((req, res) => {
+    const url = safeLink(req.body.url);
+    if (!url) return res.status(400).json({ error: 'Bitte eine vollständige Adresse mit https:// angeben.' });
+
+    const keyword = sanitizeText(req.body.keyword, 120);
+    if (!keyword) return res.status(400).json({ error: 'Bitte ein Hauptkeyword angeben.' });
+
+    const siteIds = (Array.isArray(req.body.site_ids) ? req.body.site_ids : []).slice(0, 20);
+    if (!siteIds.length) return res.status(400).json({ error: 'Bitte mindestens eine Website auswählen.' });
+
+    const erlaubteAnker = ['gemischt', 'exakt', 'marke'];
+    const erlaubteRel = ['', 'sponsored', 'nofollow'];
+
+    const { id, artikel } = service.startBacklink({
+      url,
+      keyword,
+      extra: sanitizeText(req.body.extra, 400),
+      anchorMode: erlaubteAnker.includes(req.body.anchor_mode) ? req.body.anchor_mode : 'gemischt',
+      rel: erlaubteRel.includes(req.body.rel) ? req.body.rel : '',
+      note: sanitizeText(req.body.note, 600),
+      siteIds,
+    });
+
+    logger.info('article', 'backlink', `Backlink-Auftrag: "${keyword}" auf ${artikel.length} Website(s)`, {
+      requestId: req.requestId, context: { ziel: url },
+    });
+    res.status(202).json({ id, articles: artikel.map((a) => a.article) });
   })
 );
 

@@ -130,6 +130,167 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
   return { article: getArticle(id), promise };
 }
 
+/* -------------------------------------------------------------- Backlinks */
+
+/**
+ * Ankertexte, die sich unterscheiden.
+ *
+ * Wenn fuenf Blogs mit demselben Wort auf dieselbe Seite zeigen, sieht das nach
+ * Absprache aus, und genau das bewerten Suchmaschinen seit Jahren ab. Deshalb
+ * bekommt jede Website einen anderen Anker aus derselben Familie: der Begriff
+ * selbst, der Name des Ziels, eine natuerliche Umschreibung.
+ */
+function markeAusAdresse(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    const name = host.split('.')[0];
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  } catch {
+    return '';
+  }
+}
+
+function ankerVarianten(keyword, url, modus) {
+  const marke = markeAusAdresse(url);
+  if (modus === 'exakt') return [keyword];
+  if (modus === 'marke') return marke ? [marke, `${marke} ${keyword}`] : [keyword];
+  // Gemischt: der Regelfall. Wenig Exaktes, viel Natuerliches.
+  return [
+    keyword,
+    marke || `mehr zu ${keyword}`,
+    `mehr über ${keyword}`,
+    marke ? `${marke} zu ${keyword}` : `${keyword} im Detail`,
+    `${keyword} nachlesen`,
+  ].filter(Boolean);
+}
+
+/** Setzt den Verweis an die Stelle, die das Modell vorgesehen hat. */
+function setzeVerweis(html, anchor, url, rel) {
+  const marker = /\[\[BACKLINK\]\]/g;
+  const treffer = (String(html).match(marker) || []).length;
+  if (!treffer) return { html, gesetzt: false };
+
+  const relAttr = rel ? ` rel="${rel === 'sponsored' ? 'sponsored noopener' : 'nofollow noopener'}"` : '';
+  const link = `<a href="${url}"${relAttr}>${anchor}</a>`;
+  // Nur der erste Platzhalter wird zum Verweis, weitere fallen ersatzlos weg.
+  let ersterErsetzt = false;
+  const neu = String(html).replace(marker, () => {
+    if (ersterErsetzt) return '';
+    ersterErsetzt = true;
+    return link;
+  });
+  return { html: neu, gesetzt: true, ueberzaehlig: treffer - 1 };
+}
+
+/**
+ * Ein Backlink-Auftrag: ein Ziel, ein Keyword, mehrere Websites.
+ * Je Website entsteht ein eigener Beitrag mit eigenem Anker und eigenen Longtails.
+ */
+function startBacklink({ url, keyword, extra = '', anchorMode = 'gemischt', rel = '', note = '', siteIds = [] }) {
+  const auftragId = randomId('bl');
+  db.prepare(
+    `INSERT INTO backlinks (id, url, keyword, extra, anchor_mode, rel, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(auftragId, url, keyword, extra, anchorMode, rel, note);
+
+  const auftrag = { id: auftragId, url, keyword, extra, note };
+  const anker = ankerVarianten(keyword, url, anchorMode);
+  const artikel = [];
+
+  siteIds.forEach((siteId, index) => {
+    const site = getSite(siteId);
+    if (!site) return;
+
+    const anchor = anker[index % anker.length];
+    const id = randomId('art');
+    db.prepare(
+      `INSERT INTO articles (id, site_id, keyword, title, status, origin,
+         backlink_id, backlink_url, backlink_anchor)
+       VALUES (?, ?, ?, ?, 'generating', 'backlink', ?, ?, ?)`
+    ).run(id, site.id, keyword, keyword, auftragId, url, anchor);
+
+    const timer = logger.start('article', 'backlink', `Backlink-Artikel für ${site.name}: "${keyword}"`, {
+      siteId: site.id, articleId: id, context: { ziel: url, anchor },
+    });
+
+    const promise = ai
+      .generateBacklink({
+        site,
+        auftrag,
+        anchor,
+        imageCount: images.plannedCount(),
+        categories: kategorienFuer(site),
+      })
+      .then(async (result) => {
+        const verweis = setzeVerweis(result.content_html, anchor, url, rel);
+        const dichte = ai.keywordDichte(verweis.html, keyword);
+
+        // Zwei Dinge koennen schieflaufen, ohne dass der Text schlecht waere:
+        // der Verweis fehlt, oder das Keyword steht zu oft oder zu selten drin.
+        const hinweise = [];
+        if (!verweis.gesetzt) {
+          hinweise.push('Der Verweis fehlt: Das Modell hat den Platzhalter nicht gesetzt.'
+            + ' Bitte im Reiter „Bearbeiten“ von Hand ergänzen, bevor du sendest.');
+        }
+        if (dichte.prozent > 2.5) {
+          hinweise.push(`Das Keyword steht ${dichte.treffer} Mal im Text, das sind ${dichte.prozent} Prozent.`
+            + ' Über 2,5 Prozent wirkt es erzwungen.');
+        } else if (dichte.prozent < 0.3) {
+          hinweise.push(`Das Keyword kommt nur ${dichte.treffer} Mal vor (${dichte.prozent} Prozent).`
+            + ' Der Text trägt den Suchbegriff kaum.');
+        }
+
+        touchArticle(id, {
+          title: result.title,
+          slug: result.slug,
+          excerpt: result.excerpt,
+          content_html: verweis.html,
+          meta_title: result.meta_title,
+          meta_desc: result.meta_desc,
+          tags: result.tags,
+          category: site.wp_category || result.category || '',
+          word_count: result.word_count,
+          model: result.model,
+          tokens_in: result.tokens_in,
+          tokens_out: result.tokens_out,
+          longtails: JSON.stringify(result.longtails || []),
+          keyword_density: dichte.prozent,
+          notice: hinweise.length ? hinweise.join(' ') : null,
+          status: 'draft',
+          error: null,
+        });
+
+        timer.ok(`Backlink-Artikel fertig: "${result.title}" (${result.word_count} Woerter,`
+          + ` Keyworddichte ${dichte.prozent} %)`, {
+          siteId: site.id,
+          articleId: id,
+          context: { anchor, gesetzt: verweis.gesetzt, dichte: dichte.prozent, longtails: result.longtails },
+        });
+
+        if (result.images && result.images.length) {
+          await images.generateForArticle(getArticle(id), result.images).catch((err) =>
+            logger.error('image', 'generate', `Bilder fehlgeschlagen: ${err.message || err}`,
+              { siteId: site.id, articleId: id })
+          );
+        }
+        return getArticle(id);
+      })
+      .catch((err) => {
+        touchArticle(id, { status: 'failed', error: String(err.message || err) });
+        timer.fail(err, { siteId: site.id, articleId: id });
+        return getArticle(id);
+      });
+
+    artikel.push({ article: getArticle(id), promise });
+  });
+
+  logger.info('article', 'backlink.start',
+    `Backlink-Auftrag angelegt: "${keyword}" auf ${artikel.length} Website(s)`,
+    { context: { ziel: url, anchorMode, rel: rel || 'ohne' } });
+
+  return { id: auftragId, artikel };
+}
+
 /**
  * Macht aus einem beobachteten Video einen Artikel: Transkript holen, Artikel
  * schreiben lassen, Bilder erzeugen. Laeuft wie die normale Erzeugung im Hintergrund.
@@ -594,4 +755,5 @@ async function runRecurring() {
 module.exports = {
   startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
   computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer, darfSenden,
+  startBacklink, ankerVarianten, setzeVerweis,
 };

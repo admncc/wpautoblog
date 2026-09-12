@@ -178,8 +178,8 @@ const ROUTES = {
   dashboard: { title: 'Übersicht', render: renderDashboard },
   sites: { title: 'Websites', render: renderSites },
   site: { title: 'Website', render: renderSite },
-  posts: { title: 'Posts', render: renderPosts },
-  articles: { title: 'Artikel', render: renderArticles },
+  posts: { title: 'Beiträge', render: (view) => { state.data.artTab = 'erzeugen'; navigate('articles'); } },
+  articles: { title: 'Beiträge', render: renderArticles },
   article: { title: 'Artikel', render: renderArticle },
   settings: { title: 'Einstellungen', render: renderSettings },
   logs: { title: 'Protokoll', render: renderLogs },
@@ -281,11 +281,11 @@ async function render() {
   const NAV = [
     ['dashboard', 'pulse', 'Übersicht'],
     ['sites', 'globe', 'Websites'],
-    ['posts', 'pen', 'Posts'],
-    ['articles', 'doc', 'Artikel'],
+    ['articles', 'doc', 'Beiträge'],
   ];
   const NAV2 = [['settings', 'sliders', 'Einstellungen'], ['logs', 'list', 'Protokoll']];
-  const aktiv = (r) => (r === route || (r === 'sites' && route === 'site') || (r === 'articles' && route === 'article'));
+  const aktiv = (r) => (r === route || (r === 'sites' && route === 'site')
+    || (r === 'articles' && (route === 'article' || route === 'posts')));
   const marke = (r) => {
     const n = (state.data.marken || {})[r];
     return n ? `<span class="tag ${r === 'sites' ? 'warn' : 'err'}">${n}</span>` : '';
@@ -712,7 +712,7 @@ async function renderDashboard(view) {
     <div class="page-head">
       <div><h1>Übersicht</h1><p class="sub">Was läuft, was klemmt, was als Nächstes ansteht.</p></div>
       <div class="acts"><a class="btn" href="#/sites">${ic('plus', 'sm')}Website hinzufügen</a>
-        <a class="btn primary" href="#/posts">${ic('spark', 'sm')}Post erzeugen</a></div>
+        <a class="btn primary" href="#/posts">${ic('spark', 'sm')}Beitrag erzeugen</a></div>
     </div>
 
     ${attn}
@@ -756,7 +756,7 @@ async function renderDashboard(view) {
           : `<div class="empty"><span class="ring">${ic('doc', 'lg')}</span>
               <b>Noch kein Artikel</b>
               <p>Der erste Beitrag entsteht in zwei Minuten: Thema eingeben, Rest macht der Hub.</p>
-              <a class="btn primary" href="#/posts">${ic('spark', 'sm')}Post erzeugen</a></div>`}
+              <a class="btn primary" href="#/posts">${ic('spark', 'sm')}Beitrag erzeugen</a></div>`}
       </section>
     </div>
 
@@ -1573,29 +1573,19 @@ async function renderSite(view, siteId) {
 
 // ------------------------------------------------------------------- Posts
 
-async function renderPosts(view) {
-  const tab = state.data.postsTab || 'generate';
-  const [sites, plans] = await Promise.all([api('/api/app/sites'), api('/api/app/plans')]);
-  const tabs = [['generate', 'Post erzeugen'], ['recurring', 'Wiederkehrende Posts', plans.length], ['target', 'Gezielte Posts']];
-
-  view.innerHTML = `
-    <div class="page-head">
-      <div><h1>Posts</h1><p class="sub">Einzelne Beiträge erzeugen oder ganze Redaktionspläne laufen lassen.</p></div>
-    </div>
-    <div class="tabs" role="tablist">
-      ${tabs.map(([key, label, n]) => `<button role="tab" data-ptab="${key}" aria-selected="${tab === key}"
-        class="${tab === key ? 'active' : ''}">${label}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('')}
-    </div>
-    <div id="posts-body"></div>`;
-
-  const body = view.querySelector('#posts-body');
+/**
+ * Die Wege, auf denen ein Beitrag entsteht. Frueher ein eigener Bereich "Posts",
+ * jetzt die Unterreiter neben der Liste: Es ging immer um dasselbe, nur einmal um
+ * das Entstehen und einmal um das Ergebnis.
+ */
+async function renderErzeugung(body, tab, sites, plans) {
   if (!sites.length) {
     body.innerHTML = `<div class="card"><div class="empty"><span class="ring">${ic('globe', 'lg')}</span>
       <b>Noch keine Website angelegt</b>
       <p>Leg zuerst eine Website an und verbinde sie mit dem Begleit-Plugin.
         Danach entstehen hier Beiträge.</p>
       <a class="btn primary" href="#/sites">${ic('plus', 'sm')}Website anlegen</a></div></div>`;
-  } else if (tab === 'generate') {
+  } else if (tab === 'erzeugen') {
     body.innerHTML = `
       <section class="card">
         <h2>Post erzeugen</h2>
@@ -1635,7 +1625,7 @@ async function renderPosts(view) {
         navigate('article', article.id);
       });
     });
-  } else if (tab === 'recurring') {
+  } else if (tab === 'plaene') {
     body.innerHTML = `
       <section class="card flat">
         <div class="card-head"><h2>Laufende Pläne</h2><span class="count">${plans.length}</span>
@@ -1836,7 +1826,118 @@ async function renderPosts(view) {
     });
   }
 
-  on('[data-ptab]', 'click', (event) => { state.data.postsTab = event.currentTarget.dataset.ptab; render(); });
+}
+
+/**
+ * Backlink-Artikel: ein Ziel, ein Keyword, mehrere Websites.
+ *
+ * Je Website entsteht ein eigener Beitrag mit eigenem Ankertext und eigenen
+ * Longtails. Der Verweis setzt der Hub selbst, damit Adresse und Anzahl stimmen.
+ */
+async function renderBacklinks(body, sites) {
+  const auftraege = await api('/api/app/backlinks').catch(() => []);
+  const gewaehlt = state.data.blSites || [];
+
+  body.innerHTML = `
+    <section class="card">
+      <h2>Backlink-Artikel</h2>
+      <div class="sub">Ein Ziel, ein Keyword, mehrere Blogs. Der Hub schreibt für jede Website
+        einen eigenen Beitrag, leitet passende Longtail-Begriffe ab und setzt genau einen
+        Verweis im Fließtext. Jede Website bekommt einen anderen Ankertext.</div>
+      <form id="backlink-form" style="margin-top:14px">
+        <div class="fields-2">
+          <div class="field"><label for="bl-url">Zieladresse</label>
+            <input id="bl-url" type="url" required placeholder="https://www.beispiel.de/seite" />
+            <div class="hint">Vollständig mit https://. Genau dorthin geht der Verweis.</div></div>
+          <div class="field"><label for="bl-keyword">Hauptkeyword</label>
+            <input id="bl-keyword" required placeholder="z. B. kaffeemaschine entkalken" />
+            <div class="hint">Grundlage für Ankertexte, Longtails und die Dichtemessung.</div></div>
+        </div>
+        <div class="field"><label for="bl-extra">Weitere Keywords</label>
+          <input id="bl-extra" placeholder="durch Komma getrennt, freiwillig" /></div>
+        <div class="field"><label for="bl-note">Worum geht es auf der Zielseite?</label>
+          <textarea id="bl-note" rows="2"
+            placeholder="Ein bis zwei Sätze. Daraus entsteht der Satz, der zum Verweis hinführt."></textarea></div>
+
+        <div class="fields-2">
+          <div class="field"><label for="bl-anchor">Ankertexte</label>
+            <select id="bl-anchor">
+              <option value="gemischt">Gemischt: Begriff, Marke, natürliche Umschreibung (empfohlen)</option>
+              <option value="marke">Nur die Marke des Ziels</option>
+              <option value="exakt">Immer exakt das Keyword</option>
+            </select>
+            <div class="hint">Zeigen mehrere Blogs mit demselben Wort auf dieselbe Seite, sieht das
+              nach Absprache aus. Gemischt ist der sichere Weg.</div></div>
+          <div class="field"><label for="bl-rel">Kennzeichnung des Verweises</label>
+            <select id="bl-rel">
+              <option value="">Normaler Verweis</option>
+              <option value="sponsored">Bezahlt (rel=sponsored)</option>
+              <option value="nofollow">Ohne Empfehlung (rel=nofollow)</option>
+            </select>
+            <div class="hint">Zwischen eigenen Seiten: normal. Für bezahlte Platzierungen verlangt
+              Google „sponsored“.</div></div>
+        </div>
+
+        <div class="field">
+          <label>Auf welchen Websites?</label>
+          <div class="row" style="gap:8px 18px">
+            ${sites.map((site) => `<label class="check" style="margin:0">
+              <input type="checkbox" data-blsite="${esc(site.id)}" ${gewaehlt.includes(site.id) ? 'checked' : ''} />
+              <span><b>${esc(site.name)}</b><i>${esc(site.url || 'ohne Adresse')}</i></span></label>`).join('')}
+          </div>
+          <div class="hint">Je gewählter Website entsteht ein eigener Artikel, mit eigenem Ankertext.</div>
+        </div>
+
+        <div class="formfoot">
+          <button class="btn primary" type="submit">${ic('link', 'sm')}Backlink-Artikel erzeugen</button>
+          <span class="state">Die Beiträge bleiben Entwurf, bis du sie sendest.</span>
+        </div>
+      </form>
+    </section>
+
+    ${auftraege.length ? `<section class="card flat">
+      <div class="card-head"><h2>Bisherige Aufträge</h2><span class="count">${auftraege.length}</span></div>
+      ${auftraege.map((auftrag) => `<div class="item ${auftrag.fehler ? 'is-err' : 'is-ok'}">
+        <span class="grow"><span class="ttl">${esc(auftrag.keyword)}</span>
+          <span class="kv"><span>${esc(auftrag.url)}</span>
+            <span>Artikel <b>${auftrag.artikel}</b></span>
+            <span>veröffentlicht <b>${auftrag.veroeffentlicht || 0}</b></span>
+            ${auftrag.fehler ? `<span>fehlgeschlagen <b>${auftrag.fehler}</b></span>` : ''}
+            <span>${esc(fmtDate(auftrag.created_at))}</span></span></span>
+      </div>`).join('')}
+    </section>` : ''}`;
+
+  on('[data-blsite]', 'change', (event) => {
+    const id = event.currentTarget.dataset.blsite;
+    const aktuell = state.data.blSites || [];
+    state.data.blSites = aktuell.includes(id) ? aktuell.filter((x) => x !== id) : [...aktuell, id];
+  });
+
+  on('#backlink-form', 'submit', (event) => {
+    event.preventDefault();
+    guard(event.target.querySelector('button[type=submit]'), async () => {
+      const ausgewaehlt = [...body.querySelectorAll('[data-blsite]')]
+        .filter((el) => el.checked).map((el) => el.dataset.blsite);
+      if (!ausgewaehlt.length) throw new Error('Bitte mindestens eine Website auswählen.');
+
+      const ergebnis = await api('/api/app/backlinks', {
+        method: 'POST',
+        body: {
+          url: body.querySelector('#bl-url').value,
+          keyword: body.querySelector('#bl-keyword').value,
+          extra: body.querySelector('#bl-extra').value,
+          note: body.querySelector('#bl-note').value,
+          anchor_mode: body.querySelector('#bl-anchor').value,
+          rel: body.querySelector('#bl-rel').value,
+          site_ids: ausgewaehlt,
+        },
+      });
+      state.data.blSites = [];
+      state.data.artTab = 'liste';
+      toast(`${ergebnis.articles.length} Backlink-Artikel werden geschrieben.`);
+      await render();
+    });
+  });
 }
 
 // ----------------------------------------------------------------- Artikel
@@ -1876,46 +1977,92 @@ function articleTable(articles) {
 }
 
 
+/**
+ * Alles, was mit Beitraegen zu tun hat, an einem Ort: die Liste und die vier Wege,
+ * auf denen ein Beitrag entsteht. Frueher waren das zwei Bereiche, und man musste
+ * wissen, dass "Posts" das Entstehen meint und "Artikel" das Ergebnis.
+ */
 async function renderArticles(view) {
+  const tab = state.data.artTab || 'liste';
   const archiv = state.data.showArchive ? '1' : '0';
   const query = new URLSearchParams({ archived: archiv });
   if (state.data.filterSite) query.set('site', state.data.filterSite);
 
-  const [data, sites] = await Promise.all([api(`/api/app/articles?${query}`), api('/api/app/sites')]);
+  const [data, sites, plans] = await Promise.all([
+    api(`/api/app/articles?${query}`),
+    api('/api/app/sites'),
+    tab === 'plaene' ? api('/api/app/plans') : Promise.resolve([]),
+  ]);
   const { articles, counts } = data;
+
+  const tabs = [
+    ['liste', 'Alle Beiträge', counts.offen],
+    ['erzeugen', 'Einzeln erzeugen'],
+    ['plaene', 'Wiederkehrend'],
+    ['gezielt', 'Gezielt'],
+    ['backlinks', 'Backlinks'],
+  ];
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Artikel</h1><p class="sub">Alle Beiträge bleiben hier gespeichert, auch nach dem Senden an WordPress.</p></div>
-      <div class="acts">
+      <div><h1>Beiträge</h1><p class="sub">Erzeugen, planen, verlinken und alles Fertige an einem Ort.</p></div>
+      ${tab === 'liste' ? `<div class="acts">
         <select id="filter-site" style="width:auto">
           <option value="">Alle Websites</option>
           ${sites.map((s) => `<option value="${esc(s.id)}" ${state.data.filterSite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
         </select>
-        <a class="btn primary" href="#/posts">${ic('spark', 'sm')}Post erzeugen</a>
-      </div>
+        <button class="btn primary" data-atab2="erzeugen">${ic('spark', 'sm')}Beitrag erzeugen</button>
+      </div>` : ''}
     </div>
     <div class="tabs" role="tablist">
-      <button role="tab" data-arch="0" aria-selected="${!state.data.showArchive}"
-        class="${state.data.showArchive ? '' : 'active'}">In Arbeit<span class="n">${counts.offen}</span></button>
-      <button role="tab" data-arch="1" aria-selected="${!!state.data.showArchive}"
-        class="${state.data.showArchive ? 'active' : ''}">Archiv<span class="n">${counts.archiv}</span></button>
+      ${tabs.map(([key, label, n]) => `<button role="tab" data-atab2="${key}" aria-selected="${tab === key}"
+        class="${tab === key ? 'active' : ''}">${label}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('')}
     </div>
-    <section class="card flat">${articles.length ? articleTable(articles)
-      : `<div class="empty"><span class="ring">${ic('doc', 'lg')}</span>
-          <b>${state.data.showArchive ? 'Noch nichts im Archiv' : 'Keine offenen Beiträge'}</b>
-          <p>${state.data.showArchive
-            ? 'Beiträge landen hier, sobald du sie nach dem Senden archivierst.'
-            : 'Erzeug einen Beitrag von Hand oder lass einen Plan die Themenliste abarbeiten.'}</p>
-          ${state.data.showArchive ? '' : `<a class="btn primary" href="#/posts">${ic('spark', 'sm')}Post erzeugen</a>`}</div>`}</section>`;
+    <div id="posts-body"></div>`;
 
-  on('[data-arch]', 'click', (event) => {
-    state.data.showArchive = event.currentTarget.dataset.arch === '1';
+  const body = view.querySelector('#posts-body');
+
+  if (tab === 'liste') {
+    body.innerHTML = `
+      <div class="row" style="margin-bottom:12px">
+        <span class="seg">
+          <button data-arch="0" aria-pressed="${!state.data.showArchive}">In Arbeit <b>${counts.offen}</b></button>
+          <button data-arch="1" aria-pressed="${!!state.data.showArchive}">Archiv <b>${counts.archiv}</b></button>
+        </span>
+      </div>
+      <section class="card flat">${articles.length ? articleTable(articles)
+        : `<div class="empty"><span class="ring">${ic('doc', 'lg')}</span>
+            <b>${state.data.showArchive ? 'Noch nichts im Archiv' : 'Keine offenen Beiträge'}</b>
+            <p>${state.data.showArchive
+              ? 'Beiträge landen hier, sobald du sie nach dem Senden archivierst.'
+              : 'Erzeug einen Beitrag von Hand, lass einen Plan laufen oder setz einen Backlink-Auftrag auf.'}</p>
+            ${state.data.showArchive ? ''
+              : `<button class="btn primary" data-atab2="erzeugen">${ic('spark', 'sm')}Beitrag erzeugen</button>`}</div>`}
+      </section>`;
+
+    on('[data-arch]', 'click', (event) => {
+      state.data.showArchive = event.currentTarget.dataset.arch === '1';
+      render();
+    });
+    on('#filter-site', 'change', (event) => { state.data.filterSite = event.target.value; render(); });
+    on('[data-article]', 'click', (event) => navigate('article', event.currentTarget.dataset.article));
+  } else if (tab === 'backlinks') {
+    if (!sites.length) {
+      body.innerHTML = `<div class="card"><div class="empty"><span class="ring">${ic('globe', 'lg')}</span>
+        <b>Noch keine Website angelegt</b>
+        <p>Backlink-Artikel brauchen mindestens einen Blog, auf dem sie erscheinen können.</p>
+        <a class="btn primary" href="#/sites">${ic('plus', 'sm')}Website anlegen</a></div></div>`;
+    } else {
+      await renderBacklinks(body, sites);
+    }
+  } else {
+    await renderErzeugung(body, tab, sites, plans);
+  }
+
+  on('[data-atab2]', 'click', (event) => {
+    state.data.artTab = event.currentTarget.dataset.atab2;
     render();
   });
-
-  on('#filter-site', 'change', (event) => { state.data.filterSite = event.target.value; render(); });
-  on('[data-article]', 'click', (event) => navigate('article', event.currentTarget.dataset.article));
 }
 
 /* Ein Link in einer anklickbaren Zeile soll nur den Link oeffnen, nicht auch die
@@ -1974,6 +2121,8 @@ async function renderArticle(view, articleId) {
           ${article.origin === 'youtube' ? `<span><span class="badge info">${ic('video', 'sm')}Video</span>${
             article.source_url ? ` <a href="${esc(article.source_url)}" target="_blank" rel="noopener">Quelle ${ic('ext', 'sm')}</a>` : ''}</span>` : ''}
           ${article.origin === 'target' ? `<span class="badge info">${ic('search', 'sm')}gezielt</span>` : ''}
+          ${article.origin === 'backlink' ? `<span class="badge info">${ic('link', 'sm')}Backlink</span>` : ''}
+          ${article.keyword_density != null ? `<span>Keyworddichte <b>${article.keyword_density} %</b></span>` : ''}
           ${article.archived ? `<span class="badge">archiviert ${esc(fmtDate(article.archived_at))}</span>` : ''}
         </div>
       </div>
@@ -1991,6 +2140,21 @@ async function renderArticle(view, articleId) {
     ${article.error ? `<div class="notice err">${ic('alert')}<div class="grow">
       <b>Der Artikel ist nicht fertig geworden.</b><div>${esc(article.error)}</div></div></div>` : ''}
     ${article.notice ? `<div class="notice warn">${ic('alert')}<div class="grow">${esc(article.notice)}</div></div>` : ''}
+    ${article.origin === 'backlink' ? `<section class="card">
+      <h2>Der Verweis</h2>
+      <div class="kv" style="margin-top:8px">
+        <span>Ziel <b><a href="${esc(article.backlink_url || '')}" target="_blank" rel="noopener noreferrer">${
+          esc(article.backlink_url || '')} ${ic('ext', 'sm')}</a></b></span>
+        <span>Ankertext <b>${esc(article.backlink_anchor || '')}</b></span>
+        <span>Keyword <b>${esc(article.keyword || '')}</b></span>
+        <span>Dichte <b>${article.keyword_density != null ? `${article.keyword_density} %` : '—'}</b></span>
+      </div>
+      ${(article.longtails || []).length ? `<div class="field" style="margin:14px 0 0">
+        <label>Abgeleitete Suchbegriffe, die im Text vorkommen</label>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${article.longtails.map((t) =>
+          `<span class="chip"><span class="nm">${esc(t)}</span></span>`).join('')}</div>
+      </div>` : ''}
+    </section>` : ''}
 
     <div class="tabs" role="tablist">
       <button role="tab" data-atab="preview" aria-selected="${tab === 'preview'}" class="${tab === 'preview' ? 'active' : ''}">Vorschau</button>
@@ -2293,14 +2457,15 @@ async function renderSettings(view) {
       <p class="sub">Die Arbeitsanweisung an die KI. Der Hub ergänzt automatisch das Briefing der jeweiligen Website
         (Zielgruppe, Tonalität, Sprache, Länge) und das konkrete Thema – dieses Regelwerk bestimmt, <em>wie</em> geschrieben wird.</p>
       <div class="notice info">${ic('alert')}<div class="grow">
-        Vier Regelwerke mit zusammen rund ${Math.round((String(data.article_prompt).length
+        Fünf Regelwerke mit zusammen rund ${Math.round((String(data.article_prompt).length
           + String(data.topic_prompt).length + String(data.video_prompt).length
-          + String(data.target_prompt).length) / 100) / 10} Tausend Zeichen.
+          + String(data.target_prompt).length + String(data.backlink_prompt).length) / 100) / 10} Tausend Zeichen.
         Jedes ist einzeln aufklappbar, damit die Seite bedienbar bleibt.</div></div>
       ${[['article_prompt', 'Artikel', data.article_prompt],
          ['topic_prompt', 'Themenvorschläge', data.topic_prompt],
          ['video_prompt', 'Artikel aus Videos', data.video_prompt],
-         ['target_prompt', 'Gezielte Posts', data.target_prompt]].map(([feld, name, wert]) =>
+         ['target_prompt', 'Gezielte Posts', data.target_prompt],
+         ['backlink_prompt', 'Backlink-Artikel', data.backlink_prompt]].map(([feld, name, wert]) =>
         disclose(`pf:${feld}`,
           `${name}<span style="margin-left:auto;color:var(--ink-3);font-size:12.5px">${
             String(wert || '').length.toLocaleString('de-DE')} Zeichen</span>`,
@@ -2345,7 +2510,7 @@ async function renderSettings(view) {
     for (const field of ['hub_name', 'model', 'effort', 'brand_name', 'brand_description', 'default_language',
       'default_word_count', 'default_tone', 'global_prompt', 'article_prompt', 'topic_prompt',
       'image_provider', 'images_per_article', 'image_base_url', 'image_model', 'image_size',
-      'image_quality', 'image_style', 'transcript_url', 'transcript_header', 'video_prompt', 'target_prompt',
+      'image_quality', 'image_style', 'transcript_url', 'transcript_header', 'video_prompt', 'target_prompt', 'backlink_prompt',
       'youtube_source']) {
       const el = root.querySelector(`#${field}`);
       if (el) body[field] = el.value;

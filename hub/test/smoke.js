@@ -593,6 +593,63 @@ async function main() {
     pruefe(regelwerk.includes('SUCHABSICHT') && regelwerk.includes('DIE ANTWORT STEHT OBEN'),
       'Eigenes Regelwerk fuer gezielte Posts ist hinterlegt', `${regelwerk.length} Zeichen`);
 
+    // Backlink-Artikel: ein Ziel, ein Keyword, mehrere Websites.
+    console.log('\nBacklink-Artikel');
+    const { ankerVarianten, setzeVerweis } = require('../src/service');
+    const { keywordDichte } = require('../src/ai');
+
+    const anker = ankerVarianten('kaffeemaschine entkalken', 'https://www.beispiel.de/ratgeber', 'gemischt');
+    pruefe(anker.length >= 4 && new Set(anker).size === anker.length,
+      'Gemischte Ankertexte sind verschieden', anker.join(' | '));
+    pruefe(anker.some((a) => a.toLowerCase().includes('beispiel')),
+      'Der Name des Ziels kommt als Anker vor', anker.join(' | '));
+    pruefe(ankerVarianten('x', 'https://a.de', 'exakt').join() === 'x', 'Exakt heisst genau das Keyword');
+
+    const gesetzt = setzeVerweis('<p>Ein Satz [[BACKLINK]] mit Verweis.</p>', 'mehr dazu', 'https://a.de/x', '');
+    pruefe(gesetzt.gesetzt && gesetzt.html.includes('<a href="https://a.de/x">mehr dazu</a>'),
+      'Der Verweis landet an der Stelle des Platzhalters');
+    const bezahlt = setzeVerweis('<p>[[BACKLINK]]</p>', 'Anker', 'https://a.de', 'sponsored');
+    pruefe(/rel="sponsored noopener"/.test(bezahlt.html), 'Bezahlte Verweise werden gekennzeichnet');
+    const zweimal = setzeVerweis('<p>[[BACKLINK]] und [[BACKLINK]]</p>', 'A', 'https://a.de', '');
+    pruefe((zweimal.html.match(/<a /g) || []).length === 1 && zweimal.ueberzaehlig === 1,
+      'Aus mehreren Platzhaltern wird genau ein Verweis');
+    const ohne = setzeVerweis('<p>Kein Platzhalter.</p>', 'A', 'https://a.de', '');
+    pruefe(!ohne.gesetzt, 'Ein fehlender Platzhalter wird gemeldet');
+
+    const dichte = keywordDichte(`<p>${'kaffee entkalken ist gut. '.repeat(5)}${'Text ohne Begriff. '.repeat(50)}</p>`,
+      'kaffee entkalken');
+    pruefe(dichte.treffer === 5 && dichte.prozent > 0 && dichte.prozent < 10,
+      'Die Keyworddichte wird als Wortfolge gezaehlt', JSON.stringify(dichte));
+    pruefe(keywordDichte('<p>Kaffeemaschine hilft.</p>', 'kaffee').treffer === 0,
+      'Ein Wortteil zaehlt nicht als Treffer');
+
+    const blOhneZiel = await ruf('/api/app/backlinks', { method: 'POST', body: { keyword: 'x', site_ids: [siteId] } });
+    pruefe(blOhneZiel.status === 400, 'Ohne Zieladresse kein Auftrag');
+    const blBoese = await ruf('/api/app/backlinks', {
+      method: 'POST', body: { url: 'javascript:alert(1)', keyword: 'x', site_ids: [siteId] },
+    });
+    pruefe(blBoese.status === 400, 'Eine Adresse mit ausfuehrbarem Schema wird abgewiesen');
+    const blOhneSeite = await ruf('/api/app/backlinks', {
+      method: 'POST', body: { url: 'https://a.de', keyword: 'x', site_ids: [] },
+    });
+    pruefe(blOhneSeite.status === 400, 'Ohne Website kein Auftrag');
+
+    const blAuftrag = await ruf('/api/app/backlinks', {
+      method: 'POST',
+      body: { url: 'https://www.beispiel.de/ratgeber', keyword: 'kaffeemaschine entkalken',
+        extra: 'entkalker, essigessenz', note: 'Ratgeberseite zum Entkalken.', site_ids: [siteId] },
+    });
+    pruefe(blAuftrag.status === 202 && blAuftrag.daten.articles.length === 1
+      && blAuftrag.daten.articles[0].origin === 'backlink',
+      'Backlink-Auftrag legt je Website einen Artikel an', JSON.stringify(blAuftrag.daten.articles.length));
+    const blArtikel = db.prepare('SELECT backlink_url, backlink_anchor FROM articles WHERE id = ?')
+      .get(blAuftrag.daten.articles[0].id);
+    pruefe(blArtikel.backlink_url === 'https://www.beispiel.de/ratgeber' && !!blArtikel.backlink_anchor,
+      'Ziel und Ankertext stehen am Artikel', JSON.stringify(blArtikel));
+    const blListe = await ruf('/api/app/backlinks');
+    pruefe(Array.isArray(blListe.daten) && blListe.daten.length === 1 && blListe.daten[0].artikel === 1,
+      'Der Auftrag erscheint in der Liste');
+
     console.log('\nArtikel-Nachbearbeitung');
     const ai = require('../src/ai');
     const roh = {
