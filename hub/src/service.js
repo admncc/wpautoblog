@@ -8,7 +8,7 @@ const youtube = require('./youtube');
 const { randomId } = require('./util');
 const { PUBLIC_URL } = require('./config');
 const { pruefeUebernahme } = require('./textvergleich');
-const { safeLink } = require('./sanitize');
+const { safeLink, escapeHtml } = require('./sanitize');
 const webseite = require('./webseite');
 
 const getSite = (id) => db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
@@ -171,8 +171,13 @@ function setzeVerweis(html, anchor, url, rel) {
   const treffer = (String(html).match(marker) || []).length;
   if (!treffer) return { html, gesetzt: false };
 
+  // Anker und Adresse kommen aus dem Formular und gehen danach ungeprueft in den
+  // Beitrag. Beides wird maskiert, sonst liesse sich ueber ein Anfuehrungszeichen
+  // ein eigenes Attribut in das Tag schmuggeln.
+  const ziel = safeLink(url);
+  if (!ziel) return { html: String(html).replace(marker, ''), gesetzt: false };
   const relAttr = rel ? ` rel="${rel === 'sponsored' ? 'sponsored noopener' : 'nofollow noopener'}"` : '';
-  const link = `<a href="${url}"${relAttr}>${anchor}</a>`;
+  const link = `<a href="${escapeHtml(ziel)}"${relAttr}>${escapeHtml(anchor)}</a>`;
   // Nur der erste Platzhalter wird zum Verweis, weitere fallen ersatzlos weg.
   let ersterErsetzt = false;
   const neu = String(html).replace(marker, () => {
@@ -181,6 +186,35 @@ function setzeVerweis(html, anchor, url, rel) {
     return link;
   });
   return { html: neu, gesetzt: true, ueberzaehlig: treffer - 1 };
+}
+
+const BACKLINK_PARALLEL = 3;
+
+/**
+ * Laesst hoechstens `grenze` Aufgaben gleichzeitig laufen.
+ *
+ * Ein Auftrag ueber zwanzig Websites wuerde sonst zwanzig Modellanfragen auf
+ * einmal ausloesen. Das laeuft ins Rate-Limit, und die spaeteren Artikel
+ * scheitern reihenweise.
+ */
+function nacheinander(grenze) {
+  let laufend = 0;
+  const warteschlange = [];
+
+  const weiter = () => {
+    if (laufend >= grenze || !warteschlange.length) return;
+    laufend += 1;
+    const { aufgabe, ok, fehler } = warteschlange.shift();
+    Promise.resolve().then(aufgabe).then(ok, fehler).finally(() => {
+      laufend -= 1;
+      weiter();
+    });
+  };
+
+  return (aufgabe) => new Promise((ok, fehler) => {
+    warteschlange.push({ aufgabe, ok, fehler });
+    weiter();
+  });
 }
 
 /**
@@ -196,6 +230,7 @@ function startBacklink({ url, keyword, extra = '', anchorMode = 'gemischt', rel 
 
   const anker = ankerVarianten(keyword, url, anchorMode);
   const artikel = [];
+  const reihe = nacheinander(BACKLINK_PARALLEL);
 
   // Ist nichts beschrieben, sieht der Hub selbst nach. Einmal fuer den ganzen
   // Auftrag, nicht je Website: Es ist dieselbe Seite.
@@ -230,14 +265,22 @@ function startBacklink({ url, keyword, extra = '', anchorMode = 'gemischt', rel 
     });
 
     const promise = beschreibung
-      .then((text) => ai.generateBacklink({
+      .then((text) => reihe(() => ai.generateBacklink({
         site,
         auftrag: { id: auftragId, url, keyword, extra, note: text },
         anchor,
         imageCount: images.plannedCount(),
         categories: kategorienFuer(site),
-      }))
+      })))
       .then(async (result) => {
+        // Zwischen Auftrag und Antwort koennen Minuten liegen. Wurde die Website
+        // inzwischen geloescht, ist der Artikel mitgeloescht worden - dann gibt es
+        // nichts mehr zu speichern, und ein stiller Fehlschlag waere verwirrend.
+        if (!getArticle(id)) {
+          logger.warn('article', 'backlink', `Website "${site.name}" wurde während der Erzeugung gelöscht,`
+            + ' der Artikel ist damit weg.', { context: { ziel: url, keyword } });
+          return null;
+        }
         const verweis = setzeVerweis(result.content_html, anchor, url, rel);
         const dichte = ai.keywordDichte(verweis.html, keyword);
 
@@ -292,6 +335,10 @@ function startBacklink({ url, keyword, extra = '', anchorMode = 'gemischt', rel 
         return getArticle(id);
       })
       .catch((err) => {
+        if (!getArticle(id)) {
+          timer.fail(err, { siteId: site.id, articleId: id });
+          return null;
+        }
         touchArticle(id, { status: 'failed', error: String(err.message || err) });
         timer.fail(err, { siteId: site.id, articleId: id });
         return getArticle(id);
@@ -771,5 +818,5 @@ async function runRecurring() {
 module.exports = {
   startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
   computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer, darfSenden,
-  startBacklink, ankerVarianten, setzeVerweis,
+  startBacklink, ankerVarianten, setzeVerweis, nacheinander,
 };

@@ -20,6 +20,7 @@ const { safeLink } = require('./sanitize');
 const TIMEOUT_MS = 15000;
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_ZEICHEN = 4000;
+const MAX_UMLEITUNGEN = 5;
 const USER_AGENT = 'Mozilla/5.0 (compatible; AutoblogHub/1.0; +Leseanfrage)';
 
 class SeitenError extends Error {}
@@ -90,22 +91,89 @@ function textAusHtml(html) {
 }
 
 /**
+ * Holt die Seite und prueft dabei jede Station einzeln.
+ *
+ * `redirect: 'follow'` waere bequem, aber gefaehrlich: Die Pruefung oben gilt dann
+ * nur fuer die erste Adresse, und ein fremder Server kann von dort aus auf
+ * 127.0.0.1 oder die Metadaten-Adresse weiterleiten. Deshalb wird jede Umleitung
+ * von Hand verfolgt und vorher wieder geprueft.
+ */
+async function holeMitUmleitungen(url) {
+  let ziel = await pruefeZiel(url);
+
+  for (let schritt = 0; schritt <= MAX_UMLEITUNGEN; schritt += 1) {
+    const antwort = await fetch(ziel, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+
+    if (antwort.status < 300 || antwort.status > 399) return { antwort, ziel };
+
+    const weiter = antwort.headers.get('location');
+    if (!weiter) return { antwort, ziel };
+    if (schritt === MAX_UMLEITUNGEN) {
+      throw new SeitenError('Die Seite leitet zu oft weiter.');
+    }
+    // Relative Ziele ("/start") gegen die aktuelle Adresse aufloesen.
+    let naechste;
+    try {
+      naechste = new URL(weiter, ziel).href;
+    } catch {
+      throw new SeitenError('Die Seite leitet auf eine unbrauchbare Adresse weiter.');
+    }
+    ziel = await pruefeZiel(naechste);
+  }
+  throw new SeitenError('Die Seite leitet zu oft weiter.');
+}
+
+/**
+ * Liest den Inhalt, hoert aber nach MAX_BYTES auf.
+ *
+ * `antwort.text()` wuerde erst alles in den Speicher holen und danach kuerzen -
+ * bei einer 80-MB-Antwort ist der Schaden dann schon passiert.
+ */
+async function liesBegrenzt(antwort) {
+  if (!antwort.body || typeof antwort.body.getReader !== 'function') {
+    const roh = await antwort.text();
+    return roh.slice(0, MAX_BYTES);
+  }
+  const reader = antwort.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let gelesen = 0;
+  let text = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      gelesen += value.length;
+      if (gelesen >= MAX_BYTES) {
+        const rest = value.length - (gelesen - MAX_BYTES);
+        text += decoder.decode(value.subarray(0, Math.max(rest, 0)));
+        break;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return text;
+}
+
+/**
  * Liest die Seite und fasst sie als kurzen Absatz zusammen, wie ihn ein Mensch
  * ins Formularfeld getippt haette.
  */
 async function leseSeite(url) {
-  const ziel = await pruefeZiel(url);
-  const timer = logger.start('web', 'lesen', `Zielseite wird gelesen: ${ziel}`);
+  const timer = logger.start('web', 'lesen', `Zielseite wird gelesen: ${url}`);
 
   let antwort;
+  let ziel;
   try {
-    antwort = await fetch(ziel, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml' },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    ({ antwort, ziel } = await holeMitUmleitungen(url));
   } catch (err) {
     timer.fail(err);
+    if (err instanceof SeitenError) throw err;
     throw new SeitenError(`Die Seite war nicht erreichbar: ${err.message}`);
   }
 
@@ -119,8 +187,7 @@ async function leseSeite(url) {
     throw new SeitenError(`Das ist keine Webseite, sondern ${typ.split(';')[0] || 'unbekannt'}.`);
   }
 
-  const roh = await antwort.text();
-  const html = roh.slice(0, MAX_BYTES);
+  const html = await liesBegrenzt(antwort);
   const { titel, beschreibung, text } = textAusHtml(html);
 
   const zusammen = [
@@ -140,4 +207,4 @@ async function leseSeite(url) {
   return zusammen;
 }
 
-module.exports = { leseSeite, textAusHtml, istIntern, SeitenError };
+module.exports = { leseSeite, textAusHtml, istIntern, pruefeZiel, liesBegrenzt, MAX_BYTES, SeitenError };

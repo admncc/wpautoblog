@@ -21,6 +21,7 @@ module.exports = [
         setTimeout: 'readonly', clearTimeout: 'readonly', setInterval: 'readonly', clearInterval: 'readonly',
         URL: 'readonly', URLSearchParams: 'readonly', fetch: 'readonly', AbortSignal: 'readonly',
         TextEncoder: 'readonly', TextDecoder: 'readonly', structuredClone: 'readonly',
+        Response: 'readonly', ReadableStream: 'readonly',
       },
     },
     rules: {

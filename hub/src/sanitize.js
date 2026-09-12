@@ -51,8 +51,25 @@ function safeLink(value) {
   const adresse = String(value || '').trim();
   if (!adresse) return null;
   if (unsafeUrl(adresse)) return null;
-  return /^https?:\/\//i.test(adresse) ? adresse.slice(0, 2000) : null;
+  if (!/^https?:\/\//i.test(adresse)) return null;
+
+  // Ueber die URL-Klasse normalisieren: Sie kodiert Anfuehrungszeichen, Leerraum
+  // und Steuerzeichen weg. Ohne das koennte eine Adresse wie
+  // https://x.de/" onmouseover="… aus dem href-Attribut ausbrechen.
+  try {
+    const geprueft = new URL(adresse);
+    if (geprueft.protocol !== 'http:' && geprueft.protocol !== 'https:') return null;
+    const fertig = geprueft.href;
+    return /["'<>\s]/.test(fertig) ? null : fertig.slice(0, 2000);
+  } catch {
+    return null;
+  }
 }
+
+/** Text, der in HTML eingesetzt wird, ohne dort zu Markup zu werden. */
+const escapeHtml = (text) => String(text ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 const escapeText = (text) => String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -113,7 +130,14 @@ function sanitizeHtml(input) {
 }
 
 function sanitizeText(input, maxLength = 300) {
-  return String(input || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+  // Erst vollstaendige Tags, dann einzelne spitze Klammern: "<img src=x onerror=y"
+  // ohne schliessendes Zeichen ueberlebte sonst und wurde spaeter im Browser zum Tag.
+  return String(input || '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
 }
 
-module.exports = { sanitizeHtml, sanitizeText, unsafeUrl, safeLink };
+module.exports = { sanitizeHtml, sanitizeText, unsafeUrl, safeLink, escapeHtml };

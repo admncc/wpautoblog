@@ -616,6 +616,20 @@ async function main() {
     const ohne = setzeVerweis('<p>Kein Platzhalter.</p>', 'A', 'https://a.de', '');
     pruefe(!ohne.gesetzt, 'Ein fehlender Platzhalter wird gemeldet');
 
+    // Anker und Adresse kommen aus dem Formular. Ohne Maskierung liesse sich
+    // damit ein eigenes Attribut in das Link-Tag schreiben.
+    const boeseAnker = setzeVerweis('<p>[[BACKLINK]]</p>',
+      '<img src=x onerror=alert(1)>', 'https://a.de/x', '');
+    pruefe(!/<img/.test(boeseAnker.html) && boeseAnker.html.includes('&lt;img'),
+      'Ein Ankertext mit Tag wird maskiert', boeseAnker.html);
+    const boeseUrl = setzeVerweis('<p>[[BACKLINK]]</p>', 'Anker',
+      'https://a.de/" onmouseover="alert(1)', '');
+    pruefe(!/onmouseover="alert/.test(boeseUrl.html),
+      'Eine Adresse mit Anfuehrungszeichen bricht nicht aus dem Tag aus', boeseUrl.html);
+    const garKeinLink = setzeVerweis('<p>Text [[BACKLINK]] Ende.</p>', 'A', 'javascript:alert(1)', '');
+    pruefe(!garKeinLink.gesetzt && !/javascript|\[\[BACKLINK\]\]/.test(garKeinLink.html),
+      'Ein ausfuehrbares Schema wird gar nicht erst zum Verweis', garKeinLink.html);
+
     const dichte = keywordDichte(`<p>${'kaffee entkalken ist gut. '.repeat(5)}${'Text ohne Begriff. '.repeat(50)}</p>`,
       'kaffee entkalken');
     pruefe(dichte.treffer === 5 && dichte.prozent > 0 && dichte.prozent < 10,
@@ -669,6 +683,57 @@ async function main() {
       'Titel und Beschreibung werden ausgelesen', JSON.stringify(gelesen.titel));
     pruefe(/Essigessenz/.test(gelesen.text) && !/Impressum|Menue|var x/.test(gelesen.text),
       'Nur der lesbare Teil bleibt uebrig', gelesen.text.slice(0, 80));
+
+    // Eine Umleitung darf nicht am Schutz vorbeifuehren: Die erste Adresse ist
+    // oeffentlich, das Ziel der Umleitung zeigt ins eigene Netz.
+    const { liesBegrenzt, MAX_BYTES } = require('../src/webseite');
+    const dnsEcht = require('dns').promises.lookup;
+    const fetchEcht = globalThis.fetch;
+    let umgeleitet = '';
+    try {
+      require('dns').promises.lookup = async (name) => (name === 'ziel.example'
+        ? [{ address: '93.184.216.34', family: 4 }]
+        : [{ address: '127.0.0.1', family: 4 }]);
+      globalThis.fetch = async () => new Response('', {
+        status: 302, headers: { location: 'http://intern.example/geheim' },
+      });
+      await leseSeite('https://ziel.example/start').catch((err) => { umgeleitet = err.message; });
+    } finally {
+      require('dns').promises.lookup = dnsEcht;
+      globalThis.fetch = fetchEcht;
+    }
+    pruefe(/eigene Netz/.test(umgeleitet),
+      'Eine Umleitung ins eigene Netz wird ebenfalls gestoppt', umgeleitet);
+
+    // Grosse Antworten werden beim Lesen abgeschnitten, nicht erst danach.
+    const stueck = new TextEncoder().encode('a'.repeat(512 * 1024));
+    let stuecke = 0;
+    const riesig = {
+      body: new ReadableStream({
+        pull(controller) {
+          stuecke += 1;
+          if (stuecke > 40) { controller.close(); return; }
+          controller.enqueue(stueck);
+        },
+      }),
+    };
+    const begrenzt = await liesBegrenzt(riesig);
+    pruefe(begrenzt.length === MAX_BYTES && stuecke <= 6,
+      'Der Hub hoert nach zwei Megabyte auf zu lesen', `${begrenzt.length} Zeichen, ${stuecke} Stuecke`);
+
+    // Viele Websites auf einmal duerfen nicht alle gleichzeitig ans Modell.
+    const { nacheinander } = require('../src/service');
+    const reihe = nacheinander(3);
+    let gleichzeitig = 0;
+    let hoechstens = 0;
+    await Promise.all(Array.from({ length: 12 }, () => reihe(async () => {
+      gleichzeitig += 1;
+      hoechstens = Math.max(hoechstens, gleichzeitig);
+      await new Promise((r) => setTimeout(r, 5));
+      gleichzeitig -= 1;
+    })));
+    pruefe(hoechstens === 3 && gleichzeitig === 0,
+      'Hoechstens drei Backlink-Artikel laufen gleichzeitig', `Spitze: ${hoechstens}`);
 
     // Auch beim Backlink-Artikel waehlt die KI die Kategorie aus den vorhandenen.
     const blSchema = require('../src/ai').schemaFuerBacklink(['Ratgeber', 'Technik']);
@@ -743,7 +808,7 @@ async function main() {
     // Was die QA gefunden hat, darf nicht zurueckkommen.
     console.log('\nHaerteprüfungen');
     const { safeLink, sanitizeHtml } = require('../src/sanitize');
-    pruefe(safeLink('https://a.de/x') === 'https://a.de/x' && safeLink('http://a.de') === 'http://a.de',
+    pruefe(safeLink('https://a.de/x') === 'https://a.de/x' && safeLink('http://a.de') === 'http://a.de/',
       'Gewoehnliche Adressen bleiben erhalten');
     pruefe(!safeLink('javascript:alert(1)') && !safeLink('  JaVaScRiPt:alert(1)')
       && !safeLink('data:text/html,x') && !safeLink('/relativ') && !safeLink(''),
