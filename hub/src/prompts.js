@@ -361,22 +361,29 @@ DER VERWEIS
   Satz. Er muss sich im Lesefluss selbstverständlich anfühlen.
 
 KEYWORDS
-- Das Hauptkeyword steht im Titel, im ersten Absatz und in einer Zwischenüberschrift.
-  Danach nur dort, wo es sich von selbst ergibt.
-- Zieldichte 0,8 bis 1,5 Prozent. Bei 1200 Wörtern sind das rund 10 bis 18
-  Vorkommen, den Titel mitgezählt. Darüber wird es Keyword-Stuffing, und das ist
-  seit Jahren kein Ranking-Vorteil mehr, sondern ein Risiko.
+Es gibt keine ideale Keyworddichte. Google sagt das seit Jahren ausdrücklich, und
+das wiederholte Unterbringen desselben Begriffs steht in den Spam-Richtlinien.
+Zähle also nicht, sondern decke das Thema ab.
+- Das Hauptkeyword steht im Titel, im ersten Absatz und in genau einer
+  Zwischenüberschrift. Das sind die Stellen, an denen es gebraucht wird.
+- Im übrigen Text steht es nur dort, wo ein Mensch es auch geschrieben hätte:
+  etwa fünf bis acht Mal auf 1200 Wörter. Wenn du beim Schreiben merkst, dass du
+  den Begriff einbaust statt ihn zu brauchen, lass ihn weg.
+- Überall sonst: Wortformen, Synonyme, Oberbegriffe, das naheliegende Gegenteil.
+  Ein Text über "Kaffeemaschine entkalken" spricht auch von Verkalkung, Kalklösern,
+  Wasserhärte und Brühgruppe. Diese Breite ist der Hebel, nicht die Wiederholung.
 - Die Nebenkeywords, die du selbst ableitest, verteilst du über den Text: je Begriff
-  ein bis zwei Vorkommen, jeweils dort, wo er inhaltlich hingehört. Sie sind der
-  eigentliche Hebel, nicht die Wiederholung des Hauptbegriffs.
-- Verwende Wortformen, Synonyme und verwandte Begriffe aus demselben Sachgebiet.
-  Suchmaschinen bewerten heute Themenabdeckung, nicht Wortzählung.
+  ein bis zwei Vorkommen, jeweils dort, wo er inhaltlich hingehört.
+- Beantworte die Nebenfragen, die zum Thema gehören, auch wenn sie kein Keyword
+  enthalten. Vollständigkeit schlägt Wortzählung.
 
 WAS EINE SUCHMASCHINE HEUTE BELOHNT
 - Erfahrung, die man dem Text anmerkt: konkrete Zahlen, Maße, Fristen, Werte,
   Reihenfolgen, Fehler und ihre Ursachen. Nichts davon erfinden.
-- Die Frage der Überschrift wird in den ersten 40 bis 60 Wörtern beantwortet, in
-  Sätzen, die aus dem Text herausgelöst noch stimmen.
+- Die Frage der Überschrift wird gleich zu Beginn des Abschnitts beantwortet, in
+  einem zusammenhängenden Stück von etwa 75 bis 150 Wörtern, das aus dem Text
+  herausgelöst noch vollständig stimmt. Kürzere Häppchen taugen nicht als Antwort,
+  längere werden nicht mehr am Stück übernommen.
 - Abschnitte, die je eine eigene Frage vollständig beantworten, mit sprechenden
   Zwischenüberschriften.
 - Eine Tabelle oder eine nummerierte Abfolge, wo der Stoff sie hergibt. Nicht mehr
@@ -399,6 +406,11 @@ Zusätzlich zum Artikel lieferst du:
   aneinandergehängten Wörter.
 - "anchor_satz": der Satz, in dem der Platzhalter steht, damit die Platzierung
   geprüft werden kann.
+
+WAS HIER ANDERS IST ALS IM REGELWERK FÜR ARTIKEL
+Dort steht, dass du keine Links setzt. Hier gilt stattdessen: genau ein
+Platzhalter [[BACKLINK]], sonst nichts. Weiterhin keine Adressen im Klartext,
+keine a-Elemente, keine weiteren Verweise.
 
 Alle übrigen Regeln des Regelwerks für Artikel gelten unverändert: Sprache,
 verbotene Wendungen, kein Fazit am Ende, wechselnde Absatzlängen, Bilder und
