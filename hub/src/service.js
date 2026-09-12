@@ -9,6 +9,7 @@ const { randomId } = require('./util');
 const { PUBLIC_URL } = require('./config');
 const { pruefeUebernahme } = require('./textvergleich');
 const { safeLink } = require('./sanitize');
+const webseite = require('./webseite');
 
 const getSite = (id) => db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
 
@@ -193,9 +194,24 @@ function startBacklink({ url, keyword, extra = '', anchorMode = 'gemischt', rel 
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(auftragId, url, keyword, extra, anchorMode, rel, note);
 
-  const auftrag = { id: auftragId, url, keyword, extra, note };
   const anker = ankerVarianten(keyword, url, anchorMode);
   const artikel = [];
+
+  // Ist nichts beschrieben, sieht der Hub selbst nach. Einmal fuer den ganzen
+  // Auftrag, nicht je Website: Es ist dieselbe Seite.
+  const beschreibung = note
+    ? Promise.resolve(note)
+    : webseite.leseSeite(url)
+      .then((gelesen) => {
+        db.prepare('UPDATE backlinks SET note = ? WHERE id = ?').run(gelesen.slice(0, 4000), auftragId);
+        return gelesen;
+      })
+      .catch((err) => {
+        logger.warn('article', 'backlink.lesen', `Zielseite konnte nicht gelesen werden: ${err.message || err}`, {
+          context: { ziel: url },
+        });
+        return '';
+      });
 
   siteIds.forEach((siteId, index) => {
     const site = getSite(siteId);
@@ -213,14 +229,14 @@ function startBacklink({ url, keyword, extra = '', anchorMode = 'gemischt', rel 
       siteId: site.id, articleId: id, context: { ziel: url, anchor },
     });
 
-    const promise = ai
-      .generateBacklink({
+    const promise = beschreibung
+      .then((text) => ai.generateBacklink({
         site,
-        auftrag,
+        auftrag: { id: auftragId, url, keyword, extra, note: text },
         anchor,
         imageCount: images.plannedCount(),
         categories: kategorienFuer(site),
-      })
+      }))
       .then(async (result) => {
         const verweis = setzeVerweis(result.content_html, anchor, url, rel);
         const dichte = ai.keywordDichte(verweis.html, keyword);

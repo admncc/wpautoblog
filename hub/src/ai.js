@@ -613,7 +613,11 @@ ${existing.length ? `Diese Themen existieren bereits und dürfen NICHT wiederhol
 }
 
 // aufbereiten wird von der Funktionspruefung direkt aufgerufen, ohne Anthropic zu behelligen.
+/* Fuer die Funktionspruefung: zeigt, dass die Kategorie auch beim Backlink-Artikel
+   auf die vorhandenen begrenzt ist. */
+const schemaFuerBacklink = (kategorien) => articleSchema(kategorien, BACKLINK_SCHEMA);
+
 module.exports = {
   MODELS, AiError, generateArticle, generateFromVideo, generateTargeted, generateBacklink,
-  suggestTopics, aufbereiten, keywordDichte,
+  suggestTopics, aufbereiten, keywordDichte, schemaFuerBacklink,
 };

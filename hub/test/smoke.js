@@ -646,6 +646,38 @@ async function main() {
       .get(blAuftrag.daten.articles[0].id);
     pruefe(blArtikel.backlink_url === 'https://www.beispiel.de/ratgeber' && !!blArtikel.backlink_anchor,
       'Ziel und Ankertext stehen am Artikel', JSON.stringify(blArtikel));
+    // Bleibt die Beschreibung leer, liest der Hub die Seite selbst. Er darf dabei
+    // aber nicht ins eigene Netz greifen.
+    const { istIntern, textAusHtml, leseSeite } = require('../src/webseite');
+    pruefe(istIntern('127.0.0.1') && istIntern('10.0.0.5') && istIntern('192.168.1.1')
+      && istIntern('169.254.169.254') && istIntern('::1') && istIntern('::ffff:127.0.0.1')
+      && istIntern('172.16.0.1') && istIntern('fd00::1'),
+      'Interne Adressen werden als intern erkannt');
+    pruefe(!istIntern('8.8.8.8') && !istIntern('172.32.0.1') && !istIntern('2606:4700::1'),
+      'Oeffentliche Adressen gelten nicht als intern');
+
+    let gesperrt = '';
+    await leseSeite('http://127.0.0.1:9/').catch((err) => { gesperrt = err.message; });
+    pruefe(/eigene Netz/.test(gesperrt), 'Der Hub liest keine Seite aus dem eigenen Netz', gesperrt);
+
+    const gelesen = textAusHtml(`<html><head><title>Ratgeber Entkalken</title>
+      <meta name="description" content="So entkalkst du richtig." /></head>
+      <body><nav>Menue Start Kontakt</nav><h1>Kaffeemaschine entkalken</h1>
+      <p>Essigessenz greift die Dichtungen an, Zitronensaeure ist milder und wirkt genauso.</p>
+      <script>var x = 1;</script><footer>Impressum</footer></body></html>`);
+    pruefe(gelesen.titel === 'Ratgeber Entkalken' && gelesen.beschreibung === 'So entkalkst du richtig.',
+      'Titel und Beschreibung werden ausgelesen', JSON.stringify(gelesen.titel));
+    pruefe(/Essigessenz/.test(gelesen.text) && !/Impressum|Menue|var x/.test(gelesen.text),
+      'Nur der lesbare Teil bleibt uebrig', gelesen.text.slice(0, 80));
+
+    // Auch beim Backlink-Artikel waehlt die KI die Kategorie aus den vorhandenen.
+    const blSchema = require('../src/ai').schemaFuerBacklink(['Ratgeber', 'Technik']);
+    pruefe(Array.isArray(blSchema.properties.category.enum)
+      && blSchema.properties.category.enum.join() === 'Ratgeber,Technik',
+      'Backlink-Artikel bekommen nur vorhandene Kategorien zur Auswahl');
+    pruefe(blSchema.required.includes('category') && blSchema.required.includes('longtails'),
+      'Kategorie und Longtails sind Pflichtfelder');
+
     const blListe = await ruf('/api/app/backlinks');
     pruefe(Array.isArray(blListe.daten) && blListe.daten.length === 1 && blListe.daten[0].artikel === 1,
       'Der Auftrag erscheint in der Liste');

@@ -1857,7 +1857,10 @@ async function renderBacklinks(body, sites) {
           <input id="bl-extra" placeholder="durch Komma getrennt, freiwillig" /></div>
         <div class="field"><label for="bl-note">Worum geht es auf der Zielseite?</label>
           <textarea id="bl-note" rows="2"
-            placeholder="Ein bis zwei Sätze. Daraus entsteht der Satz, der zum Verweis hinführt."></textarea></div>
+            placeholder="Leer lassen, dann liest der Hub die Seite selbst."></textarea>
+          <div class="hint">Ein bis zwei Sätze, daraus entsteht der Satz, der zum Verweis hinführt.
+            Bleibt das Feld leer, ruft der Hub die Zieladresse auf und liest Titel, Beschreibung und
+            Fließtext aus.</div></div>
 
         <div class="fields-2">
           <div class="field"><label for="bl-anchor">Ankertexte</label>
@@ -1879,8 +1882,12 @@ async function renderBacklinks(body, sites) {
         </div>
 
         <div class="field">
-          <label>Auf welchen Websites?</label>
-          <div class="row" style="gap:8px 18px">
+          <div class="row" style="justify-content:space-between;align-items:baseline">
+            <label style="margin:0">Auf welchen Websites?</label>
+            <button type="button" class="btn sm quiet" id="bl-alle">
+              ${gewaehlt.length === sites.length ? 'Auswahl aufheben' : 'Alle auswählen'}</button>
+          </div>
+          <div class="row" style="gap:8px 18px;margin-top:8px">
             ${sites.map((site) => `<label class="check" style="margin:0">
               <input type="checkbox" data-blsite="${esc(site.id)}" ${gewaehlt.includes(site.id) ? 'checked' : ''} />
               <span><b>${esc(site.name)}</b><i>${esc(site.url || 'ohne Adresse')}</i></span></label>`).join('')}
@@ -1911,6 +1918,18 @@ async function renderBacklinks(body, sites) {
     const id = event.currentTarget.dataset.blsite;
     const aktuell = state.data.blSites || [];
     state.data.blSites = aktuell.includes(id) ? aktuell.filter((x) => x !== id) : [...aktuell, id];
+    const knopf = body.querySelector('#bl-alle');
+    if (knopf) {
+      knopf.textContent = state.data.blSites.length === sites.length ? 'Auswahl aufheben' : 'Alle auswählen';
+    }
+  });
+
+  // Alle oder keine. Bei acht Blogs ist das der Regelfall, nicht die Ausnahme.
+  on('#bl-alle', 'click', () => {
+    const alleDrin = (state.data.blSites || []).length === sites.length;
+    state.data.blSites = alleDrin ? [] : sites.map((site) => site.id);
+    body.querySelectorAll('[data-blsite]').forEach((el) => { el.checked = !alleDrin; });
+    body.querySelector('#bl-alle').textContent = alleDrin ? 'Alle auswählen' : 'Auswahl aufheben';
   });
 
   on('#backlink-form', 'submit', (event) => {
