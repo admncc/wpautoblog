@@ -508,6 +508,10 @@ html[data-theme="dark"] .badge.info { color: var(--brand-2); }
 .notice .ic { margin-top: 2px; color: var(--ink-3); }
 .notice b { font-weight: 600; }
 .notice .grow { flex: 1 1 auto; min-width: 0; }
+/* Ein Hinweis darf gleich den Knopf mitbringen, der ihn erledigt. */
+.notice > .btn { flex: 0 0 auto; align-self: center; }
+/* Aufgezaehlte Zeilen im Hinweis: lieber schieben als abschneiden. */
+.notice .code { display: block; overflow-x: auto; }
 .notice.ok   { background: var(--ok-soft);    border-color: var(--ok-line);    border-left-color: var(--ok); }
 .notice.ok .ic { color: var(--ok); }
 .notice.warn { background: var(--warn-soft);  border-color: var(--warn-line);  border-left-color: var(--warn); }
@@ -1250,6 +1254,11 @@ td.dehnbar { max-width: 0; width: 100%; }
   .attn-item { flex-wrap: wrap; }
   .attn-item > .ic { display: none; }
   .attn-item .acts { width: 100%; padding-left: 0; flex-wrap: wrap; margin-top: 4px; }
+  /* Schmal steht der Knopf unter dem Text, nicht daneben - sonst bleibt fuer den
+     Text eine Spalte von zehn Zeichen. */
+  .notice { flex-wrap: wrap; }
+  .notice > .btn { width: 100%; justify-content: center; margin-top: 4px; }
+
   .attn-head, .card-head, .toolbar { flex-wrap: wrap; gap: 6px 8px; padding: 12px 14px; }
   .attn-head h2 { font-size: 16px; }
   .attn-head .ic.lg { width: 18px; height: 18px; }

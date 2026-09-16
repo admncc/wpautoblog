@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const PORT = Number(process.env.TEST_PORT || 4199);
 const WP_PORT = PORT + 1;
@@ -170,6 +170,33 @@ function starteFakeWordPress(token, siteId) {
           const bleibt = ads.inhalt.split('\n').filter((z) => {
             const key = adsSchluessel(z);
             return !key || !raus.has(key);
+          });
+          return res.end(JSON.stringify({ ok: true, ...adsSchreiben(bleibt.join('\n')) }));
+        }
+        if (modus === 'dedupe') {
+          // Wie im Plugin: doppelt ist gleicher Vermarkter, gleiche Konto-ID,
+          // gleiche Art. Die vollstaendigste Zeile bleibt stehen.
+          const teile = (z) => {
+            const ohne = String(z).split('#')[0].trim();
+            const f = ohne.split(',').map((x) => x.trim());
+            if (f.length < 3 || !f[0] || !f[1]) return null;
+            return { key: `${f[0].toLowerCase()}|${f[1]}|${f[2].toUpperCase()}`,
+              kennung: f[3] || '', kommentar: String(z).includes('#') };
+          };
+          const zeilen = ads.inhalt.split('\n');
+          const behalten = new Map();
+          zeilen.forEach((z, i) => {
+            const t = teile(z);
+            if (!t) return;
+            if (!behalten.has(t.key)) { behalten.set(t.key, i); return; }
+            const alt2 = teile(zeilen[behalten.get(t.key)]);
+            const besser = (!alt2.kennung && t.kennung)
+              || (Boolean(alt2.kennung) === Boolean(t.kennung) && !alt2.kommentar && t.kommentar);
+            if (besser) behalten.set(t.key, i);
+          });
+          const bleibt = zeilen.filter((z, i) => {
+            const t = teile(z);
+            return !t || behalten.get(t.key) === i;
           });
           return res.end(JSON.stringify({ ok: true, ...adsSchreiben(bleibt.join('\n')) }));
         }
@@ -981,6 +1008,81 @@ async function main() {
     });
     pruefe(adsOhneSeite.status === 400, 'Ohne Website kein ads.txt-Auftrag');
 
+    // Doppelte Zeilen: erkennen, unterscheiden, wegraeumen.
+    const adsDoppelt = adstxt.pruefe([
+      'google.com, pub-1, DIRECT',
+      'google.com, pub-1, DIRECT, f08c47fec0942fa0',
+      'google.com, pub-1, RESELLER',
+      'appnexus.com, 2, RESELLER',
+    ].join('\n'));
+    pruefe(adsDoppelt.doppelt.length === 1, 'Dieselbe Zeile zweimal gilt als doppelt',
+      String(adsDoppelt.doppelt.length));
+    pruefe(adsDoppelt.widerspruch.length === 1 && adsDoppelt.widerspruch[0].andere === 'DIRECT',
+      'Dieselbe Konto-ID mit anderer Art gilt als Widerspruch, nicht als Dublette',
+      JSON.stringify(adsDoppelt.widerspruch.length));
+
+    const adsGeraeumt = adstxt.entdoppele([
+      '# Kopf',
+      'google.com, pub-1, DIRECT',
+      'google.com, pub-1, DIRECT, f08c47fec0942fa0',
+      'appnexus.com, 2, RESELLER',
+      'appnexus.com, 2, RESELLER # Partner',
+      'google.com, pub-1, RESELLER',
+      'CONTACT=werbung@beispiel.de',
+    ].join('\n'));
+    pruefe(adsGeraeumt.entfernt.length === 2, 'Zwei doppelte Zeilen fallen weg',
+      String(adsGeraeumt.entfernt.length));
+    pruefe(adsGeraeumt.text.includes('f08c47fec0942fa0'),
+      'Von zwei gleichen Zeilen bleibt die mit Kennung');
+    pruefe(adsGeraeumt.text.includes('appnexus.com, 2, RESELLER # Partner'),
+      'Bei sonst gleichem Stand bleibt die Zeile mit Kommentar');
+    pruefe(adsGeraeumt.text.includes('google.com, pub-1, RESELLER'),
+      'Der Widerspruch wird nicht stillschweigend wegoptimiert');
+    pruefe(adsGeraeumt.text.includes('# Kopf') && adsGeraeumt.text.includes('CONTACT='),
+      'Kommentar und Variable ueberstehen das Aufraeumen');
+    pruefe(adstxt.entdoppele(adsGeraeumt.text).entfernt.length === 0,
+      'Ein zweiter Durchlauf findet nichts mehr');
+
+    // Und jetzt derselbe Weg ueber die Website.
+    await ruf(`/api/app/ads/${siteId}`, {
+      method: 'PUT',
+      body: {
+        force: true,
+        content: [
+          'google.com, pub-0000000000000001, DIRECT',
+          'google.com, pub-0000000000000001, DIRECT, f08c47fec0942fa0',
+          'openx.com, 5555, DIRECT',
+        ].join('\n'),
+      },
+    });
+    const adsVorRaeumen = await ruf('/api/app/ads');
+    pruefe((adsVorRaeumen.daten.sites.find((x) => x.id === siteId) || {}).doppelt === 1,
+      'Die Uebersicht meldet die doppelte Zeile');
+
+    // Das Aufraeumen passiert im Plugin. Eine alte Fassung kennt den Auftrag nicht,
+    // und dann soll der Hub das sagen, statt eine Meldung von dort durchzureichen.
+    db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run('1.4.1', siteId);
+    const adsZuAlt = await ruf(`/api/app/ads/${siteId}/entdoppeln`, { method: 'POST' });
+    pruefe(adsZuAlt.status >= 400 && /1\.5\.1/.test(JSON.stringify(adsZuAlt.daten)),
+      'Ein zu altes Plugin wird benannt, statt einen kryptischen Fehler zu melden',
+      JSON.stringify(adsZuAlt.daten));
+    db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run('1.5.1', siteId);
+
+    const adsRaeumen = await ruf(`/api/app/ads/${siteId}/entdoppeln`, { method: 'POST' });
+    pruefe(adsRaeumen.status === 200 && adsRaeumen.daten.entfernt === 1
+      && adsRaeumen.daten.eintraege === 2,
+      'Die doppelte Zeile wird auf der Website entfernt', JSON.stringify(adsRaeumen.daten.entfernt));
+    pruefe(fakeWp.ads.inhalt.includes('f08c47fec0942fa0')
+      && !/pub-0000000000000001, DIRECT\n/.test(fakeWp.ads.inhalt),
+      'In der Datei steht nur noch die vollstaendige Zeile', fakeWp.ads.inhalt.replace(/\n/g, ' | '));
+
+    const adsNichtsZuTun = await ruf(`/api/app/ads/${siteId}/entdoppeln`, { method: 'POST' });
+    pruefe(adsNichtsZuTun.daten.entfernt === 0, 'Ein zweiter Aufruf aendert nichts mehr');
+
+    const adsSammelRaeumen = await ruf('/api/app/ads/entdoppeln', { method: 'POST', body: {} });
+    pruefe(adsSammelRaeumen.status === 200 && Array.isArray(adsSammelRaeumen.daten.ergebnisse),
+      'Sammelaufraeumen laeuft auch, wenn nichts doppelt ist');
+
     // Die ganze Datei ersetzen, abgesichert ueber den Fingerabdruck.
     const adsStand = await ruf(`/api/app/ads/${siteId}`);
     const adsErsatz = await ruf(`/api/app/ads/${siteId}`, {
@@ -1036,6 +1138,18 @@ async function main() {
     pruefe(adsNachher.daten.eintraege === 1 && !adsNachher.daten.wartet,
       'Nach der Rueckmeldung steht der neue Stand im Hub', String(adsNachher.daten.eintraege));
     await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+
+    // Der PHP-Teil des Plugins hat eigene Pruefungen mit einer WordPress-Attrappe.
+    const phpDa = spawnSync('php', ['-v'], { stdio: 'ignore' }).status === 0;
+    if (phpDa) {
+      const lauf = spawnSync('php', [path.join(__dirname, '..', '..', 'wordpress-plugin', 'test', 'ads.php')],
+        { encoding: 'utf8' });
+      const schlecht = String(lauf.stdout || '').split('\n').filter((z) => z.includes('FEHL'));
+      pruefe(lauf.status === 0 && !schlecht.length,
+        'Die ads.txt-Klasse des Plugins besteht ihre eigenen Pruefungen', schlecht.join(' '));
+    } else {
+      console.log('  (kein PHP vorhanden, Plugin-Pruefung uebersprungen)');
+    }
 
     console.log('\nHaerteprüfungen');
     const { safeLink, sanitizeHtml } = require('../src/sanitize');

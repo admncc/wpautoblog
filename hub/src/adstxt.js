@@ -101,6 +101,18 @@ function schluessel(eintrag) {
   return `${eintrag.domain}|${eintrag.konto}`;
 }
 
+/**
+ * Der Schluessel fuer "das ist zweimal dasselbe".
+ *
+ * Hier zaehlt die Art mit. Zwei Zeilen mit derselben Konto-ID, aber einmal DIRECT
+ * und einmal RESELLER, sind kein Versehen zum Wegraeumen, sondern ein Widerspruch,
+ * den ein Mensch ansehen muss.
+ */
+function vollSchluessel(eintrag) {
+  if (!eintrag || eintrag.art !== 'eintrag') return '';
+  return `${eintrag.domain}|${eintrag.konto}|${eintrag.beziehung}`;
+}
+
 /** Eine Zeile wieder als Text. */
 function alsText(eintrag) {
   if (!eintrag) return '';
@@ -203,21 +215,76 @@ function entferne(text, weg) {
 }
 
 /**
- * Was an einer Datei auffaellt: kaputte Zeilen und derselbe Vermarkter zweimal.
- * Beides ist kein Weltuntergang, kostet aber Einnahmen, wenn es niemand sieht.
+ * Raeumt doppelte Zeilen weg.
+ *
+ * Doppelt heisst: gleicher Vermarkter, gleiche Konto-ID, gleiche Art. Bleiben darf
+ * die vollstaendigste der Zeilen - eine mit Kennung des Vermarkters schlaegt eine
+ * ohne, und bei sonst gleichem Stand gewinnt die mit Kommentar. So geht beim
+ * Aufraeumen keine Angabe verloren.
+ *
+ * Nicht angetastet werden Zeilen mit derselben Konto-ID, aber anderer Art. Das ist
+ * ein Widerspruch, kein Versehen, und den entscheidet ein Mensch.
+ */
+function entdoppele(text) {
+  const zeilen = parse(text);
+
+  // Erst festlegen, welche Zeile je Schluessel bleibt.
+  const behalten = new Map();
+  zeilen.forEach((zeile, i) => {
+    const key = vollSchluessel(zeile);
+    if (!key) return;
+    if (!behalten.has(key)) { behalten.set(key, i); return; }
+
+    const bisher = zeilen[behalten.get(key)];
+    const besser = (!bisher.kennung && zeile.kennung)
+      || (Boolean(bisher.kennung) === Boolean(zeile.kennung) && !bisher.kommentar && zeile.kommentar);
+    if (besser) behalten.set(key, i);
+  });
+
+  const entfernt = [];
+  const bleibt = zeilen.filter((zeile, i) => {
+    const key = vollSchluessel(zeile);
+    if (!key || behalten.get(key) === i) return true;
+    entfernt.push(zeile);
+    return false;
+  });
+
+  return { text: schreibe(bleibt), entfernt };
+}
+
+/**
+ * Was an einer Datei auffaellt: kaputte Zeilen, dieselbe Zeile zweimal und
+ * derselbe Vermarkter mit widerspruechlicher Art.
+ * Nichts davon ist ein Weltuntergang, kostet aber Einnahmen, wenn es niemand sieht.
  */
 function pruefe(text) {
   const zeilen = parse(text);
-  const gesehen = new Map();
+  const gesehen = new Map();       // exakt dieselbe Zeile
+  const nachKonto = new Map();     // dasselbe Konto, egal mit welcher Art
   const doppelt = [];
+  const widerspruch = [];
   const fehler = [];
 
   for (const zeile of zeilen) {
     if (zeile.art === 'fehler') { fehler.push(zeile); continue; }
+
+    const voll = vollSchluessel(zeile);
+    if (voll) {
+      if (gesehen.has(voll)) {
+        doppelt.push({ zeile, zuerst: gesehen.get(voll) });
+        continue;                  // eine doppelte Zeile ist kein Widerspruch
+      }
+      gesehen.set(voll, zeile.nummer);
+    }
+
     const key = schluessel(zeile);
     if (!key) continue;
-    if (gesehen.has(key)) doppelt.push({ zeile, zuerst: gesehen.get(key) });
-    else gesehen.set(key, zeile.nummer);
+    const vorher = nachKonto.get(key);
+    if (vorher && vorher.beziehung !== zeile.beziehung) {
+      widerspruch.push({ zeile, zuerst: vorher.nummer, andere: vorher.beziehung });
+    } else if (!vorher) {
+      nachKonto.set(key, { nummer: zeile.nummer, beziehung: zeile.beziehung });
+    }
   }
 
   return {
@@ -228,6 +295,7 @@ function pruefe(text) {
     reseller: zeilen.filter((z) => z.art === 'eintrag' && z.beziehung === 'RESELLER').length,
     fehler,
     doppelt,
+    widerspruch,
   };
 }
 
@@ -241,6 +309,6 @@ function vermarkter(text) {
 }
 
 module.exports = {
-  parse, leseZeile, schluessel, alsText, schreibe, leseEingabe,
-  ergaenze, entferne, pruefe, vermarkter, istDomain, ARTEN, VARIABLEN,
+  parse, leseZeile, schluessel, vollSchluessel, alsText, schreibe, leseEingabe,
+  ergaenze, entferne, entdoppele, pruefe, vermarkter, istDomain, ARTEN, VARIABLEN,
 };

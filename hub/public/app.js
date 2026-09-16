@@ -1997,6 +1997,10 @@ async function renderAds(view, siteId) {
   const sites = daten.sites;
   const verbunden = sites.filter((s) => s.connected);
   const tab = state.data.adsTab || 'uebersicht';
+  // Doppelte Zeilen sind der haeufigste Schaden an einer ads.txt, und der
+  // einzige, der sich gefahrlos von selbst beheben laesst.
+  const mitDoppelten = verbunden.filter((s) => s.doppelt);
+  const doppelteGesamt = mitDoppelten.reduce((summe, s) => summe + s.doppelt, 0);
 
   const tabs = [
     ['uebersicht', 'Je Website', verbunden.length],
@@ -2009,6 +2013,8 @@ async function renderAds(view, siteId) {
       <div><h1>ads.txt</h1><p class="sub">Welcher Vermarkter darf auf welcher Seite verkaufen.
         Der Hub liest die Datei im Wurzelverzeichnis jeder Website und pflegt sie dort.</p></div>
       <div class="acts">
+        ${doppelteGesamt ? `<button class="btn" id="ads-entdoppeln-alle">${ic('trash', 'sm')}${doppelteGesamt}
+          doppelte Zeile${doppelteGesamt === 1 ? '' : 'n'} entfernen</button>` : ''}
         <button class="btn" id="ads-alle-lesen">${ic('refresh', 'sm')}Alle neu einlesen</button>
       </div>
     </div>
@@ -2037,6 +2043,20 @@ async function renderAds(view, siteId) {
     state.data.adsTab = event.currentTarget.dataset.adstab;
     render();
   });
+  on('#ads-entdoppeln-alle', 'click', (event) => guard(event.currentTarget, async () => {
+    const { ergebnisse } = await api('/api/app/ads/entdoppeln', {
+      method: 'POST', body: { site_ids: mitDoppelten.map((s) => s.id) },
+    });
+    const weg = ergebnisse.reduce((summe, e) => summe + (e.entfernt || 0), 0);
+    const warten = ergebnisse.filter((e) => e.wartet).length;
+    const schief = ergebnisse.filter((e) => !e.ok);
+    toast(schief.length
+      ? `${schief.length} Website(s) meldeten einen Fehler: ${schief[0].message}`
+      : `${weg} doppelte Zeile(n) entfernt${warten ? `, ${warten} Website(s) holen den Auftrag selbst ab` : ''}.`,
+      schief.length ? 'err' : 'ok');
+    await render();
+  }));
+
   on('#ads-alle-lesen', 'click', (event) => guard(event.currentTarget, async () => {
     const { ergebnisse } = await api('/api/app/ads/lesen', { method: 'POST' });
     const gut = ergebnisse.filter((e) => e.ok).length;
@@ -2067,7 +2087,10 @@ function adsUebersicht(body, sites) {
               ${s.fehler ? `<span class="meta" style="color:var(--stop)">${esc(s.fehler)}</span>` : ''}
               ${s.root === false ? '<span class="meta" style="color:var(--warn)">WordPress liegt nicht im Wurzelverzeichnis der Domain.</span>' : ''}
               ${s.kaputt ? `<span class="meta" style="color:var(--warn)">${s.kaputt} unverständliche Zeile(n)</span>` : ''}
-              ${s.doppelt ? `<span class="meta" style="color:var(--warn)">${s.doppelt} doppelte(r) Eintrag</span>` : ''}</td>
+              ${s.doppelt ? `<span class="meta" style="color:var(--warn)">${s.doppelt} doppelte Zeile(n)
+                <button class="btn sm quiet stop" data-adsdedup="${esc(s.id)}">jetzt entfernen</button></span>` : ''}
+              ${s.widerspruch ? `<span class="meta" style="color:var(--warn)">${s.widerspruch} Mal dieselbe Konto-ID
+                mit DIRECT und RESELLER</span>` : ''}</td>
             <td data-label="Einträge" class="right">${s.gelesen_am ? `<b>${s.eintraege}</b>
               <span class="meta">${s.direkt} direkt, ${s.reseller} Reseller</span>` : '–'}</td>
             <td data-label="Datei"><span class="badge ${stil}">${esc(text)}</span>
@@ -2082,6 +2105,18 @@ function adsUebersicht(body, sites) {
     </section>`;
 
   on('[data-adssite]', 'click', (event) => navigate('ads', event.currentTarget.dataset.adssite));
+
+  // Der Knopf sitzt in einer anklickbaren Zeile - er soll nicht auch die Seite oeffnen.
+  on('[data-adsdedup]', 'click', (event) => {
+    event.stopPropagation();
+    guard(event.currentTarget, async () => {
+      const antwort = await api(`/api/app/ads/${event.currentTarget.dataset.adsdedup}/entdoppeln`, { method: 'POST' });
+      toast(antwort.wartet
+        ? 'Auftrag abgelegt, die Website holt ihn selbst ab.'
+        : `${antwort.entfernt} doppelte Zeile(n) entfernt.`);
+      await render();
+    });
+  });
 }
 
 /** Zeilen auf mehreren Websites auf einmal ergaenzen oder entfernen. */
@@ -2308,9 +2343,22 @@ async function renderAdsSite(view, siteId) {
       <span class="code" style="display:block;margin-top:6px">${kaputt.slice(0, 5).map((z) =>
         `Zeile ${z.nummer}: ${esc(z.roh)}`).join('<br>')}</span></span></div>` : ''}
 
-    ${daten.pruefung.doppelt.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
-      <b>${daten.pruefung.doppelt.length} Eintrag/Einträge stehen doppelt drin.</b>
-      Das schadet nicht, macht die Datei aber unübersichtlich.</span></div>` : ''}
+    ${daten.entfaellt.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>${daten.entfaellt.length} Zeile(n) stehen doppelt drin.</b>
+      Gleicher Vermarkter, gleiche Konto-ID, gleiche Art. Das schadet nicht, macht die Datei
+      aber unübersichtlich. Von zwei gleichen bleibt die vollständigere stehen, also die mit
+      Kennung und Kommentar. Diese hier würden verschwinden:
+      <span class="code" style="display:block;margin-top:6px">${daten.entfaellt.slice(0, 8).map((z) =>
+        `Zeile ${z.nummer}: ${esc(z.roh)}`).join('<br>')}${
+        daten.entfaellt.length > 8 ? `<br>… und ${daten.entfaellt.length - 8} weitere` : ''}</span></span>
+      <button class="btn sm" id="ads-entdoppeln">${ic('trash', 'sm')}Doppelte entfernen</button></div>` : ''}
+
+    ${daten.pruefung.widerspruch.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>Dieselbe Konto-ID steht einmal als DIRECT und einmal als RESELLER.</b>
+      Das räumt der Hub nicht von selbst weg, denn nur eine der beiden Angaben stimmt.
+      <span class="code" style="display:block;margin-top:6px">${daten.pruefung.widerspruch.slice(0, 5).map((d) =>
+        `Zeile ${d.zeile.nummer}: ${esc(d.zeile.roh)} (Zeile ${d.zuerst} sagt ${esc(d.andere)})`).join('<br>')}</span>
+      </span></div>` : ''}
 
     <section class="card">
       <h2>Zeile hinzufügen</h2>
@@ -2337,6 +2385,14 @@ async function renderAdsSite(view, siteId) {
   on('#ads-lesen', 'click', (event) => guard(event.currentTarget, async () => {
     const neu = await api(`/api/app/ads/${siteId}/lesen`, { method: 'POST' });
     toast(neu.wartet ? 'Auftrag abgelegt, die Website holt ihn selbst ab.' : `${neu.eintraege} Einträge gelesen.`);
+    await render();
+  }));
+
+  on('#ads-entdoppeln', 'click', (event) => guard(event.currentTarget, async () => {
+    const antwort = await api(`/api/app/ads/${siteId}/entdoppeln`, { method: 'POST' });
+    toast(antwort.wartet
+      ? 'Auftrag abgelegt, die Website holt ihn selbst ab.'
+      : `${antwort.entfernt} doppelte Zeile(n) entfernt.`);
     await render();
   }));
 

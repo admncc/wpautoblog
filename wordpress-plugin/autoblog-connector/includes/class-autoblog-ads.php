@@ -211,6 +211,94 @@ class Autoblog_Ads {
     }
 
     /**
+     * Raeumt doppelte Zeilen weg.
+     *
+     * Doppelt heisst: gleicher Vermarkter, gleiche Konto-ID, gleiche Art. Bleiben
+     * darf die vollstaendigste Zeile - eine mit Kennung des Vermarkters schlaegt
+     * eine ohne, und bei sonst gleichem Stand gewinnt die mit Kommentar. So geht
+     * beim Aufraeumen keine Angabe verloren.
+     *
+     * Zeilen mit derselben Konto-ID, aber anderer Art (einmal DIRECT, einmal
+     * RESELLER) bleiben beide stehen. Das ist ein Widerspruch, kein Versehen.
+     *
+     * @return array|WP_Error
+     */
+    public static function entdoppeln() {
+        $status = self::status();
+        $zeilen = preg_split('/\r\n|\r|\n/', $status['content']);
+
+        // Erst festlegen, welche Zeile je Schluessel bleibt.
+        $behalten = [];
+        foreach ($zeilen as $i => $zeile) {
+            $key = self::voll_schluessel($zeile);
+            if ($key === '') {
+                continue;
+            }
+            if (!isset($behalten[$key])) {
+                $behalten[$key] = $i;
+                continue;
+            }
+            $bisher = self::teile($zeilen[$behalten[$key]]);
+            $jetzt  = self::teile($zeile);
+            $besser = (!$bisher['kennung'] && $jetzt['kennung'])
+                || ((bool) $bisher['kennung'] === (bool) $jetzt['kennung']
+                    && !$bisher['kommentar'] && $jetzt['kommentar']);
+            if ($besser) {
+                $behalten[$key] = $i;
+            }
+        }
+
+        $bleibt    = [];
+        $entfernte = 0;
+        foreach ($zeilen as $i => $zeile) {
+            $key = self::voll_schluessel($zeile);
+            if ($key !== '' && $behalten[$key] !== $i) {
+                $entfernte++;
+                continue;
+            }
+            $bleibt[] = $zeile;
+        }
+
+        if ($entfernte === 0) {
+            return self::status();
+        }
+        return self::schreiben(implode("\n", $bleibt));
+    }
+
+    /** Zerlegt eine Zeile in ihre Bestandteile. Leere Felder, wenn es kein Eintrag ist. */
+    private static function teile($zeile) {
+        $zeile    = (string) $zeile;
+        $trenner  = strpos($zeile, '#');
+        $kommentar = ($trenner === false) ? '' : trim(substr($zeile, $trenner + 1));
+        $inhalt   = trim(($trenner === false) ? $zeile : substr($zeile, 0, $trenner));
+
+        $leer = ['domain' => '', 'konto' => '', 'art' => '', 'kennung' => '', 'kommentar' => $kommentar];
+        if ($inhalt === '' || strpos($inhalt, ',') === false) {
+            return $leer;
+        }
+        $felder = array_map('trim', explode(',', $inhalt));
+        if (count($felder) < 3 || $felder[0] === '' || $felder[1] === '') {
+            return $leer;
+        }
+        return [
+            'domain'    => strtolower($felder[0]),
+            'konto'     => $felder[1],
+            'art'       => strtoupper($felder[2]),
+            'kennung'   => isset($felder[3]) ? $felder[3] : '',
+            'kommentar' => $kommentar,
+        ];
+    }
+
+    /** Schluessel fuer "das ist zweimal dasselbe": Vermarkter, Konto-ID und Art. */
+    private static function voll_schluessel($zeile) {
+        $teile = self::teile($zeile);
+        if ($teile['domain'] === '' || $teile['konto'] === '') {
+            return '';
+        }
+        return $teile['domain'] . '|' . $teile['konto'] . '|' . $teile['art'];
+    }
+
+    /**
      * Der Schluessel einer Zeile: Vermarkter und Konto-ID.
      * Leer, wenn die Zeile kein Eintrag ist (Kommentar, Variable, Leerzeile).
      */
@@ -304,6 +392,8 @@ class Autoblog_Ads {
             $ergebnis = self::ergaenzen(isset($auftrag['entries']) ? (array) $auftrag['entries'] : []);
         } elseif ($aktion === 'remove') {
             $ergebnis = self::entfernen(isset($auftrag['entries']) ? (array) $auftrag['entries'] : []);
+        } elseif ($aktion === 'dedupe') {
+            $ergebnis = self::entdoppeln();
         } elseif ($aktion === 'restore') {
             $ergebnis = self::zurueck();
         } else {

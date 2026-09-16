@@ -267,7 +267,9 @@ Der Bereich, in dem die Werbevermarktung aller Websites an einem Ort steht. Drei
 „x direkt, y Reseller"), wo die Datei liegt (Abzeichen: echte Datei im Wurzelverzeichnis,
 von WordPress ausgeliefert, oder noch keine), öffentlich abrufbar (Abzeichen `ok` /
 `abweichung` / `fehlt` / `fehler` mit Erklärung) und wann zuletzt gelesen wurde. Zeile
-anklicken führt zur Einzelansicht. Oben rechts „Alle neu einlesen".
+anklicken führt zur Einzelansicht. Oben rechts „Alle neu einlesen" und, sobald irgendwo
+etwas doppelt steht, „N doppelte Zeilen entfernen". In der Zeile selbst steht die Zahl
+der doppelten Zeilen mit einem kleinen „jetzt entfernen" daneben.
 
 **Auf mehreren Seiten ändern** — Umschalter „Ergänzen / Entfernen", ein Textfeld in
 Festbreitenschrift für die Zeilen, darunter die Website-Auswahl mit „Alle auswählen".
@@ -283,6 +285,10 @@ bauen lässt, und der eigentliche Grund für den Bereich.
 „Neu einlesen" und „Letzte Änderung zurücknehmen". Darunter Hinweisbänder für die Fälle,
 die Geld kosten: WordPress liegt nicht im Wurzelverzeichnis, die Datei ist
 schreibgeschützt, der öffentliche Abruf weicht ab, ein Auftrag wartet noch auf Abholung.
+Zwei Hinweise gehören zur Datei selbst: doppelte Zeilen (mit der Liste der Zeilen, die
+beim Aufräumen verschwinden würden, und dem Knopf „Doppelte entfernen" im Hinweis selbst)
+und Widersprüche, also dieselbe Konto-ID einmal als DIRECT und einmal als RESELLER. Den
+Widerspruch räumt das System bewusst **nicht** von selbst weg.
 Dann die Einträge als Tabelle (Vermarkter, Konto-ID, Art, Kennung, „×" zum Entfernen),
 die Angaben zur Domain (`CONTACT=`, `OWNERDOMAIN=` …), ein Feld für eine neue Zeile und
 ganz unten aufklappbar der Editor für die ganze Datei.

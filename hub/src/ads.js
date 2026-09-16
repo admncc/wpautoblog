@@ -46,6 +46,24 @@ function nacheinander(grenze) {
   });
 }
 
+/**
+ * Reicht die Plugin-Version auf dieser Website?
+ *
+ * Nicht jede Faehigkeit kann der Hub allein: Das Aufraeumen doppelter Zeilen
+ * passiert im Plugin. Eine aeltere Fassung kennt den Auftrag nicht und wuerde mit
+ * einer Meldung antworten, aus der niemand schlau wird.
+ */
+function versionReicht(vorhanden, noetig) {
+  const teile = (v) => String(v || '0').split('.').map((n) => Number(n) || 0);
+  const [a, b] = [teile(vorhanden), teile(noetig)];
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+
 function site(siteId) {
   return db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId);
 }
@@ -300,6 +318,58 @@ async function aufSeiten(aktion, siteIds, zeilen) {
   return ergebnisse;
 }
 
+/**
+ * Raeumt doppelte Zeilen auf einer Website weg.
+ *
+ * Das Aufraeumen passiert auf der Website, nicht im Hub: So wird nur angefasst,
+ * was dort wirklich steht, auch wenn der Hub einen aelteren Stand kennt.
+ */
+async function entdoppele(siteId) {
+  const s = site(siteId);
+  if (!s) throw new Error('Website nicht gefunden.');
+  if (s.status !== 'connected') throw new Error(`"${s.name}" ist nicht verbunden.`);
+
+  if (!versionReicht(s.plugin_version, '1.5.1')) {
+    throw new Error(`Das Plugin auf "${s.name}" ist noch auf Version ${s.plugin_version || 'unbekannt'}.`
+      + ' Zum Aufräumen braucht es mindestens 1.5.1. Das Update kommt von selbst, oder du stößt es'
+      + ' unter Websites an.');
+  }
+
+  const vorher = adstxt.pruefe(s.ads_txt || '').doppelt.length;
+  if (s.delivery === 'pull') return legeAuftragAb(s.id, 'dedupe');
+
+  try {
+    const antwort = await wp.callSite(s, 'ads-write', { mode: 'dedupe' });
+    merke(s.id, antwort);
+    const nachher = adstxt.pruefe(antwort.content || '').doppelt.length;
+    logger.info('ads', 'entdoppeln', `${vorher - nachher} doppelte Zeile(n) bei ${s.name} entfernt`, {
+      siteId: s.id, context: { vorher, nachher },
+    });
+    return { ...antwort, wartet: false, entfernt: Math.max(vorher - nachher, 0) };
+  } catch (err) {
+    merkeFehler(s.id, err.message);
+    throw err;
+  }
+}
+
+/** Dasselbe fuer mehrere Websites auf einmal. */
+async function entdoppeleAlle(siteIds) {
+  const reihe = nacheinander(PARALLEL);
+  return Promise.all(siteIds.map((id) => reihe(async () => {
+    const s = site(id);
+    if (!s) return { site_id: id, name: 'unbekannt', ok: false, message: 'Website nicht gefunden.' };
+    try {
+      const stand = await entdoppele(id);
+      return {
+        site_id: s.id, name: s.name, ok: true,
+        wartet: Boolean(stand.wartet), entfernt: stand.entfernt || 0,
+      };
+    } catch (err) {
+      return { site_id: s.id, name: s.name, ok: false, message: err.message };
+    }
+  })));
+}
+
 /** Den Stand vor dem letzten Schreiben zurueckholen. */
 async function zuruecknehmen(siteId) {
   const s = site(siteId);
@@ -341,6 +411,7 @@ function uebersicht() {
       variablen: zahlen.variablen,
       kaputt: zahlen.fehler.length,
       doppelt: zahlen.doppelt.length,
+      widerspruch: zahlen.widerspruch.length,
       vermarkter: adstxt.vermarkter(s.ads_txt || ''),
       wartet: auftrag ? { action: auftrag.action, seit: auftrag.created_at } : null,
     };
@@ -358,6 +429,9 @@ function einzeln(siteId) {
     digest: s.ads_digest || '',
     zeilen: adstxt.parse(s.ads_txt || ''),
     pruefung: adstxt.pruefe(s.ads_txt || ''),
+    // Genau die Zeilen, die beim Aufraeumen verschwinden wuerden. Welche von zwei
+    // gleichen bleibt, entscheidet die Vollstaendigkeit - das soll man vorher sehen.
+    entfaellt: adstxt.entdoppele(s.ads_txt || '').entfernt,
   };
 }
 
@@ -390,7 +464,7 @@ function vergleich() {
 }
 
 module.exports = {
-  lese, leseAlle, ersetze, aufSeiten, zuruecknehmen, pruefeOeffentlich,
+  lese, leseAlle, ersetze, aufSeiten, entdoppele, entdoppeleAlle, zuruecknehmen, pruefeOeffentlich,
   uebersicht, einzeln, vergleich,
-  offenerAuftrag, auftragFertig, wartet, nacheinander,
+  offenerAuftrag, auftragFertig, wartet, nacheinander, versionReicht,
 };

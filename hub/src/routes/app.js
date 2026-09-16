@@ -1071,6 +1071,33 @@ router.put(
   })
 );
 
+/**
+ * Doppelte Zeilen wegraeumen - auf einer Website oder auf mehreren.
+ * Ohne site_ids gilt der Aufruf fuer alle Websites, auf denen etwas doppelt steht.
+ */
+router.post(
+  '/ads/entdoppeln',
+  wrap(async (req, res) => {
+    const gewaehlt = Array.isArray(req.body.site_ids) ? req.body.site_ids.map(String).slice(0, 100) : null;
+    const siteIds = gewaehlt && gewaehlt.length
+      ? gewaehlt
+      : ads.uebersicht().filter((s) => s.connected && s.doppelt).map((s) => s.id);
+    if (!siteIds.length) return res.json({ ok: true, ergebnisse: [] });
+    return res.json({ ok: true, ergebnisse: await ads.entdoppeleAlle(siteIds) });
+  })
+);
+
+router.post(
+  '/ads/:siteId/entdoppeln',
+  wrap(async (req, res) => {
+    const stand = await ads.entdoppele(req.params.siteId);
+    res.json({
+      ok: true, ...ads.einzeln(req.params.siteId),
+      wartet: Boolean(stand.wartet), entfernt: stand.entfernt || 0,
+    });
+  })
+);
+
 /** Den Stand vor dem letzten Schreiben zurueckholen. */
 router.post(
   '/ads/:siteId/zurueck',
