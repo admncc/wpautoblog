@@ -128,6 +128,11 @@ class Autoblog_Hub_Client {
         return self::request('pending', ['limit' => (int) $limit]);
     }
 
+    /** Ergebnis eines ads.txt-Auftrags zurueckmelden (nur im Abhol-Modus). */
+    public static function ads_result($job_id, array $result) {
+        return self::request('ads-result', array_merge(['job_id' => $job_id], $result));
+    }
+
     /** Ergebnis einer Veroeffentlichung zurueckmelden. */
     public static function report($article_id, $result) {
         return self::request('result', array_merge(['article_id' => $article_id], $result));

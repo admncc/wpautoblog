@@ -84,9 +84,51 @@ async function alsPlugin(pfad, siteId, token, koerper) {
 
 // --- Nachgestellte Gegenstellen ---------------------------------------------
 
+/* Die ads.txt der gespielten WordPress-Seite. Das Zusammenfuehren laeuft hier
+   genauso wie im echten Plugin: verglichen wird ueber Vermarkter und Konto-ID. */
+function adsSchluessel(zeile) {
+  const ohneKommentar = String(zeile).split('#')[0].trim();
+  if (!ohneKommentar.includes(',')) return '';
+  const felder = ohneKommentar.split(',').map((f) => f.trim());
+  if (felder.length < 3 || !felder[0] || !felder[1]) return '';
+  return `${felder[0].toLowerCase()}|${felder[1]}`;
+}
+
 function starteFakeWordPress(token, siteId) {
   const empfangen = [];
+  const ads = { inhalt: '', sicherung: null };
+
+  const adsStatus = () => ({
+    mode: ads.inhalt ? 'datei' : 'leer',
+    content: ads.inhalt,
+    path: '/var/www/html/ads.txt',
+    exists: Boolean(ads.inhalt),
+    writable: true,
+    root: true,
+    url: `http://127.0.0.1:${WP_PORT}/ads.txt`,
+    bytes: ads.inhalt.length,
+    has_backup: ads.sicherung != null,
+    digest: crypto.createHash('sha256').update(ads.inhalt).digest('hex'),
+  });
+
+  const adsSchreiben = (text) => {
+    ads.sicherung = ads.inhalt;
+    const sauber = String(text).replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
+    ads.inhalt = sauber ? `${sauber}\n` : '';
+    return adsStatus();
+  };
+
   const server = http.createServer((req, res) => {
+    // Der oeffentliche Abruf laeuft ohne Signatur, wie bei jedem Besucher.
+    if (req.method === 'GET' && req.url === '/ads.txt') {
+      if (!ads.inhalt) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        return res.end('nicht gefunden');
+      }
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end(ads.inhalt);
+    }
+
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
@@ -106,6 +148,41 @@ function starteFakeWordPress(token, siteId) {
       }
       const daten = JSON.parse(body || '{}');
       empfangen.push({ url: req.url, daten });
+      if (req.url.endsWith('/ads-read')) {
+        return res.end(JSON.stringify({ ok: true, ...adsStatus() }));
+      }
+      if (req.url.endsWith('/ads-write')) {
+        const modus = daten.mode || 'replace';
+        if (modus === 'add') {
+          const bekannt = new Set(ads.inhalt.split('\n').map(adsSchluessel).filter(Boolean));
+          const neuZeilen = (daten.entries || []).filter((z) => {
+            const key = adsSchluessel(z);
+            if (key && bekannt.has(key)) return false;
+            if (key) bekannt.add(key);
+            return true;
+          });
+          const vorher = ads.inhalt.replace(/\n+$/, '');
+          return res.end(JSON.stringify({ ok: true,
+            ...adsSchreiben([vorher, ...neuZeilen].filter(Boolean).join('\n')) }));
+        }
+        if (modus === 'remove') {
+          const raus = new Set((daten.entries || []).map(adsSchluessel).filter(Boolean));
+          const bleibt = ads.inhalt.split('\n').filter((z) => {
+            const key = adsSchluessel(z);
+            return !key || !raus.has(key);
+          });
+          return res.end(JSON.stringify({ ok: true, ...adsSchreiben(bleibt.join('\n')) }));
+        }
+        if (modus === 'restore') {
+          return res.end(JSON.stringify({ ok: true, ...adsSchreiben(ads.sicherung || '') }));
+        }
+        if (daten.based_on && daten.based_on !== adsStatus().digest) {
+          // Der Kopf steht schon; der Hub erkennt den Widerspruch an ok:false.
+          return res.end(JSON.stringify({ ok: false, stale: true,
+            message: 'Die ads.txt hat sich seit dem Lesen geaendert.' }));
+        }
+        return res.end(JSON.stringify({ ok: true, ...adsSchreiben(daten.content || '') }));
+      }
       if (req.url.endsWith('/update')) {
         return res.end(JSON.stringify({ ok: true, from: '1.3.1', version: '99.0.0' }));
       }
@@ -116,7 +193,7 @@ function starteFakeWordPress(token, siteId) {
     });
   });
   server.listen(WP_PORT);
-  return { server, empfangen };
+  return { server, empfangen, ads };
 }
 
 /**
@@ -806,6 +883,160 @@ async function main() {
     pruefe(!pruefeUebernahme('<p>Zu kurz.</p>', quelltext).auffaellig, 'Sehr kurze Texte schlagen nicht an');
 
     // Was die QA gefunden hat, darf nicht zurueckkommen.
+    // ads.txt: die Datei im Wurzelverzeichnis jeder Website.
+    console.log('\nads.txt');
+    const adstxt = require('../src/adstxt');
+    // Frueher im Lauf wurde der Abhol-Modus geprueft; hier gilt wieder der Sende-Modus.
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+
+    const adsBeispiel = [
+      '# Vermarkter dieser Seite',
+      'google.com, pub-0000000000000001, DIRECT, f08c47fec0942fa0',
+      'appnexus.com, 1234, RESELLER  # ueber einen Partner',
+      'CONTACT=werbung@beispiel.de',
+      '',
+      'kaputt',
+    ].join('\n');
+
+    const adsZeilen = adstxt.parse(adsBeispiel);
+    pruefe(adsZeilen[0].art === 'kommentar' && adsZeilen[1].art === 'eintrag'
+      && adsZeilen[1].domain === 'google.com' && adsZeilen[1].kennung === 'f08c47fec0942fa0',
+      'Eine ads.txt wird in ihre Bestandteile zerlegt', adsZeilen[1].domain);
+    pruefe(adsZeilen[2].kommentar === 'ueber einen Partner' && adsZeilen[2].beziehung === 'RESELLER',
+      'Der Kommentar hinter einer Zeile bleibt erhalten', adsZeilen[2].kommentar);
+    pruefe(adsZeilen[3].art === 'variable' && adsZeilen[3].name === 'CONTACT' && adsZeilen[3].bekannt,
+      'Angaben zur Domain werden als Variable erkannt');
+    pruefe(adsZeilen[5].art === 'fehler', 'Eine unverstaendliche Zeile wird als Fehler benannt');
+
+    const adsZahlen = adstxt.pruefe(adsBeispiel);
+    pruefe(adsZahlen.eintraege === 2 && adsZahlen.direkt === 1 && adsZahlen.reseller === 1
+      && adsZahlen.fehler.length === 1,
+      'Die Datei wird richtig gezaehlt', JSON.stringify({ e: adsZahlen.eintraege, f: adsZahlen.fehler.length }));
+
+    // Ergaenzen darf nichts anfassen, was schon dasteht.
+    const adsEingabe = adstxt.leseEingabe(
+      'google.com, pub-0000000000000001, DIRECT\nrubicon.com, 999, DIRECT\nrubicon.com, 999, DIRECT'
+    );
+    pruefe(adsEingabe.eintraege.length === 2, 'Doppelt eingetippte Zeilen fallen einmal weg',
+      String(adsEingabe.eintraege.length));
+
+    const adsMehr = adstxt.ergaenze(adsBeispiel, adsEingabe.eintraege);
+    pruefe(adsMehr.hinzugefuegt.length === 1 && adsMehr.uebersprungen.length === 1,
+      'Nur wirklich fehlende Zeilen kommen hinzu');
+    pruefe(adsMehr.text.includes('ueber einen Partner') && adsMehr.text.includes('kaputt')
+      && adsMehr.text.includes('rubicon.com, 999, DIRECT'),
+      'Kommentare und fremde Zeilen bleiben beim Ergaenzen stehen');
+
+    const adsWeniger = adstxt.entferne(adsMehr.text,
+      adstxt.leseEingabe('appnexus.com, 1234, RESELLER').eintraege);
+    pruefe(adsWeniger.entfernt.length === 1 && !adsWeniger.text.includes('appnexus.com')
+      && adsWeniger.text.includes('CONTACT=werbung@beispiel.de'),
+      'Entfernen trifft genau eine Zeile, Variablen bleiben');
+
+    // Die Konto-ID unterscheidet Zeilen, die Gross-/Kleinschreibung der Domain nicht.
+    const adsGleich = adstxt.ergaenze('Google.com, pub-1, DIRECT',
+      adstxt.leseEingabe('google.com, pub-1, RESELLER\ngoogle.com, pub-2, DIRECT').eintraege);
+    pruefe(adsGleich.hinzugefuegt.length === 1 && adsGleich.hinzugefuegt[0].konto === 'pub-2',
+      'Dieselbe Domain mit anderer Konto-ID ist ein eigener Eintrag');
+
+    // Jetzt der Weg ueber die Website.
+    const adsLeer = await ruf(`/api/app/ads/${siteId}/lesen`, { method: 'POST' });
+    pruefe(adsLeer.status === 200 && adsLeer.daten.mode === 'leer' && adsLeer.daten.eintraege === 0,
+      'Eine Website ohne ads.txt meldet das sauber', String(adsLeer.daten.mode));
+
+    const adsDazu = await ruf('/api/app/ads/eintraege', {
+      method: 'POST',
+      body: {
+        action: 'add',
+        entries: 'google.com, pub-0000000000000001, DIRECT, f08c47fec0942fa0\nappnexus.com, 4321, RESELLER',
+        site_ids: [siteId],
+      },
+    });
+    pruefe(adsDazu.status === 200 && adsDazu.daten.ergebnisse[0].ok
+      && adsDazu.daten.ergebnisse[0].eintraege === 2,
+      'Zwei Zeilen landen auf der Website', JSON.stringify(adsDazu.daten.ergebnisse[0]));
+    pruefe(fakeWp.ads.inhalt.includes('google.com, pub-0000000000000001, DIRECT, f08c47fec0942fa0'),
+      'Die Zeile steht wortgleich in der Datei der Website');
+
+    const adsWieder = await ruf('/api/app/ads/eintraege', {
+      method: 'POST',
+      body: { action: 'add', entries: 'google.com, pub-0000000000000001, DIRECT', site_ids: [siteId] },
+    });
+    pruefe(adsWieder.daten.ergebnisse[0].geaendert === 0 && adsWieder.daten.ergebnisse[0].eintraege === 2,
+      'Dieselbe Zeile ein zweites Mal aendert nichts');
+
+    const adsRaus = await ruf('/api/app/ads/eintraege', {
+      method: 'POST',
+      body: { action: 'remove', entries: 'appnexus.com, 4321, RESELLER', site_ids: [siteId] },
+    });
+    pruefe(adsRaus.daten.ergebnisse[0].eintraege === 1 && !fakeWp.ads.inhalt.includes('appnexus'),
+      'Entfernen greift bis in die Datei durch');
+
+    const adsMuell = await ruf('/api/app/ads/eintraege', {
+      method: 'POST', body: { action: 'add', entries: 'das ist keine ads-zeile', site_ids: [siteId] },
+    });
+    pruefe(adsMuell.status === 400, 'Unverstaendliche Zeilen erreichen die Website gar nicht erst');
+    const adsOhneSeite = await ruf('/api/app/ads/eintraege', {
+      method: 'POST', body: { action: 'add', entries: 'google.com, pub-1, DIRECT', site_ids: [] },
+    });
+    pruefe(adsOhneSeite.status === 400, 'Ohne Website kein ads.txt-Auftrag');
+
+    // Die ganze Datei ersetzen, abgesichert ueber den Fingerabdruck.
+    const adsStand = await ruf(`/api/app/ads/${siteId}`);
+    const adsErsatz = await ruf(`/api/app/ads/${siteId}`, {
+      method: 'PUT',
+      body: { content: 'openx.com, 5555, DIRECT\n# von Hand gesetzt' },
+    });
+    pruefe(adsErsatz.status === 200 && adsErsatz.daten.eintraege === 1
+      && fakeWp.ads.inhalt.includes('von Hand gesetzt'),
+      'Die ganze Datei laesst sich ersetzen');
+
+    // Jetzt mit einem veralteten Fingerabdruck: Es darf nichts ueberschrieben werden.
+    db.prepare('UPDATE sites SET ads_digest = ? WHERE id = ?').run(adsStand.daten.digest, siteId);
+    const adsVeraltet = await ruf(`/api/app/ads/${siteId}`, {
+      method: 'PUT', body: { content: 'x.com, 1, DIRECT' },
+    });
+    pruefe(adsVeraltet.status >= 400 && fakeWp.ads.inhalt.includes('openx.com'),
+      'Ein veralteter Stand ueberschreibt nichts', String(adsVeraltet.status));
+
+    const adsUndo = await ruf(`/api/app/ads/${siteId}/zurueck`, { method: 'POST' });
+    pruefe(adsUndo.status === 200 && fakeWp.ads.inhalt.includes('google.com'),
+      'Die letzte Aenderung laesst sich zuruecknehmen');
+
+    // Der oeffentliche Abruf ist der einzige Beweis, der zaehlt.
+    await ruf(`/api/app/ads/${siteId}/lesen`, { method: 'POST' });
+    const adsListe = await ruf('/api/app/ads');
+    const adsReihe = adsListe.daten.sites.find((s) => s.id === siteId);
+    pruefe(adsReihe && /^ok:/.test(adsReihe.live || ''),
+      'Der oeffentliche Abruf bestaetigt den Stand', adsReihe && adsReihe.live);
+    pruefe(adsListe.daten.vergleich.zeilen.some((z) => z.domain === 'google.com'),
+      'Der Vergleich zeigt, welcher Vermarkter wo steht');
+
+    // Im Abhol-Modus wartet der Auftrag auf das Plugin.
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'pull' } });
+    const adsWartet = await ruf('/api/app/ads/eintraege', {
+      method: 'POST', body: { action: 'add', entries: 'pubmatic.com, 777, DIRECT', site_ids: [siteId] },
+    });
+    pruefe(adsWartet.daten.ergebnisse[0].wartet === true,
+      'Im Abhol-Modus wird der Auftrag abgelegt statt gesendet');
+
+    const adsPuls = await alsPlugin('/api/plugin/heartbeat', siteId, token,
+      { site_url: `http://127.0.0.1:${WP_PORT}` });
+    pruefe(adsPuls.daten.ads_job && adsPuls.daten.ads_job.action === 'add'
+      && adsPuls.daten.ads_job.entries[0] === 'pubmatic.com, 777, DIRECT',
+      'Das Lebenszeichen traegt den wartenden Auftrag mit', JSON.stringify(adsPuls.daten.ads_job || null));
+
+    const adsAntwort = await alsPlugin('/api/plugin/ads-result', siteId, token, {
+      job_id: adsPuls.daten.ads_job.id,
+      ok: true, mode: 'datei', content: 'pubmatic.com, 777, DIRECT\n', bytes: 30,
+      writable: true, root: true, url: 'https://test-wp.example/ads.txt', digest: 'abc',
+    });
+    pruefe(adsAntwort.status === 200, 'Die Rueckmeldung des Plugins wird angenommen');
+    const adsNachher = await ruf(`/api/app/ads/${siteId}`);
+    pruefe(adsNachher.daten.eintraege === 1 && !adsNachher.daten.wartet,
+      'Nach der Rueckmeldung steht der neue Stand im Hub', String(adsNachher.daten.eintraege));
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+
     console.log('\nHaerteprüfungen');
     const { safeLink, sanitizeHtml } = require('../src/sanitize');
     pruefe(safeLink('https://a.de/x') === 'https://a.de/x' && safeLink('http://a.de') === 'http://a.de/',
@@ -860,6 +1091,7 @@ async function main() {
   } catch (err) {
     gescheitert += 1;
     console.log(`\n  ${rot('ABBRUCH')} ${err.stack}`);
+    if (err.cause) console.log('  Ursache:', err.cause);
   } finally {
     if (fakeWp) fakeWp.server.close();
     if (fakeBild) fakeBild.close();

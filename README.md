@@ -42,6 +42,8 @@ WordPress-Seiten veröffentlicht.
 - **Posts → Post erzeugen:** einzelner Beitrag zu einem Thema
 - **Posts → Wiederkehrende Posts:** Themenbereiche festlegen, Takt festlegen, der Rest läuft automatisch
 - **Posts → Gezielte Posts:** vorbereitet für die Keyword-Recherche (nächste Ausbaustufe)
+- **ads.txt:** die Datei im Wurzelverzeichnis jeder Website lesen und pflegen, einzeln oder
+  auf allen Seiten auf einmal; eine Vergleichsansicht zeigt, wo ein Vermarkter fehlt
 - **Einstellungen:** Anthropic API-Key, Modellwahl und das komplette **Prompt-Framework** frei bearbeitbar
 - **Bilder:** Beitragsbild und Bilder im Text über einen frei wählbaren Bilddienst,
   automatisch in die WordPress-Mediathek
@@ -56,6 +58,9 @@ WordPress-Seiten veröffentlicht.
 - Legt Beiträge mit Kategorie, Schlagwörtern, Slug, Auszug und SEO-Feldern an (Yoast/Rank Math werden erkannt)
 - Lädt die Bilder in die Mediathek, setzt das Beitragsbild und platziert Bilder im Text
 - Zwei Wege: Hub sendet an WordPress **oder** WordPress holt selbst ab (für Seiten hinter einer Firewall)
+- Pflegt die **ads.txt**: schreibt die echte Datei im Wurzelverzeichnis, und wenn der Hoster das
+  Verzeichnis sperrt, liefert das Plugin sie selbst aus. Vor jeder Änderung wird der bisherige
+  Stand gesichert.
 
 ## Loslegen
 

@@ -181,6 +181,7 @@ const ROUTES = {
   posts: { title: 'Beiträge', render: (view) => { state.data.artTab = 'erzeugen'; navigate('articles'); } },
   articles: { title: 'Beiträge', render: renderArticles },
   article: { title: 'Artikel', render: renderArticle },
+  ads: { title: 'ads.txt', render: renderAds },
   settings: { title: 'Einstellungen', render: renderSettings },
   logs: { title: 'Protokoll', render: renderLogs },
 };
@@ -282,6 +283,7 @@ async function render() {
     ['dashboard', 'pulse', 'Übersicht'],
     ['sites', 'globe', 'Websites'],
     ['articles', 'doc', 'Beiträge'],
+    ['ads', 'ads', 'ads.txt'],
   ];
   const NAV2 = [['settings', 'sliders', 'Einstellungen'], ['logs', 'list', 'Protokoll']];
   const aktiv = (r) => (r === route || (r === 'sites' && route === 'site')
@@ -1957,6 +1959,427 @@ async function renderBacklinks(body, sites) {
       await render();
     });
   });
+}
+
+// ------------------------------------------------------------------ ads.txt
+
+/* Die ads.txt sagt, welcher Vermarkter Werbeplaetze einer Seite verkaufen darf.
+   Fehlt dort eine Zeile, verdient die Seite weniger - und niemand sieht es, weil
+   man dafuer acht Dateien vergleichen muesste. Genau das macht dieser Bereich. */
+
+const ADS_MODUS = {
+  datei: ['ok', 'Datei im Wurzelverzeichnis'],
+  virtuell: ['info', 'von WordPress ausgeliefert'],
+  leer: ['warn', 'noch keine ads.txt'],
+};
+
+/* Der Live-Zustand kommt als "ok: Text" aus der Datenbank. */
+function adsLive(wert) {
+  if (!wert) return null;
+  const [stand, ...rest] = String(wert).split(':');
+  const text = rest.join(':').trim();
+  const stil = { ok: 'ok', abweichung: 'warn', fehlt: 'warn', fehler: 'err' }[stand] || '';
+  return { stand, text, stil };
+}
+
+/* Eine Zeile so zeigen, wie sie in der Datei steht. */
+function adsZeileText(zeile) {
+  if (zeile.art !== 'eintrag') return zeile.roh || '';
+  const felder = [zeile.domain, zeile.konto, zeile.beziehung];
+  if (zeile.kennung) felder.push(zeile.kennung);
+  return felder.join(', ');
+}
+
+async function renderAds(view, siteId) {
+  if (siteId) return renderAdsSite(view, siteId);
+
+  const daten = await api('/api/app/ads');
+  const sites = daten.sites;
+  const verbunden = sites.filter((s) => s.connected);
+  const tab = state.data.adsTab || 'uebersicht';
+
+  const tabs = [
+    ['uebersicht', 'Je Website', verbunden.length],
+    ['eintraege', 'Auf mehreren Seiten ändern'],
+    ['vergleich', 'Vergleich', daten.vergleich.zeilen.length],
+  ];
+
+  view.innerHTML = `
+    <div class="page-head">
+      <div><h1>ads.txt</h1><p class="sub">Welcher Vermarkter darf auf welcher Seite verkaufen.
+        Der Hub liest die Datei im Wurzelverzeichnis jeder Website und pflegt sie dort.</p></div>
+      <div class="acts">
+        <button class="btn" id="ads-alle-lesen">${ic('refresh', 'sm')}Alle neu einlesen</button>
+      </div>
+    </div>
+    <div class="tabs" role="tablist">
+      ${tabs.map(([key, label, n]) => `<button role="tab" data-adstab="${key}" aria-selected="${tab === key}"
+        class="${tab === key ? 'active' : ''}">${label}${n != null ? `<span class="n">${n}</span>` : ''}</button>`).join('')}
+    </div>
+    <div id="ads-body"></div>`;
+
+  const body = view.querySelector('#ads-body');
+
+  if (!sites.length) {
+    body.innerHTML = `<div class="card"><div class="empty"><span class="ring">${ic('globe', 'lg')}</span>
+      <b>Noch keine Website angelegt</b>
+      <p>Eine ads.txt gehört zu einer Domain. Leg zuerst eine Website an und verbinde sie.</p>
+      <a class="btn primary" href="#/sites">${ic('plus', 'sm')}Website anlegen</a></div></div>`;
+  } else if (tab === 'uebersicht') {
+    adsUebersicht(body, sites);
+  } else if (tab === 'eintraege') {
+    adsSammelform(body, verbunden);
+  } else {
+    adsVergleich(body, daten.vergleich);
+  }
+
+  on('[data-adstab]', 'click', (event) => {
+    state.data.adsTab = event.currentTarget.dataset.adstab;
+    render();
+  });
+  on('#ads-alle-lesen', 'click', (event) => guard(event.currentTarget, async () => {
+    const { ergebnisse } = await api('/api/app/ads/lesen', { method: 'POST' });
+    const gut = ergebnisse.filter((e) => e.ok).length;
+    const warten = ergebnisse.filter((e) => e.wartet).length;
+    toast(`${gut} von ${ergebnisse.length} Websites gelesen${warten ? `, ${warten} holen den Auftrag selbst ab` : ''}.`,
+      gut === ergebnisse.length ? 'ok' : 'err');
+    await render();
+  }));
+}
+
+/** Die Liste aller Websites mit ihrem Stand. */
+function adsUebersicht(body, sites) {
+  body.innerHTML = `
+    <section class="card flat">
+      <div class="tblwrap"><table>
+        <thead><tr>
+          <th>Website</th><th class="right">Einträge</th><th>Wo die Datei liegt</th>
+          <th>Öffentlich abrufbar</th><th class="nowrap">Zuletzt gelesen</th>
+        </tr></thead>
+        <tbody>${sites.map((s) => {
+          const [stil, text] = ADS_MODUS[s.mode] || ['', 'noch nicht gelesen'];
+          const live = adsLive(s.live);
+          return `<tr class="clickable ${s.fehler ? 'is-err' : (s.connected ? 'is-ok' : 'is-idle')}" data-adssite="${esc(s.id)}">
+            <td><span class="ttl">${esc(s.name)}</span>
+              <span class="meta">${esc(s.url || 'ohne Adresse')}
+                ${s.connected ? '' : '<span class="badge warn">nicht verbunden</span>'}
+                ${s.wartet ? `<span class="badge info">${ic('clock', 'sm')}Auftrag wartet auf Abholung</span>` : ''}</span>
+              ${s.fehler ? `<span class="meta" style="color:var(--stop)">${esc(s.fehler)}</span>` : ''}
+              ${s.root === false ? '<span class="meta" style="color:var(--warn)">WordPress liegt nicht im Wurzelverzeichnis der Domain.</span>' : ''}
+              ${s.kaputt ? `<span class="meta" style="color:var(--warn)">${s.kaputt} unverständliche Zeile(n)</span>` : ''}
+              ${s.doppelt ? `<span class="meta" style="color:var(--warn)">${s.doppelt} doppelte(r) Eintrag</span>` : ''}</td>
+            <td data-label="Einträge" class="right">${s.gelesen_am ? `<b>${s.eintraege}</b>
+              <span class="meta">${s.direkt} direkt, ${s.reseller} Reseller</span>` : '–'}</td>
+            <td data-label="Datei"><span class="badge ${stil}">${esc(text)}</span>
+              ${s.mode === 'datei' && !s.writable ? '<span class="meta" style="color:var(--warn)">schreibgeschützt</span>' : ''}</td>
+            <td data-label="Öffentlich">${live
+              ? `<span class="badge ${live.stil}">${esc(live.stand)}</span><span class="meta">${esc(live.text)}</span>`
+              : '<span class="meta">noch nicht geprüft</span>'}</td>
+            <td data-label="Gelesen" class="nowrap">${esc(fmtDate(s.gelesen_am))}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </section>`;
+
+  on('[data-adssite]', 'click', (event) => navigate('ads', event.currentTarget.dataset.adssite));
+}
+
+/** Zeilen auf mehreren Websites auf einmal ergaenzen oder entfernen. */
+function adsSammelform(body, sites) {
+  const gewaehlt = state.data.adsSites || [];
+  const aktion = state.data.adsAktion || 'add';
+  const ergebnis = state.data.adsErgebnis;
+
+  body.innerHTML = `
+    <section class="card">
+      <h2>${aktion === 'add' ? 'Einträge ergänzen' : 'Einträge entfernen'}</h2>
+      <div class="sub">Die Zeilen gehen so, wie sie hier stehen, an jede gewählte Website. Dort wird
+        verglichen und nur angefasst, was genannt ist. Alles andere in der Datei bleibt unberührt,
+        auch Kommentare und Zeilen, die der Hub nicht kennt.</div>
+
+      <div class="row" style="margin-top:14px">
+        <span class="seg">
+          <button type="button" data-adsakt="add" aria-pressed="${aktion === 'add'}">${ic('plus', 'sm')}Ergänzen</button>
+          <button type="button" data-adsakt="remove" aria-pressed="${aktion === 'remove'}">${ic('trash', 'sm')}Entfernen</button>
+        </span>
+      </div>
+
+      <form id="ads-sammel" style="margin-top:14px">
+        <div class="field"><label for="ads-zeilen">Zeilen</label>
+          <textarea id="ads-zeilen" class="code" rows="6" spellcheck="false" style="min-height:150px"
+            placeholder="google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0"></textarea>
+          <div class="hint">Eine Zeile je Vermarkter, so wie sie in der Mail des Vermarkters steht:
+            Domain, Konto-ID, DIRECT oder RESELLER, dazu freiwillig die Kennung.
+            ${aktion === 'remove' ? 'Zum Entfernen genügen Domain und Konto-ID.' : ''}</div></div>
+
+        <div class="field">
+          <div class="row" style="justify-content:space-between;align-items:baseline">
+            <label style="margin:0">Auf welchen Websites?</label>
+            <button type="button" class="btn sm quiet" id="ads-alle">
+              ${gewaehlt.length === sites.length ? 'Auswahl aufheben' : 'Alle auswählen'}</button>
+          </div>
+          <div class="row" style="gap:8px 18px;margin-top:8px">
+            ${sites.map((site) => `<label class="check" style="margin:0">
+              <input type="checkbox" data-adssel="${esc(site.id)}" ${gewaehlt.includes(site.id) ? 'checked' : ''} />
+              <span><b>${esc(site.name)}</b><i>${site.gelesen_am ? `${site.eintraege} Einträge` : 'noch nicht gelesen'}</i></span></label>`).join('')}
+          </div>
+        </div>
+
+        <div class="formfoot">
+          <button class="btn ${aktion === 'add' ? 'primary' : 'danger'}" type="submit">
+            ${ic(aktion === 'add' ? 'plus' : 'trash', 'sm')}${aktion === 'add' ? 'Auf gewählten Seiten ergänzen' : 'Von gewählten Seiten entfernen'}</button>
+          <span class="state">Vor jeder Änderung sichert das Plugin den bisherigen Stand.</span>
+        </div>
+      </form>
+    </section>
+
+    ${ergebnis ? `<section class="card flat">
+      <div class="card-head"><h2>Ergebnis</h2><span class="count">${ergebnis.length}</span></div>
+      ${ergebnis.map((e) => `<div class="item ${e.ok ? 'is-ok' : 'is-err'}">
+        <span class="grow"><span class="ttl">${esc(e.name)}</span>
+          <span class="kv">${e.ok
+            ? (e.wartet
+              ? '<span>Auftrag liegt bereit, die Website holt ihn beim nächsten Lebenszeichen.</span>'
+              : `<span>${e.geaendert > 0 ? `${e.geaendert} Zeile(n) dazu` : (e.geaendert < 0 ? `${Math.abs(e.geaendert)} Zeile(n) weg` : 'nichts zu tun, stand schon so')}</span>
+                 <span>jetzt <b>${e.eintraege}</b> Einträge</span>`)
+            : `<span style="color:var(--stop)">${esc(e.message)}</span>`}</span></span>
+      </div>`).join('')}
+    </section>` : ''}`;
+
+  on('[data-adsakt]', 'click', (event) => {
+    state.data.adsAktion = event.currentTarget.dataset.adsakt;
+    state.data.adsErgebnis = null;
+    render();
+  });
+
+  on('[data-adssel]', 'change', (event) => {
+    const id = event.currentTarget.dataset.adssel;
+    const jetzt = state.data.adsSites || [];
+    state.data.adsSites = jetzt.includes(id) ? jetzt.filter((x) => x !== id) : [...jetzt, id];
+    const knopf = body.querySelector('#ads-alle');
+    if (knopf) knopf.textContent = state.data.adsSites.length === sites.length ? 'Auswahl aufheben' : 'Alle auswählen';
+  });
+
+  on('#ads-alle', 'click', () => {
+    const alleDrin = (state.data.adsSites || []).length === sites.length;
+    state.data.adsSites = alleDrin ? [] : sites.map((s) => s.id);
+    body.querySelectorAll('[data-adssel]').forEach((el) => { el.checked = !alleDrin; });
+    body.querySelector('#ads-alle').textContent = alleDrin ? 'Alle auswählen' : 'Auswahl aufheben';
+  });
+
+  on('#ads-sammel', 'submit', (event) => {
+    event.preventDefault();
+    guard(event.target.querySelector('button[type=submit]'), async () => {
+      const ausgewaehlt = [...body.querySelectorAll('[data-adssel]')]
+        .filter((el) => el.checked).map((el) => el.dataset.adssel);
+      if (!ausgewaehlt.length) throw new Error('Bitte mindestens eine Website auswählen.');
+
+      const antwort = await api('/api/app/ads/eintraege', {
+        method: 'POST',
+        body: {
+          action: aktion,
+          entries: body.querySelector('#ads-zeilen').value,
+          site_ids: ausgewaehlt,
+        },
+      });
+      state.data.adsErgebnis = antwort.ergebnisse;
+      const gut = antwort.ergebnisse.filter((e) => e.ok).length;
+      toast(`${antwort.uebernommen.length} Zeile(n) auf ${gut} von ${ausgewaehlt.length} Website(s) verarbeitet.`,
+        gut === ausgewaehlt.length ? 'ok' : 'err');
+      await render();
+    });
+  });
+}
+
+/** Wer steht wo? Die eine Ansicht, die sich von Hand nicht bauen laesst. */
+function adsVergleich(body, vergleich) {
+  const { sites, zeilen } = vergleich;
+  if (!sites.length || !zeilen.length) {
+    body.innerHTML = `<div class="card"><div class="empty"><span class="ring">${ic('ads', 'lg')}</span>
+      <b>Noch nichts zu vergleichen</b>
+      <p>Lies die ads.txt der Websites einmal ein, dann steht hier, welcher Vermarkter auf
+        welcher Seite fehlt.</p></div></div>`;
+    return;
+  }
+
+  body.innerHTML = `
+    <section class="card flat">
+      <div class="card-head"><h2>Welcher Vermarkter steht wo?</h2>
+        <span class="count">${zeilen.length}</span></div>
+      <div class="tblwrap"><table>
+        <thead><tr><th>Vermarkter</th><th>Konto-ID</th>
+          ${sites.map((s) => `<th class="right">${esc(s.name)}</th>`).join('')}
+          <th></th></tr></thead>
+        <tbody>${zeilen.map((z, i) => `<tr class="${z.fehlt.length ? 'is-idle' : 'is-ok'}">
+          <td><span class="ttl">${esc(z.domain)}</span>
+            <span class="meta">${esc(z.beziehung)}${z.kennung ? ` · ${esc(z.kennung)}` : ''}</span></td>
+          <td data-label="Konto"><span class="code">${esc(z.konto)}</span></td>
+          ${sites.map((s) => `<td data-label="${esc(s.name)}" class="right">${z.sites.includes(s.id)
+            ? `<span style="color:var(--ok)">${ic('check', 'sm')}</span>`
+            : '<span style="color:var(--ink-3)">·</span>'}</td>`).join('')}
+          <td class="right">${z.fehlt.length
+            ? `<button class="btn sm" data-adsfehlt="${i}">auf ${z.fehlt.length} Seite(n) ergänzen</button>`
+            : ''}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </section>`;
+
+  on('[data-adsfehlt]', 'click', (event) => guard(event.currentTarget, async () => {
+    const z = zeilen[Number(event.currentTarget.dataset.adsfehlt)];
+    const zeile = [z.domain, z.konto, z.beziehung, z.kennung].filter(Boolean).join(', ');
+    const antwort = await api('/api/app/ads/eintraege', {
+      method: 'POST',
+      body: { action: 'add', entries: zeile, site_ids: z.fehlt },
+    });
+    const gut = antwort.ergebnisse.filter((e) => e.ok).length;
+    toast(`${esc(z.domain)} auf ${gut} von ${z.fehlt.length} Website(s) ergänzt.`, gut ? 'ok' : 'err');
+    await render();
+  }));
+}
+
+/** Eine einzelne Website: alle Zeilen, einzeln aenderbar. */
+async function renderAdsSite(view, siteId) {
+  const daten = await api(`/api/app/ads/${siteId}`);
+  const [stil, modusText] = ADS_MODUS[daten.mode] || ['', 'noch nicht gelesen'];
+  const live = adsLive(daten.live);
+  const eintraege = daten.zeilen.filter((z) => z.art === 'eintrag');
+  const variablen = daten.zeilen.filter((z) => z.art === 'variable');
+  const kaputt = daten.zeilen.filter((z) => z.art === 'fehler');
+
+  view.innerHTML = `
+    <a class="back" href="#/ads">${ic('out', 'sm')}ads.txt</a>
+    <div class="page-head">
+      <div><h1>${esc(daten.name)}</h1>
+        <p class="sub">${daten.ads_url
+          ? `<a href="${esc(daten.ads_url)}" target="_blank" rel="noopener noreferrer">${esc(daten.ads_url)} ${ic('ext', 'sm')}</a>`
+          : esc(daten.url || 'ohne Adresse')}</p></div>
+      <div class="acts">
+        <button class="btn" id="ads-lesen">${ic('refresh', 'sm')}Neu einlesen</button>
+        ${daten.backup ? `<button class="btn danger" id="ads-zurueck">${ic('undo', 'sm')}Letzte Änderung zurücknehmen</button>` : ''}
+      </div>
+    </div>
+
+    ${daten.wartet ? `<div class="notice info">${ic('clock')}<span class="grow">
+      <b>Ein Auftrag wartet auf Abholung.</b> Diese Website holt ihre Aufträge selbst ab,
+      spätestens alle 15 Minuten. Danach steht hier der neue Stand.</span></div>` : ''}
+    ${daten.fehler ? `<div class="notice err">${ic('alert')}<span class="grow">
+      <b>Letzter Versuch fehlgeschlagen.</b> ${esc(daten.fehler)}</span></div>` : ''}
+    ${daten.root === false ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>WordPress liegt nicht im Wurzelverzeichnis.</b> Die Datei landet unter
+      ${esc(daten.path || 'dem WordPress-Verzeichnis')}, gesucht wird sie aber direkt unter der Domain.
+      Dort muss sie von Hand hin.</span></div>` : ''}
+    ${daten.mode === 'datei' && !daten.writable ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>Die Datei ist schreibgeschützt.</b> Der Hub kann sie lesen, aber nicht ändern.
+      Bitte die Schreibrechte für ${esc(daten.path)} beim Hoster setzen lassen.</span></div>` : ''}
+    ${live && live.stand !== 'ok' ? `<div class="notice ${live.stil}">${ic('alert')}<span class="grow">
+      <b>Öffentlicher Abruf:</b> ${esc(live.text)}</span></div>` : ''}
+
+    <section class="card flat">
+      <div class="card-head"><h2>Einträge</h2><span class="count">${eintraege.length}</span>
+        <span class="tools"><span class="badge ${stil}">${esc(modusText)}</span></span></div>
+      ${eintraege.length ? `<div class="tblwrap"><table>
+        <thead><tr><th>Vermarkter</th><th>Konto-ID</th><th>Art</th><th>Kennung</th><th></th></tr></thead>
+        <tbody>${eintraege.map((z) => `<tr>
+          <td><span class="ttl">${esc(z.domain)}</span>
+            ${z.kommentar ? `<span class="meta">${esc(z.kommentar)}</span>` : ''}</td>
+          <td data-label="Konto-ID"><span class="code">${esc(z.konto)}</span></td>
+          <td data-label="Art"><span class="badge ${z.beziehung === 'DIRECT' ? 'ok' : ''}">${esc(z.beziehung)}</span></td>
+          <td data-label="Kennung"><span class="code">${esc(z.kennung || '–')}</span></td>
+          <td class="right"><button class="btn sm danger" data-adsweg="${esc(adsZeileText(z))}"
+            title="Diese Zeile entfernen">${ic('x', 'sm')}</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty"><span class="ring">${ic('ads', 'lg')}</span>
+        <b>${daten.gelesen_am ? 'Die ads.txt ist leer' : 'Noch nicht eingelesen'}</b>
+        <p>${daten.gelesen_am
+          ? 'Trag unten den ersten Vermarkter ein, dann legt der Hub die Datei an.'
+          : 'Lies die Datei einmal ein, dann stehen hier ihre Zeilen.'}</p></div>`}
+    </section>
+
+    ${variablen.length ? `<section class="card flat">
+      <div class="card-head"><h2>Angaben zur Domain</h2><span class="count">${variablen.length}</span></div>
+      ${variablen.map((z) => `<div class="item is-idle"><span class="grow">
+        <span class="ttl">${esc(z.name)}</span>
+        <span class="kv"><span class="code">${esc(z.wert)}</span>
+          ${z.bekannt ? '' : '<span style="color:var(--warn)">unbekannte Angabe</span>'}</span></span></div>`).join('')}
+    </section>` : ''}
+
+    ${kaputt.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>${kaputt.length} Zeile(n) versteht der Hub nicht.</b> Sie bleiben unangetastet in der Datei.
+      <span class="code" style="display:block;margin-top:6px">${kaputt.slice(0, 5).map((z) =>
+        `Zeile ${z.nummer}: ${esc(z.roh)}`).join('<br>')}</span></span></div>` : ''}
+
+    ${daten.pruefung.doppelt.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>${daten.pruefung.doppelt.length} Eintrag/Einträge stehen doppelt drin.</b>
+      Das schadet nicht, macht die Datei aber unübersichtlich.</span></div>` : ''}
+
+    <section class="card">
+      <h2>Zeile hinzufügen</h2>
+      <form id="ads-neu" style="margin-top:12px">
+        <div class="field"><label for="ads-neu-zeile">Neue Zeile</label>
+          <input id="ads-neu-zeile" class="code" spellcheck="false"
+            placeholder="google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0" />
+          <div class="hint">Domain des Vermarkters, Konto-ID, DIRECT oder RESELLER, dazu freiwillig
+            die Kennung des Vermarkters. Mehrere Zeilen gehen über „Auf mehreren Seiten ändern“.</div></div>
+        <div class="formfoot"><button class="btn primary" type="submit">${ic('plus', 'sm')}Hinzufügen</button></div>
+      </form>
+    </section>
+
+    ${disclose('ads-roh', '<b>Ganze Datei bearbeiten</b>', `
+      <div style="padding:0 16px 16px">
+        <div class="hint" style="margin-bottom:8px">Hier gilt, was im Feld steht: Der Hub ersetzt die
+          ganze Datei. Hat sie sich seit dem Einlesen geändert, wird nichts überschrieben, sondern
+          widersprochen.</div>
+        <textarea id="ads-roh-text" class="code" rows="16" spellcheck="false">${esc(daten.content)}</textarea>
+        <div class="formfoot"><button class="btn" id="ads-roh-speichern">${ic('check', 'sm')}Datei ersetzen</button>
+          <span class="state">Zuletzt gelesen: ${esc(fmtDate(daten.gelesen_am))}</span></div>
+      </div>`)}`;
+
+  on('#ads-lesen', 'click', (event) => guard(event.currentTarget, async () => {
+    const neu = await api(`/api/app/ads/${siteId}/lesen`, { method: 'POST' });
+    toast(neu.wartet ? 'Auftrag abgelegt, die Website holt ihn selbst ab.' : `${neu.eintraege} Einträge gelesen.`);
+    await render();
+  }));
+
+  on('#ads-zurueck', 'click', (event) => guard(event.currentTarget, async () => {
+    const neu = await api(`/api/app/ads/${siteId}/zurueck`, { method: 'POST' });
+    toast(neu.wartet ? 'Auftrag abgelegt, die Website holt ihn selbst ab.' : 'Der vorherige Stand steht wieder.');
+    await render();
+  }));
+
+  on('[data-adsweg]', 'click', (event) => guard(event.currentTarget, async () => {
+    await api('/api/app/ads/eintraege', {
+      method: 'POST',
+      body: { action: 'remove', entries: event.currentTarget.dataset.adsweg, site_ids: [siteId] },
+    });
+    toast('Zeile entfernt.');
+    await render();
+  }));
+
+  on('#ads-neu', 'submit', (event) => {
+    event.preventDefault();
+    guard(event.target.querySelector('button[type=submit]'), async () => {
+      await api('/api/app/ads/eintraege', {
+        method: 'POST',
+        body: { action: 'add', entries: view.querySelector('#ads-neu-zeile').value, site_ids: [siteId] },
+      });
+      toast('Zeile ergänzt.');
+      await render();
+    });
+  });
+
+  on('#ads-roh-speichern', 'click', (event) => guard(event.currentTarget, async () => {
+    const inhalt = view.querySelector('#ads-roh-text').value;
+    try {
+      const neu = await api(`/api/app/ads/${siteId}`, { method: 'PUT', body: { content: inhalt } });
+      toast(neu.wartet ? 'Auftrag abgelegt, die Website holt ihn selbst ab.' : 'Datei gespeichert.');
+      await render();
+    } catch (err) {
+      // Hat in der Zwischenzeit jemand anderes geschrieben, wird nicht ueberschrieben.
+      if (!/geaendert|geändert/.test(err.message)) throw err;
+      toast(err.message, 'err');
+      await render();
+    }
+  }));
 }
 
 // ----------------------------------------------------------------- Artikel

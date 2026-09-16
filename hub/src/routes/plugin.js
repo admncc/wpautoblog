@@ -7,6 +7,7 @@ const pack = require('./../pluginpack');
 const { sign, safeEqual, decrypt, normalizeUrl } = require('./../util');
 const { safeLink } = require('./../sanitize');
 const settings = require('./../settings');
+const ads = require('./../ads');
 const { VERSION } = require('./../config');
 
 const router = express.Router();
@@ -142,13 +143,25 @@ router.post('/heartbeat', verifySignature, (req, res) => {
     requestId: req.requestId,
     context: { pending, delivery: req.site.delivery },
   });
+  // Ein wartender ads.txt-Auftrag reist mit dem Lebenszeichen mit. So erreicht er
+  // auch Websites, bei denen der Hub nicht selbst anklopfen kann.
+  const adsJob = ads.offenerAuftrag(req.site.id);
+
   res.json({
     ok: true,
     site_name: req.site.name,
     hub_name: settings.get('hub_name'),
     delivery: req.site.delivery,
     pending,
+    ads_job: adsJob,
   });
+});
+
+/** Rueckmeldung des Plugins zu einem ads.txt-Auftrag. */
+router.post('/ads-result', verifySignature, (req, res) => {
+  const erkannt = ads.auftragFertig(req.site.id, req.body.job_id, req.body);
+  if (!erkannt) return res.status(404).json({ ok: false, message: 'Auftrag nicht gefunden.' });
+  return res.json({ ok: true });
 });
 
 /**

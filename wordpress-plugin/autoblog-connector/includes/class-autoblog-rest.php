@@ -26,6 +26,12 @@ class Autoblog_Rest {
         register_rest_route(self::NAMESPACE_, '/update', array_merge($args, [
             'callback' => [__CLASS__, 'handle_update'],
         ]));
+        register_rest_route(self::NAMESPACE_, '/ads-read', array_merge($args, [
+            'callback' => [__CLASS__, 'handle_ads_read'],
+        ]));
+        register_rest_route(self::NAMESPACE_, '/ads-write', array_merge($args, [
+            'callback' => [__CLASS__, 'handle_ads_write'],
+        ]));
     }
 
     /**
@@ -79,6 +85,58 @@ class Autoblog_Rest {
         $quelle = isset($daten['download_url']) ? esc_url_raw($daten['download_url']) : '';
 
         $ergebnis = Autoblog_Updater::jetzt_aktualisieren($quelle);
+        if (is_wp_error($ergebnis)) {
+            return new WP_REST_Response(['ok' => false, 'message' => $ergebnis->get_error_message()], 400);
+        }
+        return rest_ensure_response(array_merge(['ok' => true], $ergebnis));
+    }
+
+    /** Der Hub liest die ads.txt dieser Website. */
+    public static function handle_ads_read(WP_REST_Request $request) {
+        return rest_ensure_response(array_merge(['ok' => true], Autoblog_Ads::status()));
+    }
+
+    /**
+     * Der Hub schreibt die ads.txt.
+     *
+     * "add" und "remove" fassen nur die genannten Zeilen an, "replace" ersetzt die
+     * ganze Datei, "restore" holt den Stand vor dem letzten Schreiben zurueck.
+     *
+     * Bei "replace" kann der Hub den Fingerabdruck des Standes mitschicken, den er
+     * gelesen hat. Stimmt er nicht mehr, hat in der Zwischenzeit jemand anderes
+     * geschrieben - dann wird nichts ueberschrieben, sondern widersprochen.
+     */
+    public static function handle_ads_write(WP_REST_Request $request) {
+        $daten = (array) $request->get_json_params();
+        $modus = isset($daten['mode']) ? $daten['mode'] : 'replace';
+
+        if ($modus === 'restore') {
+            $ergebnis = Autoblog_Ads::zurueck();
+        } elseif ($modus === 'add' || $modus === 'remove') {
+            $zeilen = isset($daten['entries']) ? (array) $daten['entries'] : [];
+            if (empty($zeilen)) {
+                return new WP_REST_Response(['ok' => false, 'message' => __('Es wurden keine Zeilen gesendet.', 'autoblog-connector')], 400);
+            }
+            $ergebnis = ($modus === 'add')
+                ? Autoblog_Ads::ergaenzen($zeilen)
+                : Autoblog_Ads::entfernen($zeilen);
+        } else {
+            if (!isset($daten['content'])) {
+                return new WP_REST_Response(['ok' => false, 'message' => __('Es wurde kein Inhalt gesendet.', 'autoblog-connector')], 400);
+            }
+            if (!empty($daten['based_on'])) {
+                $jetzt = Autoblog_Ads::status();
+                if (!hash_equals($jetzt['digest'], (string) $daten['based_on'])) {
+                    return new WP_REST_Response([
+                        'ok'      => false,
+                        'stale'   => true,
+                        'message' => __('Die ads.txt hat sich seit dem Lesen geändert. Bitte neu einlesen und noch einmal ansehen.', 'autoblog-connector'),
+                    ], 409);
+                }
+            }
+            $ergebnis = Autoblog_Ads::schreiben($daten['content']);
+        }
+
         if (is_wp_error($ergebnis)) {
             return new WP_REST_Response(['ok' => false, 'message' => $ergebnis->get_error_message()], 400);
         }

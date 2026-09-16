@@ -259,7 +259,41 @@ Sechs Karten untereinander, jede mit eigenem Speichern-Knopf:
 Zeichen. Es gibt keine Gliederung, keine Sprungmarken, keinen Hinweis auf ungespeicherte
 Änderungen.
 
-### 4.9 Protokoll (`#/logs`)
+### 4.9 ads.txt (`#/ads`)
+
+Der Bereich, in dem die Werbevermarktung aller Websites an einem Ort steht. Drei Reiter:
+
+**Je Website** — Tabelle: Website (mit Adresse und Warnungen), Einträge (Zahl, darunter
+„x direkt, y Reseller"), wo die Datei liegt (Abzeichen: echte Datei im Wurzelverzeichnis,
+von WordPress ausgeliefert, oder noch keine), öffentlich abrufbar (Abzeichen `ok` /
+`abweichung` / `fehlt` / `fehler` mit Erklärung) und wann zuletzt gelesen wurde. Zeile
+anklicken führt zur Einzelansicht. Oben rechts „Alle neu einlesen".
+
+**Auf mehreren Seiten ändern** — Umschalter „Ergänzen / Entfernen", ein Textfeld in
+Festbreitenschrift für die Zeilen, darunter die Website-Auswahl mit „Alle auswählen".
+Nach dem Absenden erscheint je Website eine Ergebniszeile: wie viele Zeilen dazukamen,
+wie viele Einträge die Datei jetzt hat, oder was schiefging.
+
+**Vergleich** — eine Matrix: Zeilen sind Vermarkter samt Konto-ID, Spalten sind die
+Websites, in den Zellen steht ein Haken oder ein Punkt. Wo etwas fehlt, steht rechts
+ein Knopf „auf N Seite(n) ergänzen". Das ist die eine Ansicht, die sich von Hand nicht
+bauen lässt, und der eigentliche Grund für den Bereich.
+
+**Einzelansicht (`#/ads/<id>`)** — Kopf mit der öffentlichen Adresse der Datei,
+„Neu einlesen" und „Letzte Änderung zurücknehmen". Darunter Hinweisbänder für die Fälle,
+die Geld kosten: WordPress liegt nicht im Wurzelverzeichnis, die Datei ist
+schreibgeschützt, der öffentliche Abruf weicht ab, ein Auftrag wartet noch auf Abholung.
+Dann die Einträge als Tabelle (Vermarkter, Konto-ID, Art, Kennung, „×" zum Entfernen),
+die Angaben zur Domain (`CONTACT=`, `OWNERDOMAIN=` …), ein Feld für eine neue Zeile und
+ganz unten aufklappbar der Editor für die ganze Datei.
+
+*Wichtig für den Entwurf:* Diese Datei entscheidet über Werbeeinnahmen. Jede Anzeige muss
+sagen, woher der Stand kommt und wie alt er ist. Ein Zustand „ich weiß es nicht" ist
+besser als eine Zahl, die vielleicht stimmt.
+
+---
+
+### 4.10 Protokoll (`#/logs`)
 
 Kopf mit drei Auswahllisten (Stufe, Bereich, Anzahl) und „Aktualisieren". Tabelle:
 Zeit, Stufe (Abzeichen), Bereich (`article/generate`), Dauer in ms, Meldung. Jede Zeile

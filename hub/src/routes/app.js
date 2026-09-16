@@ -14,6 +14,8 @@ const images = require('./../images');
 const pack = require('./../pluginpack');
 const update = require('./../update');
 const youtube = require('./../youtube');
+const ads = require('./../ads');
+const adstxt = require('./../adstxt');
 
 const router = express.Router();
 
@@ -26,7 +28,7 @@ const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, 
 function publicSite(site) {
   if (!site) return null;
   // pair_code und der Klartext-Schluessel bleiben absichtlich in der Datenbank.
-  const { secret, pair_code: _pair, categories, excluded_categories, ...rest } = site;
+  const { secret, pair_code: _pair, categories, excluded_categories, ads_txt: _ads, ...rest } = site;
   let liste = [];
   try {
     liste = JSON.parse(categories || '[]');
@@ -1015,6 +1017,101 @@ router.post(
   '/recurring/run',
   wrap(async (req, res) => {
     res.json({ ok: true, ...(await service.runRecurring()) });
+  })
+);
+
+// ------------------------------------------------------------------- ads.txt
+
+/** Uebersicht ueber alle Websites. */
+router.get(
+  '/ads',
+  wrap((req, res) => {
+    res.json({ sites: ads.uebersicht(), vergleich: ads.vergleich() });
+  })
+);
+
+/** Eine Website mit allen Zeilen. */
+router.get(
+  '/ads/:siteId',
+  wrap((req, res) => {
+    const daten = ads.einzeln(req.params.siteId);
+    if (!daten) return res.status(404).json({ ok: false, message: 'Website nicht gefunden.' });
+    return res.json(daten);
+  })
+);
+
+/** Alle Websites neu einlesen. */
+router.post(
+  '/ads/lesen',
+  wrap(async (req, res) => {
+    res.json({ ok: true, ergebnisse: await ads.leseAlle() });
+  })
+);
+
+/** Eine Website neu einlesen, dazu die oeffentliche Adresse pruefen. */
+router.post(
+  '/ads/:siteId/lesen',
+  wrap(async (req, res) => {
+    const stand = await ads.lese(req.params.siteId);
+    if (!stand.wartet) await ads.pruefeOeffentlich(req.params.siteId).catch(() => null);
+    res.json({ ok: true, ...ads.einzeln(req.params.siteId), wartet: Boolean(stand.wartet) });
+  })
+);
+
+/** Die ganze Datei einer Website ersetzen. */
+router.put(
+  '/ads/:siteId',
+  wrap(async (req, res) => {
+    const inhalt = String(req.body.content || '');
+    if (inhalt.length > 1024 * 1024) {
+      return res.status(400).json({ ok: false, message: 'Der Inhalt ist größer als 1 MB.' });
+    }
+    const stand = await ads.ersetze(req.params.siteId, inhalt, { erzwingen: Boolean(req.body.force) });
+    return res.json({ ok: true, ...ads.einzeln(req.params.siteId), wartet: Boolean(stand.wartet) });
+  })
+);
+
+/** Den Stand vor dem letzten Schreiben zurueckholen. */
+router.post(
+  '/ads/:siteId/zurueck',
+  wrap(async (req, res) => {
+    const stand = await ads.zuruecknehmen(req.params.siteId);
+    res.json({ ok: true, ...ads.einzeln(req.params.siteId), wartet: Boolean(stand.wartet) });
+  })
+);
+
+/**
+ * Zeilen auf mehreren Websites ergaenzen oder entfernen.
+ * Der eingetippte Text wird hier geprueft, bevor irgendeine Website ihn sieht.
+ */
+router.post(
+  '/ads/eintraege',
+  wrap(async (req, res) => {
+    const aktion = req.body.action === 'remove' ? 'remove' : 'add';
+    const siteIds = Array.isArray(req.body.site_ids) ? req.body.site_ids.map(String).slice(0, 100) : [];
+    if (!siteIds.length) return res.status(400).json({ ok: false, message: 'Bitte mindestens eine Website auswählen.' });
+
+    const { eintraege, fehler } = adstxt.leseEingabe(String(req.body.entries || ''));
+    if (!eintraege.length) {
+      return res.status(400).json({
+        ok: false,
+        message: fehler.length
+          ? `Keine brauchbare Zeile dabei. ${fehler[0].grund || ''}`.trim()
+          : 'Bitte mindestens eine Zeile eingeben.',
+        fehler,
+      });
+    }
+
+    const ergebnisse = await ads.aufSeiten(aktion, siteIds, eintraege);
+    return res.json({ ok: true, ergebnisse, uebernommen: eintraege, verworfen: fehler });
+  })
+);
+
+/** Zeilen pruefen, ohne sie zu senden. Fuer die Vorschau im Formular. */
+router.post(
+  '/ads/pruefen',
+  wrap((req, res) => {
+    res.json(adstxt.leseEingabe(String(req.body.entries || '')));
   })
 );
 

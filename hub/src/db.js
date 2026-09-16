@@ -233,6 +233,38 @@ ensureColumn('videos', 'attempts', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('videos', 'retry_at', 'TEXT');
 ensureColumn('videos', 'skip_reason', 'TEXT');
 
+// ads.txt je Website: der zuletzt gelesene Stand und wie die Datei dort liegt.
+ensureColumn('sites', 'ads_txt', 'TEXT');
+ensureColumn('sites', 'ads_mode', 'TEXT');          // datei | virtuell | leer
+ensureColumn('sites', 'ads_url', 'TEXT');
+ensureColumn('sites', 'ads_path', 'TEXT');
+ensureColumn('sites', 'ads_digest', 'TEXT');        // Fingerabdruck des gelesenen Standes
+ensureColumn('sites', 'ads_writable', 'INTEGER');
+ensureColumn('sites', 'ads_root', 'INTEGER');       // liegt WordPress im Wurzelverzeichnis?
+ensureColumn('sites', 'ads_backup', 'INTEGER');     // gibt es einen Stand zum Zuruecknehmen?
+ensureColumn('sites', 'ads_at', 'TEXT');
+ensureColumn('sites', 'ads_error', 'TEXT');
+ensureColumn('sites', 'ads_live', 'TEXT');          // was unter der echten Adresse steht
+ensureColumn('sites', 'ads_live_at', 'TEXT');
+
+/**
+ * Auftraege fuer Websites, die der Hub nicht direkt erreicht (Abhol-Modus).
+ * Das Plugin holt sie beim naechsten Lebenszeichen ab, hoechstens einer je Website.
+ */
+db.exec(`
+CREATE TABLE IF NOT EXISTS ads_jobs (
+  id         TEXT PRIMARY KEY,
+  site_id    TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+  action     TEXT NOT NULL DEFAULT 'read',   -- read | add | remove | write | restore
+  content    TEXT NOT NULL DEFAULT '',
+  entries    TEXT NOT NULL DEFAULT '[]',
+  status     TEXT NOT NULL DEFAULT 'wartet', -- wartet | fertig | fehler
+  message    TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  done_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ads_jobs_site ON ads_jobs(site_id, status);`);
+
 const setSettingStmt = db.prepare(
   `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`

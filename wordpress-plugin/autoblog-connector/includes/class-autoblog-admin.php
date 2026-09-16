@@ -221,6 +221,23 @@ class Autoblog_Admin {
                                 : __('Der Hub sendet an diese Website', 'autoblog-connector')); ?></td></tr>
                         <tr><td><?php esc_html_e('Empfangsadresse', 'autoblog-connector'); ?></td>
                             <td><code><?php echo esc_html(rest_url('wp-autoblog/v1/publish')); ?></code></td></tr>
+                        <?php $ads = Autoblog_Ads::status(); ?>
+                        <tr><td><?php esc_html_e('ads.txt', 'autoblog-connector'); ?></td>
+                            <td><?php
+                                if ($ads['mode'] === 'datei') {
+                                    echo '<code>' . esc_html($ads['path']) . '</code>';
+                                    if (!$ads['writable']) {
+                                        echo ' ' . esc_html__('(schreibgeschuetzt)', 'autoblog-connector');
+                                    }
+                                } elseif ($ads['mode'] === 'virtuell') {
+                                    esc_html_e('Wird von diesem Plugin ausgeliefert, weil das Verzeichnis nicht beschreibbar ist.', 'autoblog-connector');
+                                } else {
+                                    esc_html_e('Noch keine vorhanden. Der Hub legt sie an, sobald du dort Eintraege hinterlegst.', 'autoblog-connector');
+                                }
+                                if (!$ads['root']) {
+                                    echo '<br><em>' . esc_html__('Achtung: WordPress liegt nicht im Wurzelverzeichnis der Domain. Dort wird die ads.txt aber gesucht.', 'autoblog-connector') . '</em>';
+                                }
+                            ?></td></tr>
                         <?php if ($settings['last_error']) : ?>
                             <tr><td><?php esc_html_e('Letzter Fehler', 'autoblog-connector'); ?></td>
                                 <td style="color:#b32d2e"><?php echo esc_html($settings['last_error']); ?></td></tr>

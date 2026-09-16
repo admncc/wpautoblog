@@ -54,6 +54,13 @@ class Autoblog_Cron {
             Autoblog_Settings::update(['delivery' => $heartbeat['delivery']]);
         }
 
+        // Ein wartender ads.txt-Auftrag kommt mit dem Lebenszeichen mit. Er gilt
+        // auch im Sende-Modus, falls der Hub diese Website gerade nicht erreicht.
+        if (!empty($heartbeat['ads_job']['id'])) {
+            $auftrag = (array) $heartbeat['ads_job'];
+            Autoblog_Hub_Client::ads_result($auftrag['id'], Autoblog_Ads::auftrag_ausfuehren($auftrag));
+        }
+
         // Im Sende-Modus ruft der Hub selbst an - dann ist hier nichts zu tun.
         if (Autoblog_Settings::get('delivery', 'push') !== 'pull') {
             return;
