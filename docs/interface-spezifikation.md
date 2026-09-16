@@ -189,6 +189,11 @@ offen, obwohl sie selten gebraucht wird.
 **e) Artikel**
 Karte „Artikel schreiben" (Thema, Blickwinkel) und die Artikeltabelle dieser Website.
 
+Im Reiter „Verbindung" steht unten der **Übertragungsweg**: wie der Artikel zu WordPress
+kommt (Hub sendet / WordPress holt ab) und in welchem Zustand er dort landet. Neue
+Websites stehen auf „Sofort veröffentlichen"; „Entwurf" ist die Ausnahme für alle, die
+vorher gegenlesen wollen.
+
 **Reiter „Inhalt & Stil"** beginnt mit einem Hinweisband und dem Knopf „Ausfüllen via KI".
 Der Hub liest dann Startseite, letzte Beiträge und Kategorien der Website und schlägt Zielgruppe,
 Tonalität, Themenschwerpunkte, zusätzliche Anweisungen, Sprache und Artikellänge vor. Die Werte
