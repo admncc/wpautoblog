@@ -1009,6 +1009,21 @@ async function main() {
       && ai.PROFIL_SCHEMA.properties.language.enum.includes('de'),
       'Das Antwortschema verlangt die Felder, die das Formular braucht');
 
+    /* Die Schnittstelle weist "minimum" und "maximum" bei Zahlen ab. Das faellt
+       sonst erst auf, wenn ein Mensch den Knopf drueckt und eine 400 bekommt. */
+    const verbotene = [];
+    const durchsuche = (knoten, pfad) => {
+      if (!knoten || typeof knoten !== 'object') return;
+      if (Array.isArray(knoten)) { knoten.forEach((k, i) => durchsuche(k, `${pfad}[${i}]`)); return; }
+      for (const [schluessel, wert] of Object.entries(knoten)) {
+        if (schluessel === 'minimum' || schluessel === 'maximum') verbotene.push(`${pfad}.${schluessel}`);
+        durchsuche(wert, `${pfad}.${schluessel}`);
+      }
+    };
+    for (const [name, schema] of Object.entries(ai.schemata())) durchsuche(schema, name);
+    pruefe(!verbotene.length,
+      'Kein Antwortschema benutzt Schlagwoerter, die Anthropic ablehnt', verbotene.join(', '));
+
     // ads.txt: die Datei im Wurzelverzeichnis jeder Website.
     console.log('\nads.txt');
     const adstxt = require('../src/adstxt');

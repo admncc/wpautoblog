@@ -601,9 +601,10 @@ const PROFIL_SCHEMA = {
     },
     word_count: {
       type: 'integer',
-      minimum: 400,
-      maximum: 3000,
-      description: 'Geschätzte übliche Artikellänge dieser Website in Wörtern, auf 100 gerundet',
+      // Kein minimum/maximum: Die Schnittstelle nimmt diese Angaben bei Zahlen nicht
+      // an. Die Grenzen stehen deshalb in der Beschreibung und werden unten gezogen.
+      description: 'Geschätzte übliche Artikellänge dieser Website in Wörtern, auf 100 gerundet.'
+        + ' Zwischen 400 und 3000.',
     },
     zusammenfassung: {
       type: 'string',
@@ -735,8 +736,20 @@ ${existing.length ? `Diese Themen existieren bereits und dürfen NICHT wiederhol
    auf die vorhandenen begrenzt ist. */
 const schemaFuerBacklink = (kategorien) => articleSchema(kategorien, BACKLINK_SCHEMA);
 
+/* Alle Antwortschemata an einer Stelle, damit die Funktionspruefung sie durchsehen
+   kann. Die Schnittstelle nimmt nicht jedes Schlagwort aus JSON Schema an, und das
+   faellt sonst erst auf, wenn ein Mensch den Knopf drueckt. */
+const schemata = () => ({
+  artikel: ARTICLE_SCHEMA,
+  backlink: BACKLINK_SCHEMA,
+  video: VIDEO_SCHEMA,
+  themen: TOPICS_SCHEMA,
+  profil: PROFIL_SCHEMA,
+  artikelMitKategorien: articleSchema(['Ratgeber', 'Technik']),
+});
+
 module.exports = {
   MODELS, AiError, generateArticle, generateFromVideo, generateTargeted, generateBacklink,
   suggestTopics, generateSiteProfile, aufbereiten, keywordDichte, schemaFuerBacklink,
-  PROFIL_SCHEMA,
+  PROFIL_SCHEMA, schemata,
 };
