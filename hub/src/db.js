@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS sites (
   topic_focus    TEXT NOT NULL DEFAULT '',
   word_count     INTEGER NOT NULL DEFAULT 1200,
   extra_prompt   TEXT NOT NULL DEFAULT '',
-  wp_status      TEXT NOT NULL DEFAULT 'draft',     -- draft | publish | pending | future
+  wp_status      TEXT NOT NULL DEFAULT 'publish',   -- draft | publish | pending | future
   wp_category    TEXT NOT NULL DEFAULT '',
   wp_author_id   INTEGER,
   delivery       TEXT NOT NULL DEFAULT 'push',      -- push: Hub ruft WordPress | pull: WordPress holt ab

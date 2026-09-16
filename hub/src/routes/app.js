@@ -245,8 +245,10 @@ router.post(
     if (!name) return res.status(400).json({ error: 'Bitte einen Namen angeben.' });
     const id = randomId('site');
     db.prepare(
-      `INSERT INTO sites (id, name, url, secret, language, tone, word_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      // Neue Websites veroeffentlichen sofort. Wer erst gegenlesen will, stellt den
+      // Uebertragungsweg auf "Entwurf" um - das ist die Ausnahme, nicht die Regel.
+      `INSERT INTO sites (id, name, url, secret, language, tone, word_count, wp_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'publish')`
     ).run(
       id,
       name,

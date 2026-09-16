@@ -362,6 +362,8 @@ async function main() {
     const siteId = site.daten.id;
     const token = site.daten.token;
     pruefe(site.status === 201 && /^wpab_/.test(token), 'Website angelegt und Token erzeugt');
+    pruefe(site.daten.wp_status === 'publish',
+      'Eine neue Website veroeffentlicht sofort, statt Entwuerfe anzulegen', site.daten.wp_status);
 
     fakeWp = starteFakeWordPress(token, siteId);
 
