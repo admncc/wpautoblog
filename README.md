@@ -39,6 +39,9 @@ WordPress-Seiten veröffentlicht.
 
 **Hub**
 - Mehrere WordPress-Seiten parallel, jede mit eigenem Token, eigener Tonalität und eigener Zielgruppe
+- **Inhalt & Stil füllt sich selbst:** Beim ersten Verbinden liest der Hub Startseite, letzte Beiträge
+  und Kategorien der Website und trägt Zielgruppe, Tonalität, Schwerpunkte und Länge ein.
+  Später jederzeit über „Ausfüllen via KI"; der Vorschlag steht erst im Formular und gilt nach dem Speichern
 - **Posts → Post erzeugen:** einzelner Beitrag zu einem Thema
 - **Posts → Wiederkehrende Posts:** Themenbereiche festlegen, Takt festlegen, der Rest läuft automatisch
 - **Posts → Gezielte Posts:** vorbereitet für die Keyword-Recherche (nächste Ausbaustufe)

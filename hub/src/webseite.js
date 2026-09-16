@@ -207,4 +207,30 @@ async function leseSeite(url) {
   return zusammen;
 }
 
-module.exports = { leseSeite, textAusHtml, istIntern, pruefeZiel, liesBegrenzt, MAX_BYTES, SeitenError };
+/**
+ * Holt JSON von einer fremden Adresse, mit denselben Vorsichtsmassnahmen.
+ *
+ * Gebraucht fuer die offene WordPress-Schnittstelle einer Website: Aus ein paar
+ * Beitraegen liest sich der Ton einer Seite viel besser ab als aus der Startseite,
+ * auf der oft nur Navigation und Schlagzeilen stehen.
+ */
+async function leseJson(url) {
+  const { antwort } = await holeMitUmleitungen(url);
+  if (!antwort.ok) throw new SeitenError(`Die Schnittstelle antwortete mit HTTP ${antwort.status}.`);
+
+  const typ = antwort.headers.get('content-type') || '';
+  if (!/json/i.test(typ)) {
+    throw new SeitenError(`Dort kommt kein JSON zurück, sondern ${typ.split(';')[0] || 'unbekannt'}.`);
+  }
+
+  const roh = await liesBegrenzt(antwort);
+  try {
+    return JSON.parse(roh);
+  } catch {
+    throw new SeitenError('Die Antwort war kein gültiges JSON.');
+  }
+}
+
+module.exports = {
+  leseSeite, leseJson, textAusHtml, istIntern, pruefeZiel, liesBegrenzt, MAX_BYTES, SeitenError,
+};

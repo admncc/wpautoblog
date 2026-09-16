@@ -15,6 +15,7 @@ const pack = require('./../pluginpack');
 const update = require('./../update');
 const youtube = require('./../youtube');
 const ads = require('./../ads');
+const siteprofil = require('./../siteprofil');
 const adstxt = require('./../adstxt');
 
 const router = express.Router();
@@ -1017,6 +1018,26 @@ router.post(
   '/recurring/run',
   wrap(async (req, res) => {
     res.json({ ok: true, ...(await service.runRecurring()) });
+  })
+);
+
+/**
+ * "Inhalt & Stil" aus der vorhandenen Website ableiten.
+ *
+ * Gespeichert wird hier nichts: Der Vorschlag geht ins Formular, und der Mensch
+ * sieht ihn an, bevor er ihn behaelt. Automatisch gespeichert wird nur beim ersten
+ * Verbinden, und dort sitzt niemand davor.
+ */
+router.post(
+  '/sites/:id/profil',
+  wrap(async (req, res) => {
+    const site = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    if (!site) return res.status(404).json({ error: 'Website nicht gefunden.' });
+    if (!site.url) {
+      return res.status(400).json({ error: 'Für diese Website ist noch keine Adresse hinterlegt.'
+        + ' Sie wird gesetzt, sobald sich das Plugin meldet.' });
+    }
+    return res.json({ ok: true, vorschlag: await siteprofil.schlageVor(site.id) });
   })
 );
 

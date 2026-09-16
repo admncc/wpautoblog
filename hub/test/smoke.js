@@ -129,6 +129,28 @@ function starteFakeWordPress(token, siteId) {
       return res.end(ads.inhalt);
     }
 
+    // Die oeffentliche Seite, so wie ein Besucher sie sieht. Daraus leitet der Hub
+    // "Inhalt & Stil" ab.
+    if (req.method === 'GET' && req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(`<html><head><title>Testblog - Kaffee und Technik</title>
+        <meta name="description" content="Ratgeber rund um Kaffeemaschinen und ihre Pflege." /></head>
+        <body><nav>Start Kontakt Impressum</nav>
+        <h1>Kaffee, aber richtig</h1>
+        <p>Wir testen Kaffeemaschinen und zeigen, wie man sie pflegt, damit sie lange halten.</p>
+        <p>Unsere Leser bauen ihre Ausstattung schrittweise auf und wollen wissen, worauf es ankommt.</p>
+        <footer>Impressum</footer></body></html>`);
+    }
+    if (req.method === 'GET' && req.url.startsWith('/wp-json/wp/v2/posts')) {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify([
+        { title: { rendered: 'Kaffeemaschine entkalken &#8211; so geht es' },
+          excerpt: { rendered: '<p>Zitronens&#228;ure ist milder als Essig und wirkt genauso gut.</p>' } },
+        { title: { rendered: 'Espresso oder Filterkaffee?' },
+          excerpt: { rendered: '<p>Beide haben ihre Berechtigung, es kommt auf die Bohne an.</p>' } },
+      ]));
+    }
+
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
@@ -910,6 +932,83 @@ async function main() {
     pruefe(!pruefeUebernahme('<p>Zu kurz.</p>', quelltext).auffaellig, 'Sehr kurze Texte schlagen nicht an');
 
     // Was die QA gefunden hat, darf nicht zurueckkommen.
+    // Inhalt & Stil aus der vorhandenen Website ableiten.
+    console.log('\nInhalt & Stil ableiten');
+    const siteprofil = require('../src/siteprofil');
+
+    pruefe(siteprofil.ohneTags('<p>Zitronens&#228;ure ist milder &amp; wirkt genauso.</p>')
+      === 'Zitronensäure ist milder & wirkt genauso.',
+      'Ein WordPress-Auszug wird zu lesbarem Text', siteprofil.ohneTags('<p>a&#228;</p>'));
+
+    pruefe(siteprofil.istUnberuehrt({ audience: '', topic_focus: '', extra_prompt: '' }),
+      'Ein leeres Formular gilt als unberuehrt');
+    pruefe(!siteprofil.istUnberuehrt({ audience: 'Einsteiger', topic_focus: '', extra_prompt: '' }),
+      'Ein einziges gefuelltes Feld genuegt, damit der Hub die Finger davon laesst');
+
+    // Der Hub liest nur oeffentliche Adressen. Im Test zeigt die Adresse auf
+    // 127.0.0.1, deshalb wird die Namensaufloesung fuer diesen Durchlauf umgebogen.
+    const profilSite = db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId);
+    const dnsEcht2 = require('dns').promises.lookup;
+    let material;
+    try {
+      require('dns').promises.lookup = async (name) => (name === '127.0.0.1'
+        ? [{ address: '93.184.216.34', family: 4 }]
+        : dnsEcht2(name, { all: true }));
+      material = await siteprofil.sammleMaterial(profilSite);
+    } finally {
+      require('dns').promises.lookup = dnsEcht2;
+    }
+
+    pruefe(/Kaffeemaschinen und ihre Pflege|Kaffee, aber richtig/.test(material.text),
+      'Die Startseite landet im Material', material.quellen.join(', '));
+    pruefe(/Kaffeemaschine entkalken/.test(material.text) && /Zitronensäure/.test(material.text),
+      'Die letzten Beitraege landen im Material');
+    const ersteKategorie = JSON.parse(profilSite.categories || '[]')[0];
+    pruefe(/DIE KATEGORIEN DER WEBSITE/.test(material.text)
+      && (!ersteKategorie || material.text.includes(ersteKategorie.name)),
+      'Die gemeldeten Kategorien landen im Material', ersteKategorie && ersteKategorie.name);
+    pruefe(material.quellen.length === 3, 'Alle drei Quellen haben geliefert', material.quellen.join(', '));
+
+    // Ist die Website nicht erreichbar, bleiben die Kategorien uebrig.
+    let nurKategorien;
+    try {
+      nurKategorien = await siteprofil.sammleMaterial({ ...profilSite, url: 'https://nicht-erreichbar.invalid' });
+    } catch (err) {
+      nurKategorien = { text: '', quellen: [], fehler: err.message };
+    }
+    pruefe(nurKategorien.quellen.length === 1 && /DIE KATEGORIEN DER WEBSITE/.test(nurKategorien.text),
+      'Eine unerreichbare Website liefert wenigstens ihre Kategorien', JSON.stringify(nurKategorien.quellen));
+
+    let ohneAlles = '';
+    await siteprofil.sammleMaterial({ id: 'x', name: 'Leer', url: '', categories: '[]' })
+      .catch((err) => { ohneAlles = err.message; });
+    pruefe(/keine Adresse/.test(ohneAlles), 'Ohne Adresse sagt der Hub das deutlich', ohneAlles);
+
+    // Der Vorschlag wird uebernommen, aber nur die gefuellten Felder.
+    const profilVorher = db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId);
+    const wieViele = siteprofil.uebernimm(siteId, {
+      language: 'de', audience: 'Leute, die ihre erste Maschine kaufen', tone: 'ruhig und erklärend',
+      topic_focus: '', extra_prompt: '- duzen\n- ein Beispiel je Abschnitt', word_count: 1400,
+    });
+    const profilNachher = db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId);
+    pruefe(wieViele === 5 && profilNachher.audience === 'Leute, die ihre erste Maschine kaufen'
+      && profilNachher.word_count === 1400 && profilNachher.extra_prompt.includes('duzen'),
+      'Der Vorschlag landet in der Datenbank', String(wieViele));
+    pruefe(profilNachher.topic_focus === profilVorher.topic_focus,
+      'Ein leeres Feld im Vorschlag laesst den bisherigen Stand stehen');
+
+    // Ueber die Oberflaeche: ohne Anthropic-Key scheitert es sauber, nicht stumm.
+    const profilOhneKey = await ruf(`/api/app/sites/${siteId}/profil`, { method: 'POST' });
+    pruefe(profilOhneKey.status >= 400 && /API-Key/i.test(JSON.stringify(profilOhneKey.daten)),
+      'Ohne Anthropic-Key wird der Grund genannt', JSON.stringify(profilOhneKey.daten));
+
+    const profilOhneSeite = await ruf('/api/app/sites/gibtsnicht/profil', { method: 'POST' });
+    pruefe(profilOhneSeite.status === 404, 'Eine unbekannte Website wird abgewiesen');
+
+    pruefe(ai.PROFIL_SCHEMA.required.includes('audience') && ai.PROFIL_SCHEMA.required.includes('tone')
+      && ai.PROFIL_SCHEMA.properties.language.enum.includes('de'),
+      'Das Antwortschema verlangt die Felder, die das Formular braucht');
+
     // ads.txt: die Datei im Wurzelverzeichnis jeder Website.
     console.log('\nads.txt');
     const adstxt = require('../src/adstxt');

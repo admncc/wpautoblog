@@ -189,6 +189,16 @@ offen, obwohl sie selten gebraucht wird.
 **e) Artikel**
 Karte „Artikel schreiben" (Thema, Blickwinkel) und die Artikeltabelle dieser Website.
 
+**Reiter „Inhalt & Stil"** beginnt mit einem Hinweisband und dem Knopf „Ausfüllen via KI".
+Der Hub liest dann Startseite, letzte Beiträge und Kategorien der Website und schlägt Zielgruppe,
+Tonalität, Themenschwerpunkte, zusätzliche Anweisungen, Sprache und Artikellänge vor. Die Werte
+landen im Formular, nicht in der Datenbank: Darunter erscheint ein grünes Band „Vorschlag
+eingetragen, noch nicht gespeichert" mit einem Satz zur Website und der Angabe, was gelesen wurde.
+Beim allerersten Verbinden einer Website passiert dasselbe von allein, dort aber direkt gespeichert,
+weil niemand davorsitzt. Angefasst wird nur, was noch leer ist.
+
+---
+
 ### 4.5 Posts (`#/posts`)
 
 Drei Reiter:

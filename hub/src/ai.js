@@ -570,6 +570,124 @@ ${transcript}`;
   return { ...aufbereiten(data, site, imageCount, video.title, kategorien), ...usage };
 }
 
+// ------------------------------------------------------- Inhalt & Stil ableiten
+
+const PROFIL_SCHEMA = {
+  type: 'object',
+  properties: {
+    language: {
+      type: 'string',
+      enum: Object.keys(SPRACHEN),
+      description: 'Die Sprache, in der die Website schreibt',
+    },
+    audience: {
+      type: 'string',
+      description: 'Wen die Website anspricht. Zwei bis vier Sätze, so wie man es einem neuen Autor'
+        + ' erklären würde: wer diese Leute sind, was sie schon wissen, wonach sie suchen.',
+    },
+    tone: {
+      type: 'string',
+      description: 'Die Tonalität in drei bis sechs Wörtern, z. B. "sachlich und erklärend, ohne Werbesprache"',
+    },
+    topic_focus: {
+      type: 'string',
+      description: 'Die Themenschwerpunkte, durch Komma getrennt. Konkret, keine Oberbegriffe.',
+    },
+    extra_prompt: {
+      type: 'string',
+      description: 'Anweisungen an die KI, die sich aus den vorhandenen Beiträgen ablesen lassen:'
+        + ' Anrede (duzen/siezen), typischer Aufbau, wiederkehrende Elemente, was auffällig fehlt.'
+        + ' Als Aufzählung mit Bindestrichen, höchstens sechs Punkte.',
+    },
+    word_count: {
+      type: 'integer',
+      minimum: 400,
+      maximum: 3000,
+      description: 'Geschätzte übliche Artikellänge dieser Website in Wörtern, auf 100 gerundet',
+    },
+    zusammenfassung: {
+      type: 'string',
+      description: 'Ein Satz: worum es auf dieser Website geht. Für die Anzeige im Hub.',
+    },
+  },
+  required: ['language', 'audience', 'tone', 'topic_focus', 'extra_prompt', 'word_count', 'zusammenfassung'],
+  additionalProperties: false,
+};
+
+function profilSystemPrompt() {
+  return `ROLLE
+Du siehst dir eine bestehende Website an und beschreibst sie so, wie ein erfahrener
+Redakteur sie einem neuen Autor am ersten Tag erklären würde. Aus deiner Beschreibung
+entstehen später Artikel für genau diese Website. Sie müssen sich einfügen, als hätte
+dieselbe Redaktion sie geschrieben.
+
+WAS DU BEKOMMST
+Die Startseite, die letzten Beiträge und die Kategorien. Mehr nicht. Beschreibe, was
+dort steht, und erfinde nichts dazu.
+
+WIE DU HINSIEHST
+- Die Kategorien mit den meisten Beiträgen sagen, worum es wirklich geht. Eine
+  Kategorie mit zwei Beiträgen ist ein Nebenschauplatz.
+- Die Beitragstitel verraten die Machart: Ratgeber, Tests, Nachrichten, Meinung.
+- Aus den Anrissen liest du Anrede, Satzlänge und Nähe zum Leser ab. Wird geduzt
+  oder gesiezt? Steht das Ergebnis vorne oder hinten?
+- Fachbegriffe ohne Erklärung heißen: Das Publikum kennt sich aus. Erklärte
+  Grundlagen heißen das Gegenteil.
+
+WIE DU SCHREIBST
+- Auf Deutsch, auch wenn die Website in einer anderen Sprache schreibt. Die Felder
+  sind Notizen für den Betreiber des Hubs, nicht Text für die Leser.
+- Echte Umlaute (ä, ö, ü, ß), niemals ae/oe/ue/ss.
+- Verwende NIEMALS den langen Gedankenstrich "—". Komma, Doppelpunkt oder Punkt.
+- Konkret statt allgemein. "Menschen, die sich für Technik interessieren" ist
+  wertlos. "Leute, die ihren ersten Gaming-PC selbst zusammenbauen und beim
+  Netzteil unsicher sind" ist brauchbar.
+- Keine Werbesprache über die Website. Du beschreibst, du lobst nicht.
+
+WENN DU ETWAS NICHT WEISST
+Schreib, was du siehst, und halte dich beim Rest zurück. Eine kurze, sichere Angabe
+ist besser als eine ausführliche, die geraten ist. Der Mensch sieht deinen Vorschlag
+an und ändert ihn.`;
+}
+
+/**
+ * Leitet "Inhalt & Stil" aus dem Material einer vorhandenen Website ab.
+ * Speichert nichts; der Aufrufer entscheidet, was damit passiert.
+ */
+async function generateSiteProfile({ site, material }) {
+  const prompt = `Das ist das Material der Website. Beschreibe sie.
+
+${material}
+
+Gib die Felder aus, wie im Schema beschrieben. Denk daran: Aus deiner Beschreibung
+entstehen Artikel, die auf dieser Website nicht auffallen sollen.`;
+
+  const { data } = await runJson({
+    system: profilSystemPrompt(),
+    prompt,
+    schema: PROFIL_SCHEMA,
+    maxTokens: 4000,
+    kind: 'profil',
+    meta: { siteId: site.id, context: { material_chars: material.length } },
+  });
+
+  const text = (wert, laenge) => replaceEmDash(sanitizeText(wert, laenge));
+  const laenge = Math.round((Number(data.word_count) || 1200) / 100) * 100;
+
+  return {
+    language: SPRACHEN[data.language] ? data.language : 'de',
+    audience: text(data.audience, 1000),
+    tone: text(data.tone, 200),
+    topic_focus: text(data.topic_focus, 500),
+    // Die Aufzaehlung soll ihre Zeilenumbrueche behalten - sanitizeText wuerde sie
+    // zu einer einzigen Zeile pressen.
+    extra_prompt: replaceEmDash(String(data.extra_prompt || '')
+      .replace(/<[^>]*>/g, '').replace(/[<>]/g, '').trim().slice(0, 2000)),
+    word_count: Math.min(3000, Math.max(400, laenge)),
+    zusammenfassung: text(data.zusammenfassung, 300),
+  };
+}
+
 const TOPICS_SCHEMA = {
   type: 'object',
   properties: {
@@ -619,5 +737,6 @@ const schemaFuerBacklink = (kategorien) => articleSchema(kategorien, BACKLINK_SC
 
 module.exports = {
   MODELS, AiError, generateArticle, generateFromVideo, generateTargeted, generateBacklink,
-  suggestTopics, aufbereiten, keywordDichte, schemaFuerBacklink,
+  suggestTopics, generateSiteProfile, aufbereiten, keywordDichte, schemaFuerBacklink,
+  PROFIL_SCHEMA,
 };

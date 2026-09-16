@@ -8,6 +8,7 @@ const { sign, safeEqual, decrypt, normalizeUrl } = require('./../util');
 const { safeLink } = require('./../sanitize');
 const settings = require('./../settings');
 const ads = require('./../ads');
+const siteprofil = require('./../siteprofil');
 const { VERSION } = require('./../config');
 
 const router = express.Router();
@@ -114,6 +115,12 @@ router.post('/connect', (req, res) => {
   );
 
   speichereKategorien(site.id, req.body.categories);
+
+  // Beim ersten Verbinden traegt der Hub "Inhalt & Stil" selbst ein, abgelesen an
+  // der Website. Laeuft im Hintergrund: Das Plugin wartet auf diese Antwort, und
+  // die darf nicht davon abhaengen, wie schnell eine fremde Startseite antwortet.
+  siteprofil.fuelleBeimVerbinden(site.id);
+
   logger.info('plugin', 'connect', `WordPress verbunden: ${siteUrl || site.url}`, {
     siteId: site.id,
     requestId: req.requestId,

@@ -1063,6 +1063,15 @@ async function renderSite(view, siteId) {
 
   if (tab === 'content') {
     body.innerHTML = `
+      <div class="notice info" id="profil-anstoss">${ic('spark')}<span class="grow">
+        <b>Der Hub kann diese Felder selbst ausfüllen.</b> Er liest dazu die Startseite, die letzten
+        Beiträge und die Kategorien deiner Website und beschreibt, was er sieht. Beim ersten Verbinden
+        passiert das von allein; hier kannst du es jederzeit wiederholen. Du siehst den Vorschlag,
+        bevor du ihn speicherst, und kannst jedes Feld ändern.</span>
+        <button class="btn" id="profil-fuellen">${ic('spark', 'sm')}Ausfüllen via KI</button></div>
+
+      <div class="notice ok" id="profil-ergebnis" hidden>${ic('check')}<span class="grow"></span></div>
+
       <form class="card" id="save-site-form">
         <fieldset class="fieldset">
           <legend>So soll der Text klingen</legend>
@@ -1132,6 +1141,27 @@ async function renderSite(view, siteId) {
           <span class="state">Jede Website hat ihre eigenen Vorgaben.</span>
         </div>
       </form>`;
+
+    /* Der Vorschlag wird in die Felder geschrieben, nicht gespeichert. Erst wenn
+       jemand ihn gelesen hat und auf Speichern drückt, gilt er. */
+    on('#profil-fuellen', 'click', (event) => guard(event.currentTarget, async () => {
+      const { vorschlag } = await api(`/api/app/sites/${siteId}/profil`, { method: 'POST' });
+
+      for (const feld of ['language', 'audience', 'tone', 'topic_focus', 'extra_prompt', 'word_count']) {
+        const el = body.querySelector(`#${feld}`);
+        if (el && vorschlag[feld] !== '' && vorschlag[feld] != null) el.value = vorschlag[feld];
+      }
+
+      const kasten = body.querySelector('#profil-ergebnis');
+      kasten.querySelector('.grow').innerHTML = `<b>Vorschlag eingetragen, noch nicht gespeichert.</b>
+        ${esc(vorschlag.zusammenfassung)}
+        <span class="hint" style="display:block;margin-top:4px">Gelesen wurde: ${esc((vorschlag.quellen || []).join(', ')
+          || 'nichts Nennenswertes')}. Sieh die Felder durch, ändere was du willst, und drück dann
+          „Änderungen speichern".</span>`;
+      kasten.hidden = false;
+      kasten.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      toast('Vorschlag eingetragen. Er gilt erst nach dem Speichern.');
+    }));
   }
 
   if (tab === 'topics') {

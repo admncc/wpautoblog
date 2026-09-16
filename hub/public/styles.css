@@ -93,6 +93,9 @@ html[data-theme="dark"] {
 /* ---------- 2. Grundlagen -------------------------------- */
 
 * { box-sizing: border-box; }
+/* "hidden" muss staerker sein als jedes display aus einer Klasse, sonst blitzt ein
+   vorbereiteter Kasten auf, der noch nichts zu sagen hat. */
+[hidden] { display: none !important; }
 
 html, body { height: 100%; }
 
