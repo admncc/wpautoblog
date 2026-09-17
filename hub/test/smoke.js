@@ -934,6 +934,61 @@ async function main() {
     pruefe(!pruefeUebernahme('<p>Zu kurz.</p>', quelltext).auffaellig, 'Sehr kurze Texte schlagen nicht an');
 
     // Was die QA gefunden hat, darf nicht zurueckkommen.
+    // Liegengebliebene Artikel: Was mitten im Schreiben unterbrochen wurde.
+    console.log('\nLiegengebliebene Artikel');
+    // Frueher im Lauf wurde der Abhol-Modus geprueft; hier gilt wieder der Sende-Modus.
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+
+    const lege = (id, status, alterMinuten = 0) => db.prepare(
+      `INSERT INTO articles (id, site_id, keyword, title, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now', ?), datetime('now'))`
+    ).run(id, siteId, 'haenger', `Haenger ${id}`, status, `-${alterMinuten} minutes`);
+    const statusVon = (id) => (db.prepare('SELECT status FROM articles WHERE id = ?').get(id) || {}).status;
+
+    // Der Waechter im Betrieb: alt genug haengt, frisch geschrieben nicht.
+    lege('art_haenger_alt', 'generating', 45);
+    lege('art_haenger_neu', 'generating', 2);
+    const gewacht = service.raeumeHaengende({ minuten: 30 });
+    pruefe(gewacht.artikel === 1 && statusVon('art_haenger_alt') === 'failed',
+      'Ein Artikel, der seit 45 Minuten schreibt, wird abgeraeumt', JSON.stringify(gewacht));
+    pruefe(statusVon('art_haenger_neu') === 'generating',
+      'Ein frisch begonnener Artikel bleibt unangetastet');
+    pruefe(/neu gestartet|keine Antwort/.test(
+      db.prepare('SELECT error FROM articles WHERE id = ?').get('art_haenger_alt').error || ''),
+      'Der Grund steht am Artikel',
+      db.prepare('SELECT error FROM articles WHERE id = ?').get('art_haenger_alt').error);
+
+    // Beim Start: Alles, was schreibt, stammt von vorher.
+    lege('art_haenger_start', 'generating', 1);
+    lege('art_haenger_sendung', 'publishing', 1);
+    const gestartet = service.raeumeHaengende({ beimStart: true });
+    pruefe(statusVon('art_haenger_start') === 'failed' && statusVon('art_haenger_neu') === 'failed',
+      'Nach einem Neustart gilt jeder schreibende Artikel als verloren', JSON.stringify(gestartet));
+    pruefe(gestartet.sendungen === 1 && statusVon('art_haenger_sendung') === 'approved',
+      'Eine unterbrochene Sendung wird zurueckgestellt statt verworfen', String(gestartet.sendungen));
+    pruefe(/erneut senden/.test(
+      db.prepare('SELECT notice FROM articles WHERE id = ?').get('art_haenger_sendung').notice || ''),
+      'Am zurueckgestellten Artikel steht, was zu tun ist');
+
+    // Im Abhol-Modus ist "wird gesendet" die Warteschlange und bleibt stehen.
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'pull' } });
+    lege('art_haenger_abhol', 'publishing', 1);
+    service.raeumeHaengende({ beimStart: true });
+    pruefe(statusVon('art_haenger_abhol') === 'publishing',
+      'Im Abhol-Modus bleibt die Warteschlange unberuehrt');
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+
+    // Und der Knopf in der Oberflaeche.
+    lege('art_haenger_hand', 'generating', 1);
+    const abgebrochen = await ruf('/api/app/articles/art_haenger_hand/abbrechen', { method: 'POST' });
+    pruefe(abgebrochen.status === 200 && statusVon('art_haenger_hand') === 'failed',
+      'Ein haengender Artikel laesst sich von Hand abbrechen', String(abgebrochen.status));
+    const nochmalAb = await ruf('/api/app/articles/art_haenger_hand/abbrechen', { method: 'POST' });
+    pruefe(nochmalAb.status === 400 && /nicht geschrieben/.test(JSON.stringify(nochmalAb.daten)),
+      'Ein fertiger Artikel laesst sich nicht abbrechen', JSON.stringify(nochmalAb.daten));
+
+    db.prepare("DELETE FROM articles WHERE id LIKE 'art_haenger%'").run();
+
     // Inhalt & Stil aus der vorhandenen Website ableiten.
     console.log('\nInhalt & Stil ableiten');
     const siteprofil = require('../src/siteprofil');

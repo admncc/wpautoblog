@@ -619,6 +619,18 @@ router.post(
   })
 );
 
+/** Einen haengenden Artikel abbrechen. */
+router.post(
+  '/articles/:id/abbrechen',
+  wrap((req, res) => {
+    try {
+      res.json(service.brichAb(req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  })
+);
+
 router.post(
   '/articles/:id/regenerate',
   wrap((req, res) => {

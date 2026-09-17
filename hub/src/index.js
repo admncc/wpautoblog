@@ -138,6 +138,15 @@ process.on('uncaughtException', (err) => {
 
 const server = app.listen(config.PORT, config.HOST, () => {
   pruneLogs();
+
+  // Was beim letzten Mal mitten im Schreiben war, arbeitet niemand mehr ab.
+  const haenger = require('./service').raeumeHaengende({ beimStart: true });
+  if (haenger.artikel || haenger.sendungen) {
+    logger.warn('system', 'start',
+      `Nach dem Neustart aufgeräumt: ${haenger.artikel} liegengebliebene(r) Artikel`
+      + `${haenger.sendungen ? `, ${haenger.sendungen} unterbrochene Sendung(en)` : ''}`);
+  }
+
   logger.info('system', 'start', `Autoblog Hub laeuft auf http://localhost:${config.PORT}`, {
     context: { node: process.version, public_url: config.PUBLIC_URL || null, data_dir: config.DATA_DIR },
   });

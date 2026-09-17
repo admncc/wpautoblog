@@ -19,6 +19,13 @@ function start() {
     running = true;
     const timer = logger.start('scheduler', 'tick', 'Zeitgesteuerter Durchlauf gestartet');
     try {
+      // Erst aufraeumen, dann arbeiten: Ein Artikel, der seit einer halben Stunde
+      // "wird geschrieben" anzeigt, kommt nicht mehr zurueck.
+      const haenger = service.raeumeHaengende({ minuten: 30 });
+      if (haenger.artikel) {
+        logger.warn('scheduler', 'haenger', `${haenger.artikel} liegengebliebene(r) Artikel aufgeräumt`);
+      }
+
       const result = await service.runRecurring();
       timer.ok(`Durchlauf beendet (${result.plans} Plan/Plaene, ${result.produced} Post(s))`, { context: result });
     } catch (err) {

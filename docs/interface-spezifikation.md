@@ -254,6 +254,14 @@ Status-Abzeichen: `wird erzeugt …` (blau), `Entwurf`, `wird gesendet`, `veröf
   **Bilder** (die erzeugten Bilder mit Bildunterschrift und Alternativtext,
   Knopf „Bilder neu erzeugen").
 
+Bleibt ein Artikel auf „wird geschrieben“ stehen – meist, weil ein Neustart des Hubs den
+Vorgang unterbrochen hat –, erscheint nach fünf Minuten ein Warnband mit dem Knopf
+„Abbrechen“. Von selbst räumt der Hub solche Artikel beim nächsten Start und spätestens
+nach 30 Minuten weg; sie stehen dann auf „Fehler“ mit dem Grund und lassen sich neu
+schreiben.
+
+---
+
 ### 4.8 Einstellungen (`#/settings`)
 
 Sechs Karten untereinander, jede mit eigenem Speichern-Knopf:

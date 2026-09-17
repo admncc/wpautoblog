@@ -131,6 +131,95 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
   return { article: getArticle(id), promise };
 }
 
+/* ------------------------------------------------- Liegengebliebene Artikel */
+
+/**
+ * Artikel einsammeln, die auf "wird geschrieben" haengengeblieben sind.
+ *
+ * Ein Artikel in diesem Zustand gehoert zu einem laufenden Vorgang im Speicher.
+ * Der ueberlebt keinen Neustart: Wird der Hub aktualisiert oder abgeschossen,
+ * waehrend Claude schreibt, bleibt die Zeile stehen und nichts arbeitet mehr
+ * daran. In der Liste sieht das aus wie "laeuft noch", und niemand merkt, dass
+ * hier nie wieder etwas passiert.
+ *
+ * Zwei Faelle:
+ *
+ * - `beimStart`: Direkt nach dem Hochfahren kann kein Vorgang laufen. Alles, was
+ *   auf "wird geschrieben" steht, stammt von vorher und ist verloren.
+ * - Im Betrieb: Ein Artikel, der laenger als `minuten` schreibt, haengt. Die
+ *   Anfrage an Claude hat ihr eigenes Zeitlimit von zehn Minuten; wer das
+ *   deutlich ueberschreitet, kommt nicht mehr zurueck.
+ *
+ * Aufgeraeumt wird nach "fehlgeschlagen", nicht geloescht. Der Grund steht dabei,
+ * und der Artikel laesst sich mit einem Klick neu schreiben.
+ */
+function raeumeHaengende({ beimStart = false, minuten = 30 } = {}) {
+  const grund = beimStart
+    ? 'Der Hub wurde neu gestartet, während dieser Artikel geschrieben wurde.'
+      + ' Der Vorgang ist dabei verloren gegangen. Bitte neu erzeugen.'
+    : `Seit über ${minuten} Minuten keine Antwort vom Modell. Der Vorgang wurde abgebrochen.`
+      + ' Bitte neu erzeugen.';
+
+  const wo = beimStart
+    ? "status = 'generating'"
+    : `status = 'generating' AND created_at < datetime('now', '-${Number(minuten) || 30} minutes')`;
+
+  const betroffen = db.prepare(`SELECT id, site_id, keyword, title FROM articles WHERE ${wo}`).all();
+  if (!betroffen.length) return { artikel: 0, sendungen: 0 };
+
+  db.prepare(
+    `UPDATE articles SET status = 'failed', error = ?, updated_at = datetime('now') WHERE ${wo}`
+  ).run(grund);
+
+  for (const artikel of betroffen) {
+    logger.warn('article', 'haenger', `Liegengebliebener Artikel aufgeräumt: "${artikel.title || artikel.keyword}"`, {
+      siteId: artikel.site_id, articleId: artikel.id, context: { grund, beim_start: beimStart },
+    });
+  }
+
+  // Dasselbe fuer Sendungen, die im Sende-Modus unterbrochen wurden. Im
+  // Abhol-Modus ist "wird gesendet" dagegen die Warteschlange und voellig richtig.
+  let sendungen = 0;
+  if (beimStart) {
+    const offen = db.prepare(
+      `SELECT a.id, a.site_id, a.title FROM articles a JOIN sites s ON s.id = a.site_id
+       WHERE a.status = 'publishing' AND s.delivery != 'pull'`
+    ).all();
+    for (const artikel of offen) {
+      touchArticle(artikel.id, {
+        status: 'approved',
+        notice: 'Das Senden wurde durch einen Neustart des Hubs unterbrochen.'
+          + ' Der Artikel ist unverändert; bitte erneut senden.',
+      });
+      logger.warn('article', 'haenger', `Unterbrochene Sendung zurückgestellt: "${artikel.title}"`, {
+        siteId: artikel.site_id, articleId: artikel.id,
+      });
+    }
+    sendungen = offen.length;
+  }
+
+  return { artikel: betroffen.length, sendungen };
+}
+
+/**
+ * Einen einzelnen haengenden Artikel von Hand abbrechen.
+ * Fuer den Knopf in der Oberflaeche: warten muss niemand.
+ */
+function brichAb(articleId) {
+  const artikel = getArticle(articleId);
+  if (!artikel) throw new Error('Artikel nicht gefunden.');
+  if (artikel.status !== 'generating') throw new Error('Dieser Artikel wird gerade nicht geschrieben.');
+
+  touchArticle(articleId, {
+    status: 'failed',
+    error: 'Von Hand abgebrochen. Ein begonnener Vorgang im Hintergrund wird verworfen.',
+  });
+  logger.warn('article', 'abbruch', `Artikel von Hand abgebrochen: "${artikel.title || artikel.keyword}"`, {
+    siteId: artikel.site_id, articleId,
+  });
+  return getArticle(articleId);
+}
+
 /* -------------------------------------------------------------- Backlinks */
 
 /**
@@ -819,4 +908,5 @@ module.exports = {
   startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
   computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer, darfSenden,
   startBacklink, ankerVarianten, setzeVerweis, nacheinander,
+  raeumeHaengende, brichAb,
 };

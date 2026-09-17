@@ -2630,7 +2630,21 @@ async function renderArticle(view, articleId) {
           </li>`).join('')}</ol>
         <p style="margin-top:16px;color:var(--ink-2);font-size:13.5px">
           Du kannst diese Seite schließen, der Hub schreibt weiter. Fertige Beiträge stehen unter „Artikel“.</p>
-      </section>`;
+      </section>
+
+      ${alter > 300 ? `<div class="notice warn">${ic('alert')}<span class="grow">
+        <b>Das dauert ungewöhnlich lange.</b> Seit ${Math.round(alter / 60)} Minuten kommt nichts zurück.
+        Meist hat ein Neustart des Hubs den Vorgang unterbrochen; der Hub räumt so etwas spätestens nach
+        30 Minuten von selbst weg. Du kannst auch jetzt abbrechen und neu erzeugen.</span>
+        <button class="btn sm danger" id="art-abbrechen">${ic('x', 'sm')}Abbrechen</button></div>` : ''}`;
+
+    on('#art-abbrechen', 'click', (event) => guard(event.currentTarget, async () => {
+      await api(`/api/app/articles/${articleId}/abbrechen`, { method: 'POST' });
+      toast('Abgebrochen. Du kannst den Beitrag jetzt neu erzeugen.');
+      await render();
+    }));
+
+    // Solange es laeuft, alle fuenf Sekunden nachsehen. Nach dem Abbruch nicht mehr.
     setTimeout(() => { if (state.route === 'article' && state.param === articleId) render(); }, 5000);
     return;
   }

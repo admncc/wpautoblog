@@ -14,6 +14,10 @@ const MODELS = [
 
 class AiError extends Error {}
 
+/* Zeitlimit einer einzelnen Anfrage, in Millisekunden. Lang genug fuer einen
+   langen Artikel bei hohem Aufwand, kurz genug, dass ein Haenger auffaellt. */
+const ANFRAGE_TIMEOUT_MS = 10 * 60 * 1000;
+
 function client() {
   const apiKey = settings.getApiKey();
   if (!apiKey) {
@@ -61,6 +65,12 @@ async function runJson({ system, prompt, schema, maxTokens, kind, meta = {} }) {
       system,
       messages: [{ role: 'user', content: prompt }],
       output_config: outputConfig(schema),
+    }, {
+      // Ohne eigenes Zeitlimit gilt die Voreinstellung des SDK (zehn Minuten) mal
+      // zwei weiteren Versuchen. Eine haengende Verbindung liesse den Artikel dann
+      // eine halbe Stunde auf "wird geschrieben" stehen.
+      timeout: ANFRAGE_TIMEOUT_MS,
+      maxRetries: 1,
     });
     message = await stream.finalMessage();
   } catch (err) {
