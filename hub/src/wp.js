@@ -122,6 +122,30 @@ function erklaereAntwort(raw, status, url) {
     + `Antwort: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
 }
 
+/**
+ * Was sagt das oeffentliche DNS, und was sagt der Server des Hubs?
+ *
+ * Der Hub loest Namen ueber das Betriebssystem auf. Dabei zaehlen /etc/hosts, ein
+ * oertlicher Zwischenspeicher und der eingestellte Resolver - und genau dort
+ * ueberlebt ein alter Eintrag einen Umzug der Website mitunter um Wochen. Die
+ * Folge: Jeder Aufruf landet beim frueheren Hoster, der die Domain laengst nicht
+ * mehr kennt und auf alles mit 404 antwortet.
+ *
+ * Deshalb wird dieselbe Frage ein zweites Mal gestellt, diesmal an oeffentliche
+ * Nameserver und am Betriebssystem vorbei. Weichen die Antworten ab, steht die
+ * Ursache fest, ohne dass jemand raten muss.
+ */
+async function zweiteMeinung(hostname) {
+  const dns = require('dns');
+  const fremd = new dns.promises.Resolver({ timeout: 4000, tries: 2 });
+  fremd.setServers(['1.1.1.1', '8.8.8.8']);
+  try {
+    return await fremd.resolve4(hostname);
+  } catch {
+    return null;   // Kein Netz zu den oeffentlichen Servern: dann eben ohne Vergleich.
+  }
+}
+
 /** Eine Adresse aus dem oeffentlichen Netz? Interne taugen nicht zum Vergleich. */
 function istOeffentlich(ip) {
   if (!ip || ip.includes(':')) return false;              // IPv6 bleibt hier aussen vor
@@ -280,16 +304,43 @@ async function diagnose(site) {
     return schritte;
   }
 
-  // Der entscheidende Vergleich, wenn WordPress seine eigene Adresse gemeldet hat.
+  // Dieselbe Frage noch einmal, an den oeffentlichen Nameservern.
+  const { hostname } = new URL(site.url);
+  const oeffentlich = await zweiteMeinung(hostname);
+  const eigene = adressen.filter(istOeffentlich);
+  const veraltet = oeffentlich && oeffentlich.length && eigene.length
+    && !eigene.some((ip) => oeffentlich.includes(ip));
+
+  if (veraltet) {
+    schritte.push({
+      ok: false,
+      text: `Die oeffentlichen Nameserver nennen ${oeffentlich.join(', ')}, der Server des Hubs`
+        + ` aber ${eigene.join(', ')}. Der Hub haelt also einen alten Eintrag fest und landet`
+        + ' damit beim falschen Rechner, der die Domain nicht kennt. Mit der Website selbst hat'
+        + ' das nichts zu tun.',
+    });
+    schritte.push({
+      ok: true,
+      text: 'Meist ist der alte Eintrag nur noch nicht abgelaufen, etwa nach einem Umzug der'
+        + ' Website. Dann hilft auf dem Server des Hubs: Zwischenspeicher leeren'
+        + ' ("resolvectl flush-caches", sonst "systemctl restart systemd-resolved").'
+        + ' Bleibt es danach falsch, steht ein fester Eintrag in /etc/hosts, oder der'
+        + ' eingestellte Nameserver in /etc/resolv.conf liefert veraltete Daten.'
+        + ' Sonst genuegt abzuwarten, bis die alte Angabe verfaellt.',
+    });
+  } else if (oeffentlich && oeffentlich.length) {
+    schritte.push({ ok: true, text: `Die oeffentlichen Nameserver nennen dieselbe Adresse (${oeffentlich.join(', ')}).` });
+  }
+
+  // Und der Vergleich mit dem, was WordPress ueber sich selbst meldet.
   const falscherServer = andereMaschine(site, adressen);
-  if (falscherServer) {
+  if (falscherServer && !veraltet) {
     schritte.push(falscherServer);
     schritte.push({
       ok: true,
       text: 'Zu pruefen ist die Namensaufloesung auf dem Server des Hubs, nicht die Website:'
-        + ' "dig +short <domain>" gegen "dig +short <domain> @1.1.1.1" vergleichen, den'
-        + ' Zwischenspeicher leeren ("resolvectl flush-caches") und in /etc/hosts nachsehen,'
-        + ' ob dort ein alter Eintrag steht.',
+        + ' /etc/hosts, der Zwischenspeicher des Resolvers und die Eintraege in'
+        + ' /etc/resolv.conf.',
     });
   }
 

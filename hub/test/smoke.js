@@ -974,6 +974,12 @@ async function main() {
     pruefe(gemerkt.server_ip === '188.245.16.37' && /nginx/.test(gemerkt.server_software || ''),
       'Der Hub merkt sich, auf welcher Maschine WordPress laeuft', JSON.stringify(gemerkt));
 
+    // Der Hub fragt zweimal: einmal ueber das Betriebssystem, einmal oeffentlich.
+    const diagDns = await wpModul.diagnose(db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId));
+    const dnsText = diagDns.map((z) => z.text).join(' | ');
+    pruefe(!/Nameserver nennen/.test(dnsText) || !/veraltet|alten Eintrag/.test(dnsText),
+      'Bei einer oertlichen Adresse wird kein Umzug behauptet', dnsText.slice(0, 140));
+
     // Der Vergleich selbst, mit echten Adressen durchgespielt.
     const gemeldetAuf = (ip, erreicht) => wpModul.andereMaschine({ server_ip: ip, server_software: 'nginx' }, erreicht);
 
