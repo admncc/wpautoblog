@@ -233,6 +233,11 @@ ensureColumn('videos', 'attempts', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('videos', 'retry_at', 'TEXT');
 ensureColumn('videos', 'skip_reason', 'TEXT');
 
+// Was WordPress ueber seine eigene Maschine meldet. Der Hub vergleicht das mit dem,
+// was er selbst erreicht - stimmt es nicht ueberein, redet er mit dem falschen Server.
+ensureColumn('sites', 'server_ip', 'TEXT');
+ensureColumn('sites', 'server_software', 'TEXT');
+
 // ads.txt je Website: der zuletzt gelesene Stand und wie die Datei dort liegt.
 ensureColumn('sites', 'ads_txt', 'TEXT');
 ensureColumn('sites', 'ads_mode', 'TEXT');          // datei | virtuell | leer

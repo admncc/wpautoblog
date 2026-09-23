@@ -87,13 +87,13 @@ class Autoblog_Hub_Client {
             'site_token' => trim($token),
         ]);
 
-        $result = self::request('connect', [
+        $result = self::request('connect', array_merge([
             'token'          => trim($token),
             'site_url'       => home_url('/'),
             'wp_version'     => get_bloginfo('version'),
             'plugin_version' => AUTOBLOG_VERSION,
             'categories'     => Autoblog_Settings::categories(),
-        ], false);
+        ], Autoblog_Settings::server_info()), false);
 
         if (is_wp_error($result)) {
             // Nur zuruecksetzen, wenn sich Adresse oder Token geaendert haben.
@@ -117,10 +117,10 @@ class Autoblog_Hub_Client {
 
     /** Lebenszeichen an den Hub. */
     public static function heartbeat() {
-        return self::request('heartbeat', [
+        return self::request('heartbeat', array_merge([
             'site_url'   => home_url('/'),
             'categories' => Autoblog_Settings::categories(),
-        ]);
+        ], Autoblog_Settings::server_info()));
     }
 
     /** Abhol-Modus: wartende Artikel holen. */

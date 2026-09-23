@@ -963,6 +963,42 @@ async function main() {
     pruefe(/Plugin "Autoblog Connector" ist aktiv/.test(alsZeilen),
       'Das grosse /wp-json/ wird vollstaendig gelesen, nicht abgeschnitten', alsZeilen.slice(0, 200));
 
+    // Redet der Hub mit der richtigen Maschine? Das meldet WordPress selbst.
+    const plugAntwort = await alsPlugin('/api/plugin/heartbeat', siteId, token, {
+      site_url: `http://127.0.0.1:${WP_PORT}`,
+      server_ip: '188.245.16.37',
+      server_software: 'nginx/1.24',
+    });
+    pruefe(plugAntwort.status === 200, 'Das Plugin darf seine eigene Adresse melden');
+    const gemerkt = db.prepare('SELECT server_ip, server_software FROM sites WHERE id = ?').get(siteId);
+    pruefe(gemerkt.server_ip === '188.245.16.37' && /nginx/.test(gemerkt.server_software || ''),
+      'Der Hub merkt sich, auf welcher Maschine WordPress laeuft', JSON.stringify(gemerkt));
+
+    // Der Vergleich selbst, mit echten Adressen durchgespielt.
+    const gemeldetAuf = (ip, erreicht) => wpModul.andereMaschine({ server_ip: ip, server_software: 'nginx' }, erreicht);
+
+    const falsch = gemeldetAuf('188.245.16.37', ['91.216.248.22', '91.216.248.20']);
+    pruefe(falsch && /verschiedene Maschinen/.test(falsch.text) && /188\.245\.16\.37/.test(falsch.text),
+      'Weicht die gemeldete Adresse ab, sagt die Diagnose das klar', falsch && falsch.text.slice(0, 120));
+    pruefe(gemeldetAuf('188.245.16.37', ['188.245.16.37']) === null,
+      'Passt die Adresse, wird nichts behauptet');
+    pruefe(gemeldetAuf('10.0.0.5', ['91.216.248.22']) === null,
+      'Eine interne Adresse hinter einem Proxy fuehrt zu keiner Behauptung');
+    pruefe(gemeldetAuf('', ['91.216.248.22']) === null,
+      'Ohne Meldung des Plugins bleibt der Vergleich stumm');
+    pruefe(gemeldetAuf('188.245.16.37', ['127.0.0.1']) === null,
+      'Gegen eine lokale Adresse wird nicht verglichen');
+    pruefe(wpModul.istOeffentlich('91.216.248.22') && !wpModul.istOeffentlich('192.168.1.5')
+      && !wpModul.istOeffentlich('172.20.0.1') && !wpModul.istOeffentlich('127.0.0.1'),
+      'Oeffentliche und interne Adressen werden unterschieden');
+
+    // In der ganzen Diagnose taucht der Befund nur auf, wenn er zutrifft.
+    db.prepare('UPDATE sites SET server_ip = ? WHERE id = ?').run('127.0.0.1', siteId);
+    const diagRichtig = await wpModul.diagnose(db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId));
+    pruefe(!diagRichtig.some((z) => /verschiedene Maschinen/.test(z.text)),
+      'Passt alles, schweigt die Diagnose dazu');
+    db.prepare('UPDATE sites SET server_ip = NULL WHERE id = ?').run(siteId);
+
     // Eine Weiterleitung macht aus dem POST ein GET. Das darf der Hub nicht mitmachen.
     const umleiter = http.createServer((req, res) => {
       res.writeHead(301, { Location: `http://127.0.0.1:${WP_PORT}${req.url}` });

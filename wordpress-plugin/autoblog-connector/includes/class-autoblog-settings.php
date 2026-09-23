@@ -42,6 +42,30 @@ class Autoblog_Settings {
     }
 
     /**
+     * Auf welcher Maschine laeuft diese Website?
+     *
+     * Klingt nebensaechlich, entscheidet aber eine haeufige Fehlersuche: Erreicht
+     * der Hub eine andere Adresse als die, auf der WordPress wirklich liegt, kommt
+     * auf jedem Pfad ein 404 - der Server dort kennt die Domain schlicht nicht.
+     * Von aussen sieht die Website dabei tadellos aus. Ohne diese Angabe sucht man
+     * den Fehler im Plugin, wo keiner ist.
+     *
+     * Hinter einem Proxy steht hier eine interne Adresse. Die taugt nicht zum
+     * Vergleich, deshalb wird sie mitgeschickt und der Hub entscheidet selbst.
+     */
+    public static function server_info() {
+        $adresse = isset($_SERVER['SERVER_ADDR']) ? trim(wp_unslash($_SERVER['SERVER_ADDR'])) : '';
+        return [
+            'server_ip'       => filter_var($adresse, FILTER_VALIDATE_IP) ? $adresse : '',
+            'server_software' => isset($_SERVER['SERVER_SOFTWARE'])
+                ? substr(trim(wp_unslash($_SERVER['SERVER_SOFTWARE'])), 0, 80)
+                : '',
+            'home'            => home_url('/'),
+            'siteurl'         => site_url('/'),
+        ];
+    }
+
+    /**
      * Die vorhandenen Kategorien dieser Website.
      * Der Hub legt sie der KI zur Auswahl vor, damit keine neuen entstehen.
      */

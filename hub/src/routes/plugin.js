@@ -13,6 +13,22 @@ const { VERSION } = require('./../config');
 
 const router = express.Router();
 
+/**
+ * Was WordPress ueber seine eigene Maschine sagt.
+ *
+ * Der Vergleich mit dem, was der Hub beim Aufruf erreicht, entscheidet eine
+ * haeufige Fehlersuche: Loest der Name auf dem Hub-Server veraltet auf, landet
+ * jeder Aufruf bei einem fremden Rechner, der die Domain nicht kennt - und der
+ * antwortet auf alles mit 404.
+ */
+function speichereServer(siteId, body) {
+  const ip = String(body.server_ip || '').trim().slice(0, 45);
+  const software = String(body.server_software || '').trim().slice(0, 80);
+  if (!ip && !software) return;
+  db.prepare('UPDATE sites SET server_ip = ?, server_software = ? WHERE id = ?')
+    .run(ip || null, software || null, siteId);
+}
+
 /** Uebernimmt die von WordPress gemeldeten Kategorien. */
 function speichereKategorien(siteId, kategorien) {
   if (!Array.isArray(kategorien)) return;
@@ -115,6 +131,7 @@ router.post('/connect', (req, res) => {
   );
 
   speichereKategorien(site.id, req.body.categories);
+  speichereServer(site.id, req.body);
 
   // Beim ersten Verbinden traegt der Hub "Inhalt & Stil" selbst ein, abgelesen an
   // der Website. Laeuft im Hintergrund: Das Plugin wartet auf diese Antwort, und
@@ -145,6 +162,7 @@ router.post('/heartbeat', verifySignature, (req, res) => {
     db.prepare("UPDATE sites SET url = ? WHERE id = ?").run(normalizeUrl(req.body.site_url), req.site.id);
   }
   speichereKategorien(req.site.id, req.body.categories);
+  speichereServer(req.site.id, req.body);
   logger.debug('plugin', 'heartbeat', `Lebenszeichen von ${req.site.name}`, {
     siteId: req.site.id,
     requestId: req.requestId,

@@ -122,6 +122,47 @@ function erklaereAntwort(raw, status, url) {
     + `Antwort: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
 }
 
+/** Eine Adresse aus dem oeffentlichen Netz? Interne taugen nicht zum Vergleich. */
+function istOeffentlich(ip) {
+  if (!ip || ip.includes(':')) return false;              // IPv6 bleibt hier aussen vor
+  const [a, b] = ip.split('.').map(Number);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  if (a === 10 || a === 127 || a === 0) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 169 && b === 254) return false;
+  return true;
+}
+
+/**
+ * Redet der Hub ueberhaupt mit der richtigen Maschine?
+ *
+ * WordPress meldet beim Lebenszeichen, unter welcher Adresse es selbst laeuft.
+ * Weicht die von dem ab, was der Hub erreicht, ist die Sache klar: Der Name loest
+ * auf dem Hub-Server veraltet auf, und jeder Aufruf landet bei einem fremden
+ * Rechner. Der kennt die Domain nicht und antwortet auf jeden Pfad mit 404 - die
+ * Website selbst ist voellig in Ordnung.
+ *
+ * Steht ein Schutzdienst wie Cloudflare davor, sind die Adressen berechtigt
+ * verschieden. Dann sagt dieser Vergleich nichts, und es wird nichts behauptet.
+ */
+function andereMaschine(site, adressen) {
+  const gemeldet = String(site.server_ip || '').trim();
+  if (!istOeffentlich(gemeldet)) return null;
+  const erreichbar = adressen.filter(istOeffentlich);
+  if (!erreichbar.length || erreichbar.includes(gemeldet)) return null;
+
+  return {
+    ok: false,
+    text: `WordPress meldet, es laeuft auf ${gemeldet}`
+      + `${site.server_software ? ` (${site.server_software})` : ''}.`
+      + ` Der Hub erreicht unter diesem Namen aber ${erreichbar.join(', ')}.`
+      + ' Das sind verschiedene Maschinen: Der Hub redet mit dem falschen Server, und der'
+      + ' kennt die Domain nicht - daher der 404 auf jedem Pfad. Liegt kein Schutzdienst'
+      + ' (Cloudflare o. ae.) davor, ist der Namenseintrag auf dem Server des Hubs veraltet.',
+  };
+}
+
 /**
  * Wenn die Website dem Hub die Tuer vor der Nase zumacht.
  *
@@ -217,8 +258,6 @@ async function diagnose(site) {
   };
 
   const istDbFehler = (text) => /Datenbankverbindung|database connection/i.test(text || '');
-  const hinterCloudflare = (antwort) =>
-    /cloudflare/i.test(antwort.server || '') || Boolean(antwort.cfRay);
 
   /**
    * Wohin loest der Name auf?
@@ -239,6 +278,19 @@ async function diagnose(site) {
   } catch (err) {
     schritte.push({ ok: false, text: `Der Name liess sich vom Hub aus nicht aufloesen (${err.message}).` });
     return schritte;
+  }
+
+  // Der entscheidende Vergleich, wenn WordPress seine eigene Adresse gemeldet hat.
+  const falscherServer = andereMaschine(site, adressen);
+  if (falscherServer) {
+    schritte.push(falscherServer);
+    schritte.push({
+      ok: true,
+      text: 'Zu pruefen ist die Namensaufloesung auf dem Server des Hubs, nicht die Website:'
+        + ' "dig +short <domain>" gegen "dig +short <domain> @1.1.1.1" vergleichen, den'
+        + ' Zwischenspeicher leeren ("resolvectl flush-caches") und in /etc/hosts nachsehen,'
+        + ' ob dort ein alter Eintrag steht.',
+    });
   }
 
   // 1. Die Website selbst
@@ -359,4 +411,7 @@ async function publishArticle(site, article) {
   });
 }
 
-module.exports = { WpError, ping, diagnose, updatePlugin, publishArticle, callSite };
+module.exports = {
+  WpError, ping, diagnose, updatePlugin, publishArticle, callSite,
+  andereMaschine, istOeffentlich,
+};
