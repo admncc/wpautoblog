@@ -141,6 +141,23 @@ function starteFakeWordPress(token, siteId) {
         <p>Unsere Leser bauen ihre Ausstattung schrittweise auf und wollen wissen, worauf es ankommt.</p>
         <footer>Impressum</footer></body></html>`);
     }
+    // Die Wurzel der REST-API. Absichtlich gross: Eine echte WordPress-Seite
+    // liefert hier viele Kilobyte, und genau daran ist die Diagnose frueher
+    // gescheitert - sie hat die Antwort gekuerzt und dann als JSON gelesen.
+    if (req.method === 'GET' && req.url === '/wp-json/') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', Server: 'nginx' });
+      return res.end(JSON.stringify({
+        name: 'Test-WP',
+        description: 'Eine Testseite',
+        url: `http://127.0.0.1:${WP_PORT}`,
+        home: `http://127.0.0.1:${WP_PORT}`,
+        namespaces: ['oembed/1.0', 'wp/v2', 'wp-site-health/v1', 'wp-autoblog/v1'],
+        routes: Object.fromEntries(Array.from({ length: 120 }, (_, i) => [
+          `/wp/v2/platzhalter-${i}`,
+          { namespace: 'wp/v2', methods: ['GET', 'POST'], _links: { self: [{ href: `http://127.0.0.1:${WP_PORT}/wp-json/wp/v2/platzhalter-${i}` }] } },
+        ])),
+      }));
+    }
     if (req.method === 'GET' && req.url.startsWith('/wp-json/wp/v2/posts')) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       return res.end(JSON.stringify([
@@ -934,6 +951,56 @@ async function main() {
     pruefe(!pruefeUebernahme('<p>Zu kurz.</p>', quelltext).auffaellig, 'Sehr kurze Texte schlagen nicht an');
 
     // Was die QA gefunden hat, darf nicht zurueckkommen.
+    // Die Diagnose: Sie muss sagen, was wirklich los ist.
+    console.log('\nVerbindungsdiagnose');
+    const wpModul = require('../src/wp');
+
+    const diagOk = await wpModul.diagnose({ id: siteId, name: 'Testblog', url: `http://127.0.0.1:${WP_PORT}` });
+    const alsZeilen = diagOk.map((z) => z.text).join(' | ');
+    pruefe(diagOk.every((z) => z.ok), 'Eine gesunde Website besteht die Diagnose ohne Beanstandung', alsZeilen.slice(0, 200));
+    pruefe(/zeigt vom Hub aus auf 127\.0\.0\.1/.test(alsZeilen),
+      'Die Diagnose nennt, wohin der Name vom Hub aus auflöst');
+    pruefe(/Plugin "Autoblog Connector" ist aktiv/.test(alsZeilen),
+      'Das grosse /wp-json/ wird vollstaendig gelesen, nicht abgeschnitten', alsZeilen.slice(0, 200));
+
+    // Eine Weiterleitung macht aus dem POST ein GET. Das darf der Hub nicht mitmachen.
+    const umleiter = http.createServer((req, res) => {
+      res.writeHead(301, { Location: `http://127.0.0.1:${WP_PORT}${req.url}` });
+      res.end();
+    });
+    await new Promise((fertig) => umleiter.listen(WP_PORT + 4, fertig));
+    let umleitFehler = '';
+    try {
+      await wpModul.ping({ id: siteId, name: 'Umleitung', url: `http://127.0.0.1:${WP_PORT + 4}`,
+        secret: db.prepare('SELECT secret FROM sites WHERE id = ?').get(siteId).secret })
+        .catch((err) => { umleitFehler = err.message; });
+    } finally {
+      umleiter.close();
+    }
+    pruefe(/leitet den Aufruf weiter/.test(umleitFehler) && /Signatur/.test(umleitFehler),
+      'Einer Weiterleitung folgt der Hub nicht, er sagt warum', umleitFehler.slice(0, 120));
+
+    // Eine Website, die den Hub abweist: im Browser da, fuer den Hub 404.
+    const abweiser = http.createServer((req, res) => {
+      res.writeHead(404, { 'Content-Type': 'text/html', Server: 'cloudflare', 'CF-RAY': 'abc123-FRA' });
+      res.end('<html><body>404</body></html>');
+    });
+    await new Promise((fertig) => abweiser.listen(WP_PORT + 3, fertig));
+    try {
+      const diagSperre = await wpModul.diagnose({ id: siteId, name: 'Gesperrt', url: `http://127.0.0.1:${WP_PORT + 3}` });
+      const gesperrt = diagSperre.map((z) => z.text).join(' | ');
+      pruefe(diagSperre.some((z) => !z.ok && /Startseite antwortet dem Hub mit HTTP 404/.test(z.text)),
+        'Eine Startseite mit 404 gilt nicht mehr als "antwortet"', gesperrt.slice(0, 160));
+      pruefe(/Anfragen vom Server des Hubs abweist/.test(gesperrt),
+        'Die Diagnose benennt die Sperre, statt aufs Plugin zu zeigen');
+      pruefe(/Cloudflare/.test(gesperrt) && /Bot Fight Mode/.test(gesperrt),
+        'Steht Cloudflare davor, wird gesagt wo man nachsieht');
+      pruefe(/Abhol-Modus/.test(gesperrt),
+        'Der Ausweg ohne fremde Einstellungen wird genannt');
+    } finally {
+      abweiser.close();
+    }
+
     // Liegengebliebene Artikel: Was mitten im Schreiben unterbrochen wurde.
     console.log('\nLiegengebliebene Artikel');
     // Frueher im Lauf wurde der Abhol-Modus geprueft; hier gilt wieder der Sende-Modus.

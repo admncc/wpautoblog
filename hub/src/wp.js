@@ -40,11 +40,27 @@ async function callSite(site, path, payload) {
         'User-Agent': `WPAutoblogHub/${VERSION}`,
       },
       body,
+      // Einer Weiterleitung darf hier nicht gefolgt werden: Aus einem POST wird
+      // dabei laut Standard ein GET, und damit sind Inhalt und Signatur weg.
+      // WordPress antwortet dann mit "keine Route gefunden" - ein 404, das
+      // aussieht, als fehle das Plugin, obwohl nur die Adresse nicht genau stimmt.
+      redirect: 'manual',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
     timer.fail(err, { context: { url, hint: 'Netzwerk, DNS, TLS oder Zeitueberschreitung' } });
     throw new WpError(`WordPress nicht erreichbar (${url}): ${err.message}`);
+  }
+
+  if (response.status >= 300 && response.status < 400) {
+    const ziel = response.headers.get('location') || '';
+    timer.fail(`Weiterleitung ${response.status}`, { status: response.status, context: { url, ziel } });
+    throw new WpError(
+      `Die Website leitet den Aufruf weiter (HTTP ${response.status}${ziel ? ` nach ${ziel}` : ''}).`
+      + ' Bei einer Weiterleitung geht die Signatur verloren, deshalb bricht der Hub hier ab.'
+      + ' Bitte die Adresse der Website im Hub genau so eintragen, wie WordPress sie selbst nennt'
+      + ' (mit oder ohne "www", http oder https).'
+    );
   }
 
   const raw = await response.text();
@@ -90,13 +106,82 @@ function erklaereAntwort(raw, status, url) {
     return 'WordPress hat die Anfrage abgewiesen (403). Haeufige Ursache: eine Firewall oder ein Sicherheits-Plugin vor der REST-API.';
   }
   if (status === 404) {
-    return `Unter ${url} ist nichts erreichbar (404). Bitte Adresse der Website und Aktivierung des Plugins pruefen.`;
+    // 404 heisst nicht zwingend "Plugin fehlt". Antwortet die Website im Browser
+    // normal, weist hier jemand gezielt den Hub ab - und dann sucht man sonst
+    // stundenlang an der falschen Stelle.
+    return `Unter ${url} ist nichts erreichbar (404). Entweder ist das Plugin nicht aktiv,`
+      + ` oder die Website weist Anfragen vom Server des Hubs ab. Laesst sich die Website im`
+      + ` Browser normal aufrufen, ist es das Zweite: dann liegt es an einem Schutzdienst`
+      + ` davor (Cloudflare) oder an einem Sicherheits-Plugin. "Verbindung testen" zeigt die`
+      + ` Einzelheiten.`;
   }
   if (status >= 500) {
     return `WordPress meldet einen internen Fehler (HTTP ${status}). Antwort: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
   }
   return `Unerwartete Antwort von WordPress (HTTP ${status}). Ist das Plugin aktiviert und die URL korrekt? `
     + `Antwort: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`;
+}
+
+/**
+ * Wenn die Website dem Hub die Tuer vor der Nase zumacht.
+ *
+ * Der haeufigste Fall bei einer Website, die im Browser tadellos laeuft: Nicht die
+ * Website ist kaputt, sondern der Hub ist unerwuenscht. Sein Server steht in einem
+ * Rechenzentrum, und genau solche Adressen sperren Schutzdienste gern pauschal -
+ * mal mit 403, mal mit 404, je nach Einstellung.
+ *
+ * Das ist besonders verwirrend, weil die Verbindung in WordPress "steht": Dort
+ * meldet sich das Plugin beim Hub, und diese Richtung ist nicht gesperrt. Nur der
+ * Rueckweg ist zu.
+ */
+function sperreErklaeren(site, antwort, adressen = []) {
+  const schritte = [];
+  const cloudflare = /cloudflare/i.test(antwort.server || '') || Boolean(antwort.cfRay);
+
+  schritte.push({
+    ok: false,
+    text: 'Im Browser ist diese Website erreichbar, dem Hub gegenueber nicht. Dann liegt es'
+      + ' nicht am Plugin, sondern daran, dass die Website Anfragen vom Server des Hubs abweist.'
+      + ' Der Weg andersherum (WordPress meldet sich beim Hub) ist davon nicht betroffen,'
+      + ' deshalb steht dort "verbunden".',
+  });
+
+  if (cloudflare) {
+    schritte.push({
+      ok: false,
+      text: 'Vor dieser Website steht Cloudflare. Dort nachsehen unter "Security" -> "Events":'
+        + ' Der abgewiesene Aufruf steht mit Grund und Regel im Protokoll. Freigeben laesst er sich'
+        + ' unter "Security" -> "WAF" -> "Tools" (IP Access Rules) mit der Aktion "Allow", oder'
+        + ' ueber eine WAF-Regel mit "Skip". Haeufigster Ausloeser ist "Bot Fight Mode" unter'
+        + ' "Security" -> "Bots" - der sperrt Rechenzentrums-Adressen pauschal.'
+        + ' Die Einstellungen gelten je Domain: Dass eine andere Website funktioniert, sagt nichts'
+        + ' ueber diese hier.',
+    });
+  } else {
+    schritte.push({
+      ok: false,
+      text: `Geantwortet hat "${antwort.server || 'unbekannt'}". Zu pruefen sind in dieser Reihenfolge:`
+        + ' ein Sicherheits-Plugin in WordPress (Wordfence und aehnliche sperren Adressen nach'
+        + ' wenigen Aufrufen), die Firewall des Hosters, und ein vorgeschalteter Schutzdienst.',
+    });
+  }
+
+  const hubAdresse = PUBLIC_URL ? PUBLIC_URL.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : '';
+  schritte.push({
+    ok: true,
+    text: `Freizugeben ist die Adresse des Hubs${hubAdresse ? ` (${hubAdresse})` : ''}.`
+      + ' Die dazugehoerige IP zeigt ein "ping" auf diesen Namen.'
+      + (adressen.length ? ` Die Website selbst erreicht der Hub unter ${adressen.join(', ')}.` : ''),
+  });
+
+  schritte.push({
+    ok: true,
+    text: 'Sofort und ohne Cloudflare-Aenderung geht es mit dem Abhol-Modus: Unter'
+      + ' "Verbindung" den Uebertragungsweg auf "WordPress holt die Artikel selbst ab" stellen.'
+      + ' Dann meldet sich immer WordPress beim Hub, und der Hub muss die Website nie erreichen.',
+  });
+
+  return schritte;
 }
 
 /**
@@ -113,14 +198,48 @@ async function diagnose(site) {
         headers: { 'User-Agent': `WPAutoblogHub/${VERSION}`, Accept: 'application/json' },
         signal: AbortSignal.timeout(20000),
       });
-      const text = (await antwort.text()).slice(0, 4000);
-      return { ziel, status: antwort.status, text, typ: antwort.headers.get('content-type') || '' };
+      // Nicht vorschnell kuerzen: Die Antwort wird gleich als JSON gelesen, und ein
+      // abgeschnittenes /wp-json/ laesst sich nicht mehr auswerten. Das meldete die
+      // Diagnose dann als "REST-API gesperrt", obwohl alles in Ordnung war.
+      const text = (await antwort.text()).slice(0, 2 * 1024 * 1024);
+      return {
+        ziel,
+        status: antwort.status,
+        text,
+        typ: antwort.headers.get('content-type') || '',
+        // Wer antwortet da eigentlich? Bei einer Sperre ist das die wichtigste Angabe.
+        server: antwort.headers.get('server') || '',
+        cfRay: antwort.headers.get('cf-ray') || '',
+      };
     } catch (err) {
       return { ziel, fehler: err.message };
     }
   };
 
   const istDbFehler = (text) => /Datenbankverbindung|database connection/i.test(text || '');
+  const hinterCloudflare = (antwort) =>
+    /cloudflare/i.test(antwort.server || '') || Boolean(antwort.cfRay);
+
+  /**
+   * Wohin loest der Name auf?
+   *
+   * Ein veralteter Eintrag im Namensdienst des Servers schickt den Hub an einen
+   * fremden Rechner, der diese Domain nicht kennt - und der antwortet auf alles
+   * mit 404. Von aussen sieht die Website dabei tadellos aus, und man sucht den
+   * Fehler stundenlang im Plugin.
+   */
+  let adressen = [];
+  try {
+    const { hostname } = new URL(site.url);
+    adressen = (await require('dns').promises.lookup(hostname, { all: true })).map((a) => a.address);
+    schritte.push({
+      ok: true,
+      text: `Der Name ${hostname} zeigt vom Hub aus auf ${adressen.join(', ')}.`,
+    });
+  } catch (err) {
+    schritte.push({ ok: false, text: `Der Name liess sich vom Hub aus nicht aufloesen (${err.message}).` });
+    return schritte;
+  }
 
   // 1. Die Website selbst
   const start = await holen('/');
@@ -128,11 +247,23 @@ async function diagnose(site) {
     schritte.push({ ok: false, text: `Die Adresse ${site.url} ist vom Hub aus nicht erreichbar (${start.fehler}).` });
     return schritte;
   }
-  schritte.push(
-    istDbFehler(start.text)
-      ? { ok: false, text: `Die Startseite meldet bereits einen Datenbankfehler (HTTP ${start.status}).` }
-      : { ok: true, text: `Startseite antwortet (HTTP ${start.status}).` }
-  );
+  if (istDbFehler(start.text)) {
+    schritte.push({ ok: false, text: `Die Startseite meldet bereits einen Datenbankfehler (HTTP ${start.status}).` });
+  } else if (start.status >= 400) {
+    // Eine Startseite, die 404 sagt, ist kein "antwortet": Hier antwortet jemand,
+    // aber nicht die Website.
+    schritte.push({
+      ok: false,
+      text: `Die Startseite antwortet dem Hub mit HTTP ${start.status}`
+        + `${start.server ? ` (Server: ${start.server})` : ''}. Im Browser ist die Seite vermutlich`
+        + ` normal zu sehen - dann wird nicht die Website abgewiesen, sondern der Hub.`,
+    });
+  } else {
+    schritte.push({
+      ok: true,
+      text: `Startseite antwortet (HTTP ${start.status}${start.server ? `, Server: ${start.server}` : ''}).`,
+    });
+  }
 
   // 2. Die REST-API von WordPress
   const rest = await holen('/wp-json/');
@@ -159,9 +290,11 @@ async function diagnose(site) {
   if (!daten) {
     schritte.push({
       ok: false,
-      text: `Unter ${rest.ziel} kommt kein JSON zurueck (HTTP ${rest.status}, ${rest.typ}). `
-        + `Meist ist die REST-API durch ein Sicherheits-Plugin oder die Firewall gesperrt.`,
+      text: `Unter ${rest.ziel} kommt kein JSON zurueck (HTTP ${rest.status}, ${rest.typ || 'ohne Typ'})`
+        + `${rest.server ? `, geantwortet hat "${rest.server}"` : ''}.`
+        + ` Anfang der Antwort: ${excerpt(rest.text.replace(/\s+/g, ' '), 160)}`,
     });
+    schritte.push(...sperreErklaeren(site, rest, adressen));
     return schritte;
   }
 
