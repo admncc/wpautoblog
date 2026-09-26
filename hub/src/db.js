@@ -222,6 +222,8 @@ CREATE TABLE IF NOT EXISTS backlinks (
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );`);
 
+// Backlink-Artikel gehen von selbst raus, sobald sie fertig sind.
+ensureColumn('backlinks', 'auto_publish', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('articles', 'backlink_id', 'TEXT');
 ensureColumn('articles', 'backlink_url', 'TEXT');
 ensureColumn('articles', 'backlink_anchor', 'TEXT');

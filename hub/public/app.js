@@ -1927,9 +1927,18 @@ async function renderBacklinks(body, sites) {
           <div class="hint">Je gewählter Website entsteht ein eigener Artikel, mit eigenem Ankertext.</div>
         </div>
 
+        <div class="field">
+          <label class="check" style="margin:0">
+            <input type="checkbox" id="bl-auto" ${state.data.blAuto === false ? '' : 'checked'} />
+            <span><b>Fertige Artikel gleich an WordPress senden</b>
+              <i>Ein Verweis, der als Entwurf liegen bleibt, wirkt nicht. Fehlt im Text der
+                Verweis, bleibt der Beitrag trotzdem hier und wartet auf dich.</i></span>
+          </label>
+        </div>
+
         <div class="formfoot">
           <button class="btn primary" type="submit">${ic('link', 'sm')}Backlink-Artikel erzeugen</button>
-          <span class="state">Die Beiträge bleiben Entwurf, bis du sie sendest.</span>
+          <span class="state">Je gewählter Website ein Beitrag.</span>
         </div>
       </form>
     </section>
@@ -1980,10 +1989,12 @@ async function renderBacklinks(body, sites) {
           note: body.querySelector('#bl-note').value,
           anchor_mode: body.querySelector('#bl-anchor').value,
           rel: body.querySelector('#bl-rel').value,
+          auto_publish: body.querySelector('#bl-auto').checked,
           site_ids: ausgewaehlt,
         },
       });
       state.data.blSites = [];
+      state.data.blAuto = body.querySelector('#bl-auto').checked;
       state.data.artTab = 'liste';
       toast(`${ergebnis.articles.length} Backlink-Artikel werden geschrieben.`);
       await render();
@@ -2470,6 +2481,10 @@ async function renderAdsSite(view, siteId) {
 
 // ----------------------------------------------------------------- Artikel
 
+/* Welche Zustaende sich senden lassen. "wird geschrieben" und "wird gesendet"
+   gehoeren nicht dazu, "veroeffentlicht" schon: Das ist dann eine Aktualisierung. */
+const SENDBAR = ['draft', 'approved', 'failed', 'published'];
+
 /* Die Artikelliste. Sortierbar; absteigend holt die Probleme nach oben, denn das
    ist die Reihenfolge, in der man sucht. */
 function articleTable(articles) {
@@ -2480,19 +2495,36 @@ function articleTable(articles) {
     created: (a) => a.created_at || '',
   });
 
-  return `<div class="tblwrap"><table>
+  // Waehlbar ist, was sich senden laesst. Was gerade geschrieben oder schon
+  // gesendet wird, hat in einer Sammelaktion nichts verloren.
+  const waehlbar = sortiert.filter((a) => SENDBAR.includes(a.status));
+  const gewaehlt = (state.data.artSel || []).filter((id) => waehlbar.some((a) => a.id === id));
+  const alleDrin = waehlbar.length > 0 && gewaehlt.length === waehlbar.length;
+
+  return `${gewaehlt.length ? `<div class="bulk">
+      <b>${gewaehlt.length} ausgewählt</b>
+      <span class="spacer"></span>
+      <button class="btn sm" id="art-sel-keine">Auswahl aufheben</button>
+      <button class="btn sm primary" id="art-senden">${ic('send', 'sm')}An WordPress senden</button>
+    </div>` : ''}
+    <div class="tblwrap"><table>
     <thead><tr>
+      <th style="width:34px">${waehlbar.length ? `<input type="checkbox" id="art-sel-alle"
+        title="Alle sendbaren auswählen" ${alleDrin ? 'checked' : ''} />` : ''}</th>
       ${sortKopf('sortA', 'titel', 'Titel')}
       ${sortKopf('sortA', 'status', 'Status')}
       ${sortKopf('sortA', 'woerter', 'Wörter', 'right')}
       ${sortKopf('sortA', 'created', 'Erstellt', 'nowrap')}
     </tr></thead>
     <tbody>${sortiert.map((a) => `<tr class="clickable ${spur(a.status)}" data-article="${esc(a.id)}">
+      <td>${SENDBAR.includes(a.status) ? `<input type="checkbox" class="stop" data-artsel="${esc(a.id)}"
+        ${gewaehlt.includes(a.id) ? 'checked' : ''} />` : ''}</td>
       <td><span class="ttl">${esc(a.title || a.keyword)}</span>
         <span class="meta">${a.site_name ? esc(a.site_name) : ''}
           ${a.origin === 'recurring' ? '<span class="badge info">wiederkehrend</span>' : ''}
           ${a.origin === 'youtube' ? `<span class="badge info">${ic('video', 'sm')}Video</span>` : ''}
           ${a.origin === 'target' ? `<span class="badge info">${ic('search', 'sm')}gezielt</span>` : ''}
+          ${a.origin === 'backlink' ? `<span class="badge info">${ic('link', 'sm')}Backlink</span>` : ''}
           ${a.archived ? '<span class="badge">archiviert</span>' : ''}</span>
         ${a.wp_url ? `<span class="meta"><a class="stop" href="${esc(a.wp_url)}" target="_blank"
           rel="noopener noreferrer">${esc(a.wp_url)} ${ic('ext', 'sm')}</a></span>` : ''}
@@ -2558,6 +2590,22 @@ async function renderArticles(view) {
           <button data-arch="1" aria-pressed="${!!state.data.showArchive}">Archiv <b>${counts.archiv}</b></button>
         </span>
       </div>
+      ${state.data.sendeBericht ? `<section class="card flat" style="margin-bottom:12px">
+        <div class="card-head"><h2>Ergebnis des Sammelversands</h2>
+          <span class="count">${state.data.sendeBericht.length}</span>
+          <span class="tools"><button class="btn sm quiet" id="bericht-zu">${ic('x', 'sm')}Schließen</button></span></div>
+        ${state.data.sendeBericht.map((e) => `<div class="item ${e.ok ? 'is-ok' : 'is-err'}">
+          <span class="grow"><span class="ttl">${esc(e.titel)}</span>
+            <span class="kv">${e.site ? `<span>${esc(e.site)}</span>` : ''}
+              ${e.ok
+                ? (e.wartet
+                  ? '<span>liegt bereit, die Website holt ihn ab</span>'
+                  : `<span style="color:var(--ok)">gesendet</span>${e.url
+                    ? ` <a class="stop" href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">ansehen ${ic('ext', 'sm')}</a>` : ''}`)
+                : `<span style="color:var(--stop)">${esc(e.message)}</span>`}</span></span>
+        </div>`).join('')}
+      </section>` : ''}
+
       <section class="card flat">${articles.length ? articleTable(articles)
         : `<div class="empty"><span class="ring">${ic('doc', 'lg')}</span>
             <b>${state.data.showArchive ? 'Noch nichts im Archiv' : 'Keine offenen Beiträge'}</b>
@@ -2568,12 +2616,47 @@ async function renderArticles(view) {
               : `<button class="btn primary" data-atab2="erzeugen">${ic('spark', 'sm')}Beitrag erzeugen</button>`}</div>`}
       </section>`;
 
+    on('#bericht-zu', 'click', () => { state.data.sendeBericht = null; render(); });
     on('[data-arch]', 'click', (event) => {
       state.data.showArchive = event.currentTarget.dataset.arch === '1';
+      state.data.artSel = [];
       render();
     });
     on('#filter-site', 'change', (event) => { state.data.filterSite = event.target.value; render(); });
     on('[data-article]', 'click', (event) => navigate('article', event.currentTarget.dataset.article));
+
+    /* Auswahl. Das Haekchen sitzt in einer anklickbaren Zeile, darf sie aber nicht
+       oeffnen - dafuer sorgt die Klasse "stop" zusammen mit dem Zuhoerer am Wurzelelement. */
+    const sendbar = articles.filter((a) => SENDBAR.includes(a.status));
+    on('[data-artsel]', 'change', (event) => {
+      const id = event.currentTarget.dataset.artsel;
+      const jetzt = state.data.artSel || [];
+      state.data.artSel = jetzt.includes(id) ? jetzt.filter((x) => x !== id) : [...jetzt, id];
+      zeichneMitEingaben();
+    });
+    on('#art-sel-alle', 'change', (event) => {
+      state.data.artSel = event.currentTarget.checked ? sendbar.map((a) => a.id) : [];
+      zeichneMitEingaben();
+    });
+    on('#art-sel-keine', 'click', () => { state.data.artSel = []; zeichneMitEingaben(); });
+
+    on('#art-senden', 'click', (event) => guard(event.currentTarget, async () => {
+      const ids = state.data.artSel || [];
+      if (!ids.length) throw new Error('Bitte mindestens einen Beitrag auswählen.');
+
+      const { ergebnisse } = await api('/api/app/articles/senden', { method: 'POST', body: { ids } });
+      const gut = ergebnisse.filter((e) => e.ok).length;
+      const schief = ergebnisse.filter((e) => !e.ok);
+
+      // Das Ergebnis bleibt stehen, bis man es wegklickt. Bei zwanzig Sendungen
+      // waere eine Meldung, die nach drei Sekunden verschwindet, wertlos.
+      state.data.artSel = [];
+      state.data.sendeBericht = ergebnisse;
+      toast(schief.length
+        ? `${gut} von ${ergebnisse.length} gesendet, ${schief.length} fehlgeschlagen.`
+        : `${gut} Beitrag/Beiträge gesendet.`, schief.length ? 'err' : 'ok');
+      await render();
+    }));
   } else if (tab === 'backlinks') {
     if (!sites.length) {
       body.innerHTML = `<div class="card"><div class="empty"><span class="ring">${ic('globe', 'lg')}</span>
@@ -2593,11 +2676,11 @@ async function renderArticles(view) {
   });
 }
 
-/* Ein Link in einer anklickbaren Zeile soll nur den Link oeffnen, nicht auch die
-   Zeile. Als eigener Zuhoerer, weil die Sicherheitsrichtlinie kein onclick im
-   Seitentext erlaubt. */
+/* Ein Link oder ein Haekchen in einer anklickbaren Zeile soll nur sich selbst
+   bedienen, nicht auch die Zeile oeffnen. Als eigener Zuhoerer, weil die
+   Sicherheitsrichtlinie kein onclick im Seitentext erlaubt. */
 root.addEventListener('click', (event) => {
-  if (event.target.closest('a.stop')) event.stopPropagation();
+  if (event.target.closest('.stop')) event.stopPropagation();
 }, true);
 
 async function renderArticle(view, articleId) {

@@ -238,6 +238,16 @@ Tabelle: Titel (darunter Website, Kennzeichen-Abzeichen „wiederkehrend", „Vi
 Status-Abzeichen: `wird erzeugt …` (blau), `Entwurf`, `wird gesendet`, `veröffentlicht`
 (grün), `Fehler` (rot), `wartet auf Abholung`.
 
+Die Liste **„Alle Beiträge“** hat eine Auswahlspalte. Das Häkchen im Tabellenkopf wählt
+alle sendbaren Beiträge; was gerade geschrieben oder gesendet wird, hat gar kein Häkchen.
+Sobald etwas gewählt ist, erscheint über der Tabelle eine Leiste (`.bulk`) mit der Anzahl,
+„Auswahl aufheben“ und „An WordPress senden“. Nach dem Senden steht über der Liste ein
+Bericht mit einer Zeile je Beitrag: gesendet (mit Link), bereitgelegt (Abhol-Modus) oder
+der Grund des Fehlschlags. Der Bericht bleibt stehen, bis man ihn schließt – bei zwanzig
+Sendungen wäre eine Meldung, die nach drei Sekunden verschwindet, wertlos.
+
+---
+
 ### 4.7 Artikel-Detail (`#/article/<id>`)
 
 - **Während der Erzeugung:** eine leere Karte mit „Der Artikel wird gerade geschrieben.

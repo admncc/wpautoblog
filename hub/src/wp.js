@@ -14,9 +14,9 @@ class WpError extends Error {}
  */
 async function callSite(site, path, payload) {
   const secret = decrypt(site.secret);
-  if (!secret) throw new WpError('Fuer diese Website existiert kein Token. Bitte im Hub neu erzeugen.');
+  if (!secret) throw new WpError('Für diese Website existiert kein Token. Bitte im Hub neu erzeugen.');
   if (!site.url) {
-    throw new WpError('Fuer diese Website ist keine URL hinterlegt. Sie wird gesetzt, sobald sich das WordPress-Plugin meldet.');
+    throw new WpError('Für diese Website ist keine URL hinterlegt. Sie wird gesetzt, sobald sich das WordPress-Plugin meldet.');
   }
 
   const body = JSON.stringify(payload || {});

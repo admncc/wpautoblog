@@ -801,6 +801,16 @@ async function main() {
     pruefe(blAuftrag.status === 202 && blAuftrag.daten.articles.length === 1
       && blAuftrag.daten.articles[0].origin === 'backlink',
       'Backlink-Auftrag legt je Website einen Artikel an', JSON.stringify(blAuftrag.daten.articles.length));
+    pruefe(db.prepare('SELECT auto_publish FROM backlinks WHERE id = ?').get(blAuftrag.daten.id).auto_publish === 1,
+      'Backlink-Auftraege senden von selbst, solange man nicht widerspricht');
+    const blOhneAuto = await ruf('/api/app/backlinks', {
+      method: 'POST',
+      body: { url: 'https://www.beispiel.de/still', keyword: 'stiller auftrag',
+        note: 'Bleibt liegen.', auto_publish: false, site_ids: [siteId] },
+    });
+    pruefe(db.prepare('SELECT auto_publish FROM backlinks WHERE id = ?').get(blOhneAuto.daten.id).auto_publish === 0,
+      'Wer widerspricht, bekommt Entwuerfe');
+
     const blArtikel = db.prepare('SELECT backlink_url, backlink_anchor FROM articles WHERE id = ?')
       .get(blAuftrag.daten.articles[0].id);
     pruefe(blArtikel.backlink_url === 'https://www.beispiel.de/ratgeber' && !!blArtikel.backlink_anchor,
@@ -889,8 +899,9 @@ async function main() {
       'Kategorie und Longtails sind Pflichtfelder');
 
     const blListe = await ruf('/api/app/backlinks');
-    pruefe(Array.isArray(blListe.daten) && blListe.daten.length === 1 && blListe.daten[0].artikel === 1,
-      'Der Auftrag erscheint in der Liste');
+    const blEintrag = (blListe.daten || []).find((b) => b.id === blAuftrag.daten.id);
+    pruefe(Array.isArray(blListe.daten) && blEintrag && blEintrag.artikel === 1,
+      'Der Auftrag erscheint in der Liste', JSON.stringify(blListe.daten && blListe.daten.length));
 
     console.log('\nArtikel-Nachbearbeitung');
     const ai = require('../src/ai');
@@ -1042,6 +1053,57 @@ async function main() {
     } finally {
       abweiser.close();
     }
+
+    // Sammelversand: einzelne oder alle Beitraege auf einmal an WordPress.
+    console.log('\nSammelversand');
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+
+    const legeFertig = (id, status = 'draft') => db.prepare(
+      `INSERT INTO articles (id, site_id, keyword, title, slug, content_html, status, word_count)
+       VALUES (?, ?, 'sammel', ?, 'sammel', '<p>Ein fertiger Absatz mit Inhalt.</p>', ?, 12)`
+    ).run(id, siteId, `Sammel ${id}`, status);
+    const statusVon2 = (id) => (db.prepare('SELECT status FROM articles WHERE id = ?').get(id) || {}).status;
+
+    legeFertig('art_sam_a');
+    legeFertig('art_sam_b');
+    const sammel = await ruf('/api/app/articles/senden', {
+      method: 'POST', body: { ids: ['art_sam_a', 'art_sam_b'] },
+    });
+    pruefe(sammel.status === 200 && sammel.daten.ergebnisse.length === 2
+      && sammel.daten.ergebnisse.every((e) => e.ok),
+      'Zwei Beitraege gehen auf einmal raus', JSON.stringify(sammel.daten.ergebnisse.map((e) => e.ok)));
+    pruefe(statusVon2('art_sam_a') === 'published' && statusVon2('art_sam_b') === 'published',
+      'Beide stehen danach auf veroeffentlicht');
+    pruefe(sammel.daten.ergebnisse.every((e) => e.titel && e.site === 'Testblog'),
+      'Das Ergebnis nennt Titel und Website', JSON.stringify(sammel.daten.ergebnisse[0]));
+
+    // Ein Fehlschlag darf den Durchlauf nicht beenden.
+    legeFertig('art_sam_gut');
+    db.prepare(
+      `INSERT INTO articles (id, site_id, keyword, title, status) VALUES (?, ?, 'leer', 'Ohne Inhalt', 'draft')`
+    ).run('art_sam_leer', siteId);
+    const gemischt = await ruf('/api/app/articles/senden', {
+      method: 'POST', body: { ids: ['art_sam_leer', 'art_sam_gut'] },
+    });
+    const guteZeile = gemischt.daten.ergebnisse.find((e) => e.id === 'art_sam_gut');
+    const schlechteZeile = gemischt.daten.ergebnisse.find((e) => e.id === 'art_sam_leer');
+    pruefe(guteZeile && guteZeile.ok && schlechteZeile && !schlechteZeile.ok,
+      'Ein Fehlschlag stoppt die anderen nicht', JSON.stringify(gemischt.daten.ergebnisse.map((e) => e.ok)));
+    pruefe(/Inhalt/.test(schlechteZeile.message || ''),
+      'Und der Grund steht beim betroffenen Beitrag', schlechteZeile.message);
+
+    const sammelLeer = await ruf('/api/app/articles/senden', { method: 'POST', body: { ids: [] } });
+    pruefe(sammelLeer.status === 400, 'Ohne Auswahl passiert nichts');
+
+    // Im Abhol-Modus ist "bereitgelegt" das richtige Ergebnis, nicht "gesendet".
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'pull' } });
+    legeFertig('art_sam_abhol');
+    const abhol = await ruf('/api/app/articles/senden', { method: 'POST', body: { ids: ['art_sam_abhol'] } });
+    pruefe(abhol.daten.ergebnisse[0].ok && abhol.daten.ergebnisse[0].wartet === true,
+      'Im Abhol-Modus wird der Beitrag bereitgelegt, nicht gesendet',
+      JSON.stringify(abhol.daten.ergebnisse[0]));
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+    db.prepare("DELETE FROM articles WHERE id LIKE 'art_sam%'").run();
 
     // Liegengebliebene Artikel: Was mitten im Schreiben unterbrochen wurde.
     console.log('\nLiegengebliebene Artikel');

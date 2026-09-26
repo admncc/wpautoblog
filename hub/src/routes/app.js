@@ -619,6 +619,27 @@ router.post(
   })
 );
 
+/**
+ * Mehrere Beitraege auf einmal senden.
+ * Ein Fehlschlag bei einem beendet den Durchlauf nicht; am Ende steht je Beitrag,
+ * was daraus geworden ist.
+ */
+router.post(
+  '/articles/senden',
+  wrap(async (req, res) => {
+    const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(String).slice(0, 100);
+    if (!ids.length) return res.status(400).json({ error: 'Bitte mindestens einen Beitrag auswählen.' });
+
+    const ergebnisse = await service.sendeMehrere(ids);
+    const gut = ergebnisse.filter((e) => e.ok).length;
+    logger.info('article', 'senden', `Sammelversand: ${gut} von ${ids.length} Beitrag/Beitraegen gesendet`, {
+      requestId: req.requestId,
+      context: { fehler: ergebnisse.filter((e) => !e.ok).map((e) => `${e.titel}: ${e.message}`) },
+    });
+    return res.json({ ok: true, ergebnisse });
+  })
+);
+
 /** Einen haengenden Artikel abbrechen. */
 router.post(
   '/articles/:id/abbrechen',
@@ -901,6 +922,9 @@ router.post(
       rel: erlaubteRel.includes(req.body.rel) ? req.body.rel : '',
       note: sanitizeText(req.body.note, 600),
       siteIds,
+      // Ohne ausdruecklichen Widerspruch gehen fertige Backlink-Artikel raus.
+      // Ein Verweis, der als Entwurf liegen bleibt, wirkt nicht.
+      autoPublish: req.body.auto_publish !== false && req.body.auto_publish !== 0,
     });
 
     logger.info('article', 'backlink', `Backlink-Auftrag: "${keyword}" auf ${artikel.length} Website(s)`, {

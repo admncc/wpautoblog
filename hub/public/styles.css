@@ -1257,6 +1257,11 @@ td.dehnbar { max-width: 0; width: 100%; }
   .attn-item { flex-wrap: wrap; }
   .attn-item > .ic { display: none; }
   .attn-item .acts { width: 100%; padding-left: 0; flex-wrap: wrap; margin-top: 4px; }
+  /* Die Sammelleiste bricht um, statt ihre Knoepfe am Rand abzuschneiden. */
+  .bulk { flex-wrap: wrap; }
+  .bulk .spacer { display: none; }
+  .bulk .btn { flex: 1 1 auto; justify-content: center; }
+
   /* Schmal steht der Knopf unter dem Text, nicht daneben - sonst bleibt fuer den
      Text eine Spalte von zehn Zeichen. */
   .notice { flex-wrap: wrap; }

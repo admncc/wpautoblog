@@ -131,6 +131,42 @@ function startGeneration({ siteId, keyword, angle = '', topicId = null, planId =
   return { article: getArticle(id), promise };
 }
 
+/**
+ * Mehrere Beitraege auf einmal an WordPress senden.
+ *
+ * Nacheinander statt alles gleichzeitig: Jede Sendung laedt Bilder hoch und
+ * beschaeftigt die fremde Website fuer ein paar Sekunden. Zwanzig davon auf
+ * einen Schlag bringt manchen Server ins Straucheln, und ein Fehlschlag waere
+ * dann nicht die Schuld des Artikels.
+ *
+ * Ein Fehlschlag bei einem Beitrag beendet den Durchlauf nicht. Am Ende steht
+ * je Beitrag, was daraus geworden ist.
+ */
+async function sendeMehrere(ids) {
+  const reihe = nacheinander(SENDE_PARALLEL);
+
+  return Promise.all(ids.map((id) => reihe(async () => {
+    const vorher = getArticle(id);
+    if (!vorher) return { id, titel: id, ok: false, message: 'Beitrag nicht gefunden.' };
+
+    const titel = vorher.title || vorher.keyword || id;
+    const site = getSite(vorher.site_id);
+    try {
+      const artikel = await publish(id);
+      // Im Abhol-Modus steht der Beitrag jetzt in der Warteschlange. Das ist kein
+      // Fehler, aber auch noch kein "veroeffentlicht" - das muss man sehen.
+      const wartet = artikel.status === 'publishing';
+      return {
+        id, titel, ok: true, wartet,
+        site: site ? site.name : '',
+        url: artikel.wp_url || '',
+      };
+    } catch (err) {
+      return { id, titel, ok: false, site: site ? site.name : '', message: String(err.message || err) };
+    }
+  })));
+}
+
 /* ------------------------------------------------- Liegengebliebene Artikel */
 
 /**
@@ -278,6 +314,7 @@ function setzeVerweis(html, anchor, url, rel) {
 }
 
 const BACKLINK_PARALLEL = 3;
+const SENDE_PARALLEL = 3;
 
 /**
  * Laesst hoechstens `grenze` Aufgaben gleichzeitig laufen.
@@ -310,12 +347,15 @@ function nacheinander(grenze) {
  * Ein Backlink-Auftrag: ein Ziel, ein Keyword, mehrere Websites.
  * Je Website entsteht ein eigener Beitrag mit eigenem Anker und eigenen Longtails.
  */
-function startBacklink({ url, keyword, extra = '', anchorMode = 'gemischt', rel = '', note = '', siteIds = [] }) {
+function startBacklink({
+  url, keyword, extra = '', anchorMode = 'gemischt', rel = '', note = '', siteIds = [],
+  autoPublish = true,
+}) {
   const auftragId = randomId('bl');
   db.prepare(
-    `INSERT INTO backlinks (id, url, keyword, extra, anchor_mode, rel, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(auftragId, url, keyword, extra, anchorMode, rel, note);
+    `INSERT INTO backlinks (id, url, keyword, extra, anchor_mode, rel, note, auto_publish)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(auftragId, url, keyword, extra, anchorMode, rel, note, autoPublish ? 1 : 0);
 
   const anker = ankerVarianten(keyword, url, anchorMode);
   const artikel = [];
@@ -420,6 +460,22 @@ function startBacklink({ url, keyword, extra = '', anchorMode = 'gemischt', rel 
             logger.error('image', 'generate', `Bilder fehlgeschlagen: ${err.message || err}`,
               { siteId: site.id, articleId: id })
           );
+        }
+
+        // Fertig heisst raus: Ein Backlink-Artikel, der als Entwurf liegen bleibt,
+        // setzt keinen Verweis. Eine Ausnahme gibt es - fehlt der Verweis im Text,
+        // waere der Beitrag zwecklos, und dann bleibt er hier und wartet auf einen
+        // Menschen.
+        if (autoPublish) {
+          if (!verweis.gesetzt) {
+            logger.warn('article', 'backlink', 'Nicht automatisch gesendet: Im Text fehlt der Verweis.',
+              { siteId: site.id, articleId: id });
+          } else {
+            await publish(id).catch((err) =>
+              logger.error('article', 'backlink', `Automatisches Senden fehlgeschlagen: ${err.message || err}`,
+                { siteId: site.id, articleId: id })
+            );
+          }
         }
         return getArticle(id);
       })
@@ -908,5 +964,5 @@ module.exports = {
   startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
   computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer, darfSenden,
   startBacklink, ankerVarianten, setzeVerweis, nacheinander,
-  raeumeHaengende, brichAb,
+  raeumeHaengende, brichAb, sendeMehrere,
 };
