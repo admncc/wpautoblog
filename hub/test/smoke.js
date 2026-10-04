@@ -239,11 +239,14 @@ function starteFakeWordPress(token, siteId) {
           });
           return res.end(JSON.stringify({ ok: true, ...adsSchreiben(bleibt.join('\n')) }));
         }
-        if (modus === 'clear') {
-          return res.end(JSON.stringify({ ok: true, ...adsSchreiben('') }));
-        }
         if (modus === 'restore') {
           return res.end(JSON.stringify({ ok: true, ...adsSchreiben(ads.sicherung || '') }));
+        }
+        // Wie das echte Plugin: Ein unbekannter Modus landet hier, und ohne Inhalt
+        // gibt es eine Absage. Daran ist der erste Anlauf von "alles entfernen"
+        // gescheitert, weil die Website noch eine aeltere Fassung fuhr.
+        if (daten.content === undefined) {
+          return res.end(JSON.stringify({ ok: false, message: 'Es wurde kein Inhalt gesendet.' }));
         }
         if (daten.based_on && daten.based_on !== adsStatus().digest) {
           // Der Kopf steht schon; der Hub erkennt den Widerspruch an ok:false.
@@ -1466,6 +1469,15 @@ async function main() {
       JSON.stringify(geleert.daten.ergebnisse[0]));
     pruefe(fakeWp.ads.inhalt === '', 'In der Datei steht danach nichts mehr',
       JSON.stringify(fakeWp.ads.inhalt));
+
+    /* Die Attrappe kennt nur die Befehle aelterer Plugin-Fassungen. Dass sie das
+       Leeren trotzdem ausfuehrt, ist der eigentliche Punkt: Der Hub schickt "ganze
+       Datei ersetzen, und zwar durch nichts" statt eines eigenen Befehls, den
+       aeltere Fassungen mit "Es wurde kein Inhalt gesendet" quittieren wuerden. */
+    const leerBefehl = [...fakeWp.empfangen].reverse().find((e) => e.url.endsWith('/ads-write'));
+    pruefe(leerBefehl && leerBefehl.daten.mode === 'replace' && leerBefehl.daten.content === '',
+      'Geleert wird auf einem Weg, den auch aeltere Plugins verstehen',
+      JSON.stringify(leerBefehl && leerBefehl.daten.mode));
     const nachLeeren = await ruf(`/api/app/ads/${siteId}`);
     pruefe(nachLeeren.daten.eintraege === 0, 'Und der Hub weiss das auch');
 
@@ -1491,8 +1503,10 @@ async function main() {
     pruefe(leerenWartet.daten.ergebnisse[0].wartet === true,
       'Im Abhol-Modus wird der Leer-Auftrag abgelegt');
     const pulsLeeren = await alsPlugin('/api/plugin/heartbeat', siteId, token, {});
-    pruefe(pulsLeeren.daten.ads_job && pulsLeeren.daten.ads_job.action === 'clear',
-      'Und das Plugin bekommt ihn mit dem Lebenszeichen',
+    pruefe(pulsLeeren.daten.ads_job && pulsLeeren.daten.ads_job.action === 'write'
+      && pulsLeeren.daten.ads_job.content === '',
+      'Und das Plugin bekommt ihn mit dem Lebenszeichen - als leerer Inhalt,'
+      + ' den auch aeltere Fassungen ausfuehren',
       JSON.stringify(pulsLeeren.daten.ads_job || null));
     await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
 

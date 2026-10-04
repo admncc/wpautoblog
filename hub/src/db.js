@@ -272,6 +272,14 @@ CREATE TABLE IF NOT EXISTS ads_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_ads_jobs_site ON ads_jobs(site_id, status);`);
 
+/*
+ * Ein kurzlebiger Befehl, der es nicht wert war: "clear" verstanden nur ganz neue
+ * Fassungen des Plugins, aeltere antworteten mit "Es wurde kein Inhalt gesendet".
+ * Leeren heisst jetzt "ganze Datei ersetzen, und zwar durch nichts" - das versteht
+ * jede Fassung. Wartende Auftraege werden mit umgestellt, damit keiner haengt.
+ */
+db.prepare("UPDATE ads_jobs SET action = 'write', content = '' WHERE action = 'clear' AND status = 'wartet'").run();
+
 const setSettingStmt = db.prepare(
   `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`

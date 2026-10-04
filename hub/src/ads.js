@@ -389,13 +389,19 @@ async function leere(siteIds) {
     if (s.status !== 'connected') return { site_id: id, name: s.name, ok: false, message: 'Nicht verbunden.' };
 
     const vorher = adstxt.pruefe(s.ads_txt || '').eintraege;
+
+    // Bewusst als "die ganze Datei ersetzen, und zwar durch nichts" statt als
+    // eigener Befehl: Das versteht jede Fassung des Plugins, die ads.txt ueberhaupt
+    // kennt. Ein eigener Modus wuerde erst nach dem naechsten Plugin-Update
+    // funktionieren, und bis dahin kaeme von dort nur "Es wurde kein Inhalt
+    // gesendet" - eine Meldung, aus der niemand schlau wird.
     if (s.delivery === 'pull') {
-      legeAuftragAb(s.id, 'clear');
+      legeAuftragAb(s.id, 'write', { content: '' });
       return { site_id: s.id, name: s.name, ok: true, wartet: true, vorher };
     }
 
     try {
-      const antwort = await wp.callSite(s, 'ads-write', { mode: 'clear' });
+      const antwort = await wp.callSite(s, 'ads-write', { mode: 'replace', content: '' });
       merke(s.id, antwort);
       return { site_id: s.id, name: s.name, ok: true, wartet: false, vorher };
     } catch (err) {
