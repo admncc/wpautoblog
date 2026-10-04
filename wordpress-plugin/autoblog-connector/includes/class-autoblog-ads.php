@@ -394,6 +394,8 @@ class Autoblog_Ads {
             $ergebnis = self::entfernen(isset($auftrag['entries']) ? (array) $auftrag['entries'] : []);
         } elseif ($aktion === 'dedupe') {
             $ergebnis = self::entdoppeln();
+        } elseif ($aktion === 'clear') {
+            $ergebnis = self::schreiben('');
         } elseif ($aktion === 'restore') {
             $ergebnis = self::zurueck();
         } else {

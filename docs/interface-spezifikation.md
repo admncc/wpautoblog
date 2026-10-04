@@ -296,7 +296,14 @@ Zeichen. Es gibt keine Gliederung, keine Sprungmarken, keinen Hinweis auf ungesp
 
 Der Bereich, in dem die Werbevermarktung aller Websites an einem Ort steht. Drei Reiter:
 
-**Je Website** — Tabelle: Website (mit Adresse und Warnungen), Einträge (Zahl, darunter
+**Je Website** — Jede Zeile beginnt mit einem Häkchen, das Häkchen im Tabellenkopf wählt
+alle verbundenen Websites. Sobald etwas gewählt ist, erscheint darüber eine Leiste mit den
+Aktionen für die Auswahl: „Neu einlesen“, „Doppelte entfernen“ und, in Rot,
+„Alle Einträge entfernen“. Letzteres fragt in einem Dialog nach, nennt je Website die Zahl
+der betroffenen Einträge und weist darauf hin, dass das Plugin den bisherigen Stand
+gesichert hat.
+
+Tabelle: Website (mit Adresse und Warnungen), Einträge (Zahl, darunter
 „x direkt, y Reseller"), wo die Datei liegt (Abzeichen: echte Datei im Wurzelverzeichnis,
 von WordPress ausgeliefert, oder noch keine), öffentlich abrufbar (Abzeichen `ok` /
 `abweichung` / `fehlt` / `fehler` mit Erklärung) und wann zuletzt gelesen wurde. Zeile

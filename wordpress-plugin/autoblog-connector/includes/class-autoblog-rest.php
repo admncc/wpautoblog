@@ -100,8 +100,8 @@ class Autoblog_Rest {
      * Der Hub schreibt die ads.txt.
      *
      * "add" und "remove" fassen nur die genannten Zeilen an, "dedupe" raeumt
-     * doppelte Zeilen weg, "replace" ersetzt die ganze Datei, "restore" holt den
-     * Stand vor dem letzten Schreiben zurueck.
+     * doppelte Zeilen weg, "clear" leert die Datei, "replace" ersetzt sie ganz,
+     * und "restore" holt den Stand vor dem letzten Schreiben zurueck.
      *
      * Bei "replace" kann der Hub den Fingerabdruck des Standes mitschicken, den er
      * gelesen hat. Stimmt er nicht mehr, hat in der Zwischenzeit jemand anderes
@@ -115,6 +115,10 @@ class Autoblog_Rest {
             $ergebnis = Autoblog_Ads::zurueck();
         } elseif ($modus === 'dedupe') {
             $ergebnis = Autoblog_Ads::entdoppeln();
+        } elseif ($modus === 'clear') {
+            // Leeren ist nicht endgueltig: Der bisherige Stand liegt in der Sicherung
+            // und laesst sich mit "restore" zurueckholen.
+            $ergebnis = Autoblog_Ads::schreiben('');
         } elseif ($modus === 'add' || $modus === 'remove') {
             $zeilen = isset($daten['entries']) ? (array) $daten['entries'] : [];
             if (empty($zeilen)) {

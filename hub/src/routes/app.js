@@ -1099,11 +1099,27 @@ router.get(
   })
 );
 
-/** Alle Websites neu einlesen. */
+/** Neu einlesen - alle Websites, oder nur die ausgewaehlten. */
 router.post(
   '/ads/lesen',
   wrap(async (req, res) => {
-    res.json({ ok: true, ergebnisse: await ads.leseAlle() });
+    const siteIds = Array.isArray(req.body.site_ids) ? req.body.site_ids.map(String).slice(0, 100) : null;
+    res.json({ ok: true, ergebnisse: await ads.leseAlle(siteIds) });
+  })
+);
+
+/**
+ * Alle Eintraege auf den gewaehlten Websites entfernen.
+ *
+ * Absichtlich ohne "wenn nichts gewaehlt ist, dann alle": Bei einer Aktion, die
+ * Werbeeinnahmen abstellt, waere das die falsche Grosszuegigkeit.
+ */
+router.post(
+  '/ads/leeren',
+  wrap(async (req, res) => {
+    const siteIds = (Array.isArray(req.body.site_ids) ? req.body.site_ids : []).map(String).slice(0, 100);
+    if (!siteIds.length) return res.status(400).json({ error: 'Bitte mindestens eine Website auswählen.' });
+    return res.json({ ok: true, ergebnisse: await ads.leere(siteIds) });
   })
 );
 

@@ -221,9 +221,11 @@ async function pruefeOeffentlich(siteId) {
 }
 
 /** Alle verbundenen Websites einlesen. */
-async function leseAlle() {
+async function leseAlle(siteIds = null) {
   const reihe = nacheinander(PARALLEL);
-  const sites = verbundeneSites();
+  const sites = siteIds && siteIds.length
+    ? siteIds.map((id) => site(id)).filter((s) => s && s.status === 'connected')
+    : verbundeneSites();
 
   const ergebnisse = await Promise.all(sites.map((s) => reihe(async () => {
     try {
@@ -370,6 +372,48 @@ async function entdoppeleAlle(siteIds) {
   })));
 }
 
+/**
+ * Leert die ads.txt auf mehreren Websites.
+ *
+ * Die haerteste Aktion in diesem Bereich: Danach verkauft dort niemand mehr
+ * Werbung, bis wieder etwas drinsteht. Endgueltig ist sie trotzdem nicht - das
+ * Plugin sichert den bisherigen Stand vor jedem Schreiben, und "Letzte Aenderung
+ * zuruecknehmen" holt ihn auf der Einzelseite zurueck.
+ */
+async function leere(siteIds) {
+  const reihe = nacheinander(PARALLEL);
+
+  const ergebnisse = await Promise.all(siteIds.map((id) => reihe(async () => {
+    const s = site(id);
+    if (!s) return { site_id: id, name: 'unbekannt', ok: false, message: 'Website nicht gefunden.' };
+    if (s.status !== 'connected') return { site_id: id, name: s.name, ok: false, message: 'Nicht verbunden.' };
+
+    const vorher = adstxt.pruefe(s.ads_txt || '').eintraege;
+    if (s.delivery === 'pull') {
+      legeAuftragAb(s.id, 'clear');
+      return { site_id: s.id, name: s.name, ok: true, wartet: true, vorher };
+    }
+
+    try {
+      const antwort = await wp.callSite(s, 'ads-write', { mode: 'clear' });
+      merke(s.id, antwort);
+      return { site_id: s.id, name: s.name, ok: true, wartet: false, vorher };
+    } catch (err) {
+      merkeFehler(s.id, err.message);
+      return { site_id: s.id, name: s.name, ok: false, message: err.message };
+    }
+  })));
+
+  logger.warn('ads', 'leeren',
+    `ads.txt auf ${ergebnisse.filter((e) => e.ok).length} von ${siteIds.length} Website(s) geleert`, {
+      context: {
+        websites: ergebnisse.filter((e) => e.ok).map((e) => `${e.name} (${e.vorher} Einträge)`),
+        fehler: ergebnisse.filter((e) => !e.ok).map((e) => `${e.name}: ${e.message}`),
+      },
+    });
+  return ergebnisse;
+}
+
 /** Den Stand vor dem letzten Schreiben zurueckholen. */
 async function zuruecknehmen(siteId) {
   const s = site(siteId);
@@ -464,7 +508,7 @@ function vergleich() {
 }
 
 module.exports = {
-  lese, leseAlle, ersetze, aufSeiten, entdoppele, entdoppeleAlle, zuruecknehmen, pruefeOeffentlich,
+  lese, leseAlle, ersetze, aufSeiten, entdoppele, entdoppeleAlle, leere, zuruecknehmen, pruefeOeffentlich,
   uebersicht, einzeln, vergleich,
   offenerAuftrag, auftragFertig, wartet, nacheinander, versionReicht,
 };

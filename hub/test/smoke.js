@@ -239,6 +239,9 @@ function starteFakeWordPress(token, siteId) {
           });
           return res.end(JSON.stringify({ ok: true, ...adsSchreiben(bleibt.join('\n')) }));
         }
+        if (modus === 'clear') {
+          return res.end(JSON.stringify({ ok: true, ...adsSchreiben('') }));
+        }
         if (modus === 'restore') {
           return res.end(JSON.stringify({ ok: true, ...adsSchreiben(ads.sicherung || '') }));
         }
@@ -1446,6 +1449,52 @@ async function main() {
     const adsUndo = await ruf(`/api/app/ads/${siteId}/zurueck`, { method: 'POST' });
     pruefe(adsUndo.status === 200 && fakeWp.ads.inhalt.includes('google.com'),
       'Die letzte Aenderung laesst sich zuruecknehmen');
+
+    // Alle Eintraege einer Website entfernen.
+    await ruf('/api/app/ads/eintraege', {
+      method: 'POST',
+      body: { action: 'add', entries: 'google.com, pub-777, DIRECT\ncriteo.com, 42, RESELLER', site_ids: [siteId] },
+    });
+    const vorLeeren = await ruf(`/api/app/ads/${siteId}`);
+    pruefe(vorLeeren.daten.eintraege >= 2 && /criteo\.com/.test(vorLeeren.daten.content || ''),
+      'Zum Leeren stehen Eintraege bereit', String(vorLeeren.daten.eintraege));
+
+    const geleert = await ruf('/api/app/ads/leeren', { method: 'POST', body: { site_ids: [siteId] } });
+    pruefe(geleert.status === 200 && geleert.daten.ergebnisse[0].ok
+      && geleert.daten.ergebnisse[0].vorher === vorLeeren.daten.eintraege,
+      'Die Website wird geleert, und es steht da, wie viel wegfiel',
+      JSON.stringify(geleert.daten.ergebnisse[0]));
+    pruefe(fakeWp.ads.inhalt === '', 'In der Datei steht danach nichts mehr',
+      JSON.stringify(fakeWp.ads.inhalt));
+    const nachLeeren = await ruf(`/api/app/ads/${siteId}`);
+    pruefe(nachLeeren.daten.eintraege === 0, 'Und der Hub weiss das auch');
+
+    // Das Netz darunter: Die Sicherung holt den Stand zurueck.
+    const zurueckgeholt = await ruf(`/api/app/ads/${siteId}/zurueck`, { method: 'POST' });
+    pruefe(zurueckgeholt.status === 200 && zurueckgeholt.daten.eintraege === vorLeeren.daten.eintraege
+      && /criteo\.com/.test(fakeWp.ads.inhalt),
+      'Leeren laesst sich zuruecknehmen', String(zurueckgeholt.daten.eintraege));
+
+    const leerenOhneAuswahl = await ruf('/api/app/ads/leeren', { method: 'POST', body: { site_ids: [] } });
+    pruefe(leerenOhneAuswahl.status === 400,
+      'Ohne Auswahl wird nichts geleert - erst recht nicht alles');
+
+    // Neu einlesen laesst sich auf eine Auswahl eingrenzen.
+    const lesenAuswahl = await ruf('/api/app/ads/lesen', { method: 'POST', body: { site_ids: [siteId] } });
+    pruefe(lesenAuswahl.status === 200 && lesenAuswahl.daten.ergebnisse.length === 1,
+      'Neu einlesen gilt wahlweise nur fuer die gewaehlten Websites',
+      String(lesenAuswahl.daten.ergebnisse.length));
+
+    // Im Abhol-Modus wartet auch das Leeren auf das Plugin.
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'pull' } });
+    const leerenWartet = await ruf('/api/app/ads/leeren', { method: 'POST', body: { site_ids: [siteId] } });
+    pruefe(leerenWartet.daten.ergebnisse[0].wartet === true,
+      'Im Abhol-Modus wird der Leer-Auftrag abgelegt');
+    const pulsLeeren = await alsPlugin('/api/plugin/heartbeat', siteId, token, {});
+    pruefe(pulsLeeren.daten.ads_job && pulsLeeren.daten.ads_job.action === 'clear',
+      'Und das Plugin bekommt ihn mit dem Lebenszeichen',
+      JSON.stringify(pulsLeeren.daten.ads_job || null));
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
 
     // Der oeffentliche Abruf ist der einzige Beweis, der zaehlt.
     await ruf(`/api/app/ads/${siteId}/lesen`, { method: 'POST' });

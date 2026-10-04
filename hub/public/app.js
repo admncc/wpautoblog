@@ -94,6 +94,9 @@ const spur = (status) => ({
 /* Ein Symbol aus dem Satz in der index.html. Faerbt sich mit der Schriftfarbe. */
 const ic = (name, cls = '') => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
+/* "1 Eintrag", aber "2 Eintraege". Eine Schraegstrichform liest sich wie ein Formular. */
+const mehrzahl = (n, eins, viele) => `${n} ${n === 1 ? eins : viele}`;
+
 /* Zahlen, Zeiten und Zaehlwerte stehen ruhig, wenn sie gleich breit sind. */
 const zahl = (wert) => `<span class="num">${esc(wert)}</span>`;
 
@@ -2110,10 +2113,26 @@ async function renderAds(view, siteId) {
 
 /** Die Liste aller Websites mit ihrem Stand. */
 function adsUebersicht(body, sites) {
+  // Gewaehlt werden kann, was verbunden ist. Bei allem anderen liefe jede Aktion
+  // ins Leere.
+  const waehlbar = sites.filter((s) => s.connected);
+  const gewaehlt = (state.data.adsAuswahl || []).filter((id) => waehlbar.some((s) => s.id === id));
+  const alleDrin = waehlbar.length > 0 && gewaehlt.length === waehlbar.length;
+
   body.innerHTML = `
     <section class="card flat">
+      ${gewaehlt.length ? `<div class="bulk">
+        <b>${gewaehlt.length} ausgewählt</b>
+        <span class="spacer"></span>
+        <button class="btn sm" id="ads-aus-keine">Auswahl aufheben</button>
+        <button class="btn sm" id="ads-aus-lesen">${ic('refresh', 'sm')}Neu einlesen</button>
+        <button class="btn sm" id="ads-aus-dedup">${ic('trash', 'sm')}Doppelte entfernen</button>
+        <button class="btn sm danger" id="ads-aus-leeren">${ic('trash', 'sm')}Alle Einträge entfernen</button>
+      </div>` : ''}
       <div class="tblwrap"><table>
         <thead><tr>
+          <th style="width:34px">${waehlbar.length ? `<input type="checkbox" id="ads-aus-alle"
+            title="Alle verbundenen Websites auswählen" ${alleDrin ? 'checked' : ''} />` : ''}</th>
           <th>Website</th><th class="right">Einträge</th><th>Wo die Datei liegt</th>
           <th>Öffentlich abrufbar</th><th class="nowrap">Zuletzt gelesen</th>
         </tr></thead>
@@ -2121,6 +2140,8 @@ function adsUebersicht(body, sites) {
           const [stil, text] = ADS_MODUS[s.mode] || ['', 'noch nicht gelesen'];
           const live = adsLive(s.live);
           return `<tr class="clickable ${s.fehler ? 'is-err' : (s.connected ? 'is-ok' : 'is-idle')}" data-adssite="${esc(s.id)}">
+            <td>${s.connected ? `<input type="checkbox" class="stop" data-adsaus="${esc(s.id)}"
+              ${gewaehlt.includes(s.id) ? 'checked' : ''} />` : ''}</td>
             <td><span class="ttl">${esc(s.name)}</span>
               <span class="meta">${esc(s.url || 'ohne Adresse')}
                 ${s.connected ? '' : '<span class="badge warn">nicht verbunden</span>'}
@@ -2146,6 +2167,78 @@ function adsUebersicht(body, sites) {
     </section>`;
 
   on('[data-adssite]', 'click', (event) => navigate('ads', event.currentTarget.dataset.adssite));
+
+  on('[data-adsaus]', 'change', (event) => {
+    const id = event.currentTarget.dataset.adsaus;
+    const jetzt = state.data.adsAuswahl || [];
+    state.data.adsAuswahl = jetzt.includes(id) ? jetzt.filter((x) => x !== id) : [...jetzt, id];
+    zeichneMitEingaben();
+  });
+  on('#ads-aus-alle', 'change', (event) => {
+    state.data.adsAuswahl = event.currentTarget.checked ? waehlbar.map((s) => s.id) : [];
+    zeichneMitEingaben();
+  });
+  on('#ads-aus-keine', 'click', () => { state.data.adsAuswahl = []; zeichneMitEingaben(); });
+
+  on('#ads-aus-lesen', 'click', (event) => guard(event.currentTarget, async () => {
+    const { ergebnisse } = await api('/api/app/ads/lesen', { method: 'POST', body: { site_ids: gewaehlt } });
+    const gut = ergebnisse.filter((e) => e.ok).length;
+    toast(`${gut} von ${mehrzahl(ergebnisse.length, 'Website', 'Websites')} gelesen.`,
+      gut === ergebnisse.length ? 'ok' : 'err');
+    await render();
+  }));
+
+  on('#ads-aus-dedup', 'click', (event) => guard(event.currentTarget, async () => {
+    const { ergebnisse } = await api('/api/app/ads/entdoppeln', { method: 'POST', body: { site_ids: gewaehlt } });
+    const weg = ergebnisse.reduce((summe, e) => summe + (e.entfernt || 0), 0);
+    toast(`${mehrzahl(weg, 'doppelte Zeile', 'doppelte Zeilen')} entfernt.`);
+    await render();
+  }));
+
+  /* Leeren stellt Werbeeinnahmen ab. Eine Rueckfrage, die benennt, was genau
+     verschwindet - und dass es sich zuruecknehmen laesst. */
+  on('#ads-aus-leeren', 'click', () => {
+    const betroffen = gewaehlt.map((id) => sites.find((s) => s.id === id)).filter(Boolean);
+    const summe = betroffen.reduce((n, s) => n + (s.eintraege || 0), 0);
+
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-backdrop" id="ads-leeren-overlay">
+        <div class="modal" role="dialog" aria-modal="true">
+          <header>${ic('alert', 'lg')}<h2>Alle Einträge entfernen?</h2>
+            <button class="btn quiet icon" data-zu="1">${ic('x', 'sm')}</button></header>
+          <div class="body">
+            <p>Auf ${mehrzahl(betroffen.length, 'Website', 'Websites')} werden
+              <b>${mehrzahl(summe, 'Eintrag', 'Einträge')}</b> gelöscht. Danach darf dort niemand mehr
+              Werbung verkaufen, bis wieder etwas drinsteht.</p>
+            ${betroffen.map((s) => `<div class="item ${s.eintraege ? 'is-err' : 'is-idle'}">
+              <span class="grow"><span class="ttl">${esc(s.name)}</span>
+                <span class="kv"><span>${mehrzahl(s.eintraege || 0, 'Eintrag', 'Einträge')}</span>
+                  ${s.eintraege ? '' : '<span>schon leer</span>'}</span></span>
+            </div>`).join('')}
+            <div class="notice info" style="margin-top:14px">${ic('undo')}<div class="grow">
+              Endgültig ist das nicht: Das Plugin sichert den bisherigen Stand vor jedem Schreiben.
+              Über die Einzelansicht einer Website holt „Letzte Änderung zurücknehmen" ihn wieder.</div></div>
+          </div>
+          <footer><button type="button" class="btn quiet" data-zu="1">Abbrechen</button>
+            <button type="button" class="btn danger" id="ads-leeren-ja">${ic('trash', 'sm')}Ja, entfernen</button></footer>
+        </div>
+      </div>`);
+
+    const zu = () => { const el = document.getElementById('ads-leeren-overlay'); if (el) el.remove(); };
+    document.querySelectorAll('#ads-leeren-overlay [data-zu]').forEach((el) => el.addEventListener('click', zu));
+    document.getElementById('ads-leeren-ja').addEventListener('click', (event) =>
+      guard(event.currentTarget, async () => {
+        const { ergebnisse } = await api('/api/app/ads/leeren', { method: 'POST', body: { site_ids: gewaehlt } });
+        const gut = ergebnisse.filter((e) => e.ok).length;
+        const warten = ergebnisse.filter((e) => e.wartet).length;
+        zu();
+        state.data.adsAuswahl = [];
+        toast(`${gut} von ${mehrzahl(ergebnisse.length, 'Website', 'Websites')} geleert`
+          + `${warten ? `, ${warten} holen den Auftrag selbst ab` : ''}.`,
+          gut === ergebnisse.length ? 'ok' : 'err');
+        await render();
+      }));
+  });
 
   // Der Knopf sitzt in einer anklickbaren Zeile - er soll nicht auch die Seite oeffnen.
   on('[data-adsdedup]', 'click', (event) => {
@@ -2186,7 +2279,10 @@ function adsSammelform(body, sites) {
             placeholder="google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0"></textarea>
           <div class="hint">Eine Zeile je Vermarkter, so wie sie in der Mail des Vermarkters steht:
             Domain, Konto-ID, DIRECT oder RESELLER, dazu freiwillig die Kennung.
-            ${aktion === 'remove' ? 'Zum Entfernen genügen Domain und Konto-ID.' : ''}</div></div>
+            ${aktion === 'remove' ? 'Zum Entfernen genügen Domain und Konto-ID.' : ''}</div>
+          ${aktion === 'remove' ? `<div class="hint">Soll eine Website gar keine Einträge mehr haben,
+            geht das schneller über „Je Website": dort die Seiten anhaken und
+            „Alle Einträge entfernen".</div>` : ''}</div>
 
         <div class="field">
           <div class="row" style="justify-content:space-between;align-items:baseline">
