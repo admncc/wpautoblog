@@ -1672,6 +1672,7 @@ async function renderErzeugung(body, tab, sites, plans) {
               <span class="grow">
                 <span class="ttl">${esc(plan.name)}
                   ${plan.active ? '' : '<span class="badge">pausiert</span>'}
+                  ${plan.auto_topics ? `<span class="badge info">${ic('spark', 'sm')}automatische Themen</span>` : ''}
                   ${plan.auto_publish ? '<span class="badge info">sendet automatisch</span>' : ''}</span>
                 <span class="kv">
                   <span>${esc(plan.site_name)}</span>
@@ -1688,9 +1689,16 @@ async function renderErzeugung(body, tab, sites, plans) {
               </span>
             </div>
             ${auf ? `<div style="margin-top:12px">
+              <label class="check" style="margin:0 0 12px">
+                <input type="checkbox" data-autotopics="${esc(plan.id)}" ${plan.auto_topics ? 'checked' : ''} />
+                <span><b>Automatische Themen</b>
+                  <i>Die KI sucht jedes Mal selbst ein Thema aus dem, was die Website schon hat,
+                    und meidet alles, was schon behandelt wurde.</i></span></label>
               <div class="field"><label>Themenbereiche, eine Zeile je Bereich</label>
                 <textarea data-areas="${esc(plan.id)}" rows="6">${esc(plan.areas)}</textarea>
-                <div class="hint">Greift erst, wenn die Themenliste der Website leer ist.</div></div>
+                <div class="hint">${plan.auto_topics
+                  ? 'Grenzt die Suche ein. Leer heißt: alles, was zur Website passt.'
+                  : 'Greift erst, wenn die Themenliste der Website leer ist.'}</div></div>
               <div class="row" style="align-items:flex-end;gap:12px">
                 <div class="field" style="margin:0;width:140px"><label>Posts pro Woche</label>
                   <input type="number" min="1" max="14" data-perweek="${esc(plan.id)}" value="${plan.per_week}" /></div>
@@ -1720,12 +1728,20 @@ async function renderErzeugung(body, tab, sites, plans) {
             <div class="field"><label for="plan-name">Name des Plans</label>
               <input id="plan-name" placeholder="z. B. Ratgeber Kaffee" /></div>
           </div>
+          <label class="check" style="margin:8px 0 14px">
+            <input type="checkbox" id="plan-auto-topics" ${state.data.planAutoThemen ? 'checked' : ''} />
+            <span><b>Automatische Themen</b>
+              <i>Die KI sucht vor jedem Beitrag selbst ein Thema: Sie sieht sich die vorhandenen
+                Beiträge und Kategorien der Website an und nimmt das, was fehlt. Bereits
+                behandelte Themen werden dabei ausgeschlossen, auch wenn sie anders heißen.</i></span></label>
+
           <div class="field">
             <label for="plan-areas">Themenbereiche, eine Zeile je Bereich</label>
             <textarea id="plan-areas" rows="6"
               placeholder="Kaffeezubereitung zu Hause&#10;Kaffeemaschinen pflegen&#10;Bohnensorten und Röstung"></textarea>
-            <div class="hint">Nur die Reserve: Solange die Themenliste der Website gefüllt ist,
-              arbeitet der Plan die ab.</div>
+            <div class="hint" id="plan-areas-hint">${state.data.planAutoThemen
+              ? 'Grenzt die Suche ein. Leer lassen heißt: Die KI darf alles nehmen, was zur Website passt.'
+              : 'Nur die Reserve: Solange die Themenliste der Website gefüllt ist, arbeitet der Plan die ab.'}</div>
           </div>
           <div class="fields-2">
             <div class="field"><label for="plan-per-week">Posts pro Woche</label>
@@ -1740,6 +1756,18 @@ async function renderErzeugung(body, tab, sites, plans) {
           <div class="formfoot"><button class="btn primary" type="submit">Plan anlegen</button></div>
         </form>`, 'margin-top:16px')}`;
 
+    /* Der Hinweis unter den Themenbereichen stimmt nur, wenn er sich mitdreht:
+       Mit automatischen Themen sind sie ein Rahmen, ohne sie eine Reserve. */
+    on('#plan-auto-topics', 'change', (event) => {
+      state.data.planAutoThemen = event.currentTarget.checked;
+      const hinweis = root.querySelector('#plan-areas-hint');
+      if (hinweis) {
+        hinweis.textContent = event.currentTarget.checked
+          ? 'Grenzt die Suche ein. Leer lassen heißt: Die KI darf alles nehmen, was zur Website passt.'
+          : 'Nur die Reserve: Solange die Themenliste der Website gefüllt ist, arbeitet der Plan die ab.';
+      }
+    });
+
     on('#plan-form', 'submit', (event) => {
       event.preventDefault();
       guard(event.target.querySelector('button'), async () => {
@@ -1752,6 +1780,7 @@ async function renderErzeugung(body, tab, sites, plans) {
             per_week: root.querySelector('#plan-per-week').value,
             publish_hour: root.querySelector('#plan-hour').value,
             auto_publish: root.querySelector('#plan-auto-publish').checked,
+            auto_topics: root.querySelector('#plan-auto-topics').checked,
           },
         });
         toast('Plan angelegt.');
@@ -1766,6 +1795,7 @@ async function renderErzeugung(body, tab, sites, plans) {
           areas: root.querySelector(`[data-areas="${id}"]`).value,
           per_week: root.querySelector(`[data-perweek="${id}"]`).value,
           publish_hour: root.querySelector(`[data-hour="${id}"]`).value,
+          auto_topics: root.querySelector(`[data-autotopics="${id}"]`).checked,
         },
       });
       toast('Gespeichert.');

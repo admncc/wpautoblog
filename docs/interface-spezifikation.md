@@ -206,6 +206,17 @@ weil niemand davorsitzt. Angefasst wird nur, was noch leer ist.
 
 ### 4.5 Posts (`#/posts`)
 
+Im Reiter **Wiederkehrend** steht im Plan-Formular ganz oben die Checkbox
+„Automatische Themen“. Mit Haken sucht die KI vor jedem Beitrag selbst eines: Sie
+bekommt die Kategorien der Website samt Beitragszahl, die Titel aller Beiträge (aus dem
+Hub und live von der Website) und alle vergebenen Themen – und soll die Lücke finden.
+Der Vorschlag wird danach gegen denselben Bestand geprüft, auf gleiche Sache, nicht
+gleiche Wörter. Ist er eine Wiederholung, läuft es noch zweimal mit erweiterter
+Sperrliste; findet sich nichts Neues, fällt der Durchlauf aus. Der Hinweis unter
+„Themenbereiche“ dreht sich mit: ohne Haken eine Reserve, mit Haken ein Rahmen für die
+Suche. In der Planliste erscheint das Abzeichen „automatische Themen“.
+
+
 Drei Reiter:
 
 **Post erzeugen** — Website, Thema, Blickwinkel, ein Knopf. Der direkteste Weg im

@@ -580,6 +580,103 @@ ${transcript}`;
   return { ...aufbereiten(data, site, imageCount, video.title, kategorien), ...usage };
 }
 
+// ------------------------------------------------- Thema aus dem Bestand ableiten
+
+const NAECHSTES_SCHEMA = {
+  type: 'object',
+  properties: {
+    keyword: { type: 'string', description: 'Das Thema als Suchbegriff, wie ihn jemand eintippt' },
+    angle: { type: 'string', description: 'Ein Satz: welchen Blickwinkel der Artikel nimmt' },
+    luecke: {
+      type: 'string',
+      description: 'Ein Satz: Warum fehlt dieses Thema bisher? Woran hast du die Lücke erkannt?',
+    },
+  },
+  required: ['keyword', 'angle', 'luecke'],
+  additionalProperties: false,
+};
+
+function naechstesSystemPrompt() {
+  return `ROLLE
+Du bist der Redakteur dieser Website und suchst das nächste Thema. Nicht irgendeines,
+das zum Themenfeld passt, sondern das eine, das noch fehlt.
+
+WIE DU SUCHST
+1. Sieh dir an, was schon dasteht: die Beiträge, die Kategorien, die Zahl der Beiträge
+   je Kategorie. Daraus ergibt sich, worum es auf dieser Website geht.
+2. Such die Lücke. Eine Kategorie mit vielen Beiträgen ist gut abgedeckt; eine, die
+   zum Thema gehört und kaum Beiträge hat, ist der naheliegende Ort. Genauso: eine
+   Frage, die sich aus den vorhandenen Beiträgen aufdrängt und die keiner beantwortet.
+3. Prüfe dein Thema gegen die Liste der vergebenen Themen. Nicht nur auf gleiche
+   Wörter, sondern auf gleiche Sache: "Kaffeemaschine entkalken" und "So entkalkst du
+   deine Maschine" sind dasselbe Thema. Ist es dabei, nimm ein anderes.
+
+WAS EIN GUTES THEMA AUSMACHT
+- Es beantwortet eine Frage, die jemand wirklich eintippt. Kein Oberbegriff, keine
+  Überschrift aus einer Broschüre.
+- Es ist eng genug für einen Artikel. "Kaffee" ist kein Thema, "Mahlgrad für die
+  French Press" schon.
+- Es passt zum Publikum dieser Website, nicht zu einem allgemeinen.
+- Es ergänzt den Bestand, statt ihn zu wiederholen. Ein zweiter Artikel zum selben
+  Thema nimmt dem ersten die Leser, statt neue zu bringen: Beide ranken dann
+  schlechter als einer allein.
+
+WIE DU ANTWORTEST
+- Auf Deutsch, wenn die Website deutsch schreibt, sonst in ihrer Sprache.
+- Echte Umlaute (ä, ö, ü, ß), niemals ae/oe/ue/ss.
+- Verwende NIEMALS den langen Gedankenstrich "—".
+- Bei "luecke" schreibst du, woran du die Lücke erkannt hast. Ein Satz, konkret.
+  "Passt zum Thema" ist keine Antwort; "Zu Reinigung gibt es sieben Beiträge, zur
+  Wasserhärte keinen" ist eine.`;
+}
+
+/**
+ * Sucht das naechste Thema fuer eine Website - aus dem, was schon dasteht.
+ *
+ * @param {object} p.kontext  { kategorien, beitraege, themen } aus Hub und Website
+ * @param {string[]} p.vermeiden  Themen, die es schon gibt. Die Liste ist die
+ *   wichtigste Eingabe: Ohne sie schlaegt ein Modell gern dreimal dasselbe vor.
+ */
+async function naechstesThema({ site, bereiche = [], kontext = {}, vermeiden = [] }) {
+  const liste = (titel, werte, max) => (werte && werte.length
+    ? `${titel}\n${werte.slice(0, max).map((w) => `- ${w}`).join('\n')}`
+    : '');
+
+  const prompt = [
+    siteBriefing(site),
+    bereiche.length ? `\nDer Plan nennt diese Themenbereiche:\n- ${bereiche.join('\n- ')}` : '',
+    liste('\nDIE KATEGORIEN DER WEBSITE (mit Anzahl der Beiträge)', kontext.kategorien, 30),
+    liste('\nBEITRÄGE, DIE ES SCHON GIBT', kontext.beitraege, 120),
+    liste('\nTHEMEN, DIE BEREITS VERGEBEN SIND', vermeiden, 200),
+    `\nAufgabe: Nenne genau EIN Thema für den nächsten Artikel.`,
+    vermeiden.length
+      ? 'Es darf keines sein, das oben schon steht - auch nicht dieselbe Sache in anderen Worten.'
+      : '',
+  ].filter(Boolean).join('\n');
+
+  const { data } = await runJson({
+    system: naechstesSystemPrompt(),
+    prompt,
+    schema: NAECHSTES_SCHEMA,
+    maxTokens: 3000,
+    kind: 'thema',
+    meta: {
+      siteId: site.id,
+      context: {
+        vermieden: vermeiden.length,
+        beitraege: (kontext.beitraege || []).length,
+        kategorien: (kontext.kategorien || []).length,
+      },
+    },
+  });
+
+  return {
+    keyword: replaceEmDash(sanitizeText(data.keyword, 160)),
+    angle: replaceEmDash(sanitizeText(data.angle, 300)),
+    luecke: replaceEmDash(sanitizeText(data.luecke, 300)),
+  };
+}
+
 // ------------------------------------------------------- Inhalt & Stil ableiten
 
 const PROFIL_SCHEMA = {
@@ -755,11 +852,12 @@ const schemata = () => ({
   video: VIDEO_SCHEMA,
   themen: TOPICS_SCHEMA,
   profil: PROFIL_SCHEMA,
+  thema: NAECHSTES_SCHEMA,
   artikelMitKategorien: articleSchema(['Ratgeber', 'Technik']),
 });
 
 module.exports = {
   MODELS, AiError, generateArticle, generateFromVideo, generateTargeted, generateBacklink,
-  suggestTopics, generateSiteProfile, aufbereiten, keywordDichte, schemaFuerBacklink,
+  suggestTopics, naechstesThema, generateSiteProfile, aufbereiten, keywordDichte, schemaFuerBacklink,
   PROFIL_SCHEMA, schemata,
 };

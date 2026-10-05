@@ -816,8 +816,8 @@ router.post(
 
     const id = randomId('plan');
     db.prepare(
-      `INSERT INTO plans (id, site_id, name, areas, per_week, publish_hour, auto_publish, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+      `INSERT INTO plans (id, site_id, name, areas, per_week, publish_hour, auto_publish, auto_topics, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`
     ).run(
       id,
       site.id,
@@ -825,7 +825,8 @@ router.post(
       String(req.body.areas || '').slice(0, 4000),
       Math.max(1, Math.min(14, Number(req.body.per_week) || 2)),
       Math.max(0, Math.min(23, Number(req.body.publish_hour) || 9)),
-      req.body.auto_publish ? 1 : 0
+      req.body.auto_publish ? 1 : 0,
+      req.body.auto_topics ? 1 : 0
     );
     service.scheduleNextRun(id);
     logger.info('plan', 'create', `Wiederkehrende Posts eingerichtet fuer ${site.name}`, { siteId: site.id, requestId: req.requestId });
@@ -845,6 +846,7 @@ router.patch(
     if ('per_week' in req.body) patch.per_week = Math.max(1, Math.min(14, Number(req.body.per_week) || 2));
     if ('publish_hour' in req.body) patch.publish_hour = Math.max(0, Math.min(23, Number(req.body.publish_hour) || 0));
     if ('auto_publish' in req.body) patch.auto_publish = req.body.auto_publish ? 1 : 0;
+    if ('auto_topics' in req.body) patch.auto_topics = req.body.auto_topics ? 1 : 0;
     if ('active' in req.body) patch.active = req.body.active ? 1 : 0;
 
     if (Object.keys(patch).length) {

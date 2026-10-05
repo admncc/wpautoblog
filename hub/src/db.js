@@ -222,6 +222,10 @@ CREATE TABLE IF NOT EXISTS backlinks (
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );`);
 
+// Themen jedes Mal frisch aus dem Bestand der Website ableiten, statt eine Liste
+// abzuarbeiten.
+ensureColumn('plans', 'auto_topics', 'INTEGER NOT NULL DEFAULT 0');
+
 // Backlink-Artikel gehen von selbst raus, sobald sie fertig sind.
 ensureColumn('backlinks', 'auto_publish', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('articles', 'backlink_id', 'TEXT');

@@ -1060,6 +1060,109 @@ async function main() {
       abweiser.close();
     }
 
+    // Automatische Themen: Der Plan sucht jedes Mal selbst, ohne sich zu wiederholen.
+    console.log('\nAutomatische Themen');
+    const vergleich = require('../src/textvergleich');
+
+    const gleich = [
+      ['Kaffeemaschine richtig entkalken', 'So entkalkst du die Kaffeemaschine'],
+      ['Bohnen richtig lagern', 'So lagerst du Kaffeebohnen richtig'],
+      ['Siebträger reinigen', 'Siebträger richtig reinigen'],
+      ['Ausmalbilder drucken: Papier und Format', 'Ausmalbilder ausdrucken: Papier, Drucker und Stifte'],
+    ];
+    const anders = [
+      ['Kaffeemaschine entkalken', 'Wasserkocher entkalken'],
+      ['Espresso oder Filterkaffee', 'Bohnen richtig lagern'],
+      ['Milchschaum ohne Düsen', 'Mahlgrad richtig einstellen'],
+      ['Kaffeemaschine entkalken', 'Kaffeemaschine reinigen: Brühgruppe und Dichtungen'],
+    ];
+    const falschGleich = gleich.filter(([a, b]) => vergleich.themenNaehe(a, b) < 0.7);
+    const falschAnders = anders.filter(([a, b]) => vergleich.themenNaehe(a, b) >= 0.7);
+    pruefe(!falschGleich.length,
+      'Dasselbe Thema in anderen Worten wird als Wiederholung erkannt',
+      falschGleich.map((p) => p.join(' <-> ')).join(' | '));
+    pruefe(!falschAnders.length,
+      'Verwandte, aber eigene Themen gelten nicht als Wiederholung',
+      falschAnders.map((p) => p.join(' <-> ')).join(' | '));
+
+    pruefe(vergleich.themenNaehe('Mahlgrad einstellen', '') === 0,
+      'Gegen nichts wird nicht verglichen');
+    const treffer = vergleich.schonDagewesen('Kaffeemaschine entkalken',
+      ['Bohnen lagern', 'So entkalkst du deine Kaffeemaschine', 'Mahlgrad']);
+    pruefe(treffer && /entkalkst/.test(treffer.thema) && treffer.naehe >= 0.7,
+      'Der aehnlichste Treffer wird benannt, nicht irgendeiner', JSON.stringify(treffer));
+    pruefe(vergleich.schonDagewesen('Wasserhärte messen', ['Bohnen lagern', 'Mahlgrad']) === null,
+      'Ein wirklich neues Thema kommt durch');
+
+    // Der Kontext, aus dem die KI sucht.
+    const kontextSite = db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId);
+    const kontext = service.themenKontext(kontextSite, ['Ein Beitrag direkt von der Website']);
+    pruefe(kontext.kategorien.some((k) => /\(\d+ Beiträge\)|\(noch leer\)/.test(k)),
+      'Die Kategorien kommen mit ihrer Beitragszahl', kontext.kategorien[0]);
+    pruefe(kontext.beitraege.includes('Ein Beitrag direkt von der Website'),
+      'Was auf der Website steht, zaehlt mit - nicht nur was der Hub kennt');
+    pruefe(kontext.vermeiden.length === new Set(kontext.vermeiden).size,
+      'Die Liste zu vermeidender Themen enthaelt nichts doppelt');
+    pruefe(kontext.vermeiden.length >= kontext.beitraege.length,
+      'Vergebene Themen und Beitraege landen beide darin',
+      `${kontext.vermeiden.length} aus ${kontext.beitraege.length} Beitraegen`);
+
+    // Der Plan merkt sich den Schalter.
+    const planAuto = await ruf('/api/app/plans', {
+      method: 'POST',
+      body: { site_id: siteId, name: 'Selbstsucher', areas: 'Kaffee', per_week: 2, auto_topics: true },
+    });
+    pruefe(planAuto.status === 201 && planAuto.daten.auto_topics === 1,
+      'Ein Plan laesst sich mit automatischen Themen anlegen', JSON.stringify(planAuto.daten.auto_topics));
+    await ruf(`/api/app/plans/${planAuto.daten.id}`, { method: 'PATCH', body: { auto_topics: false } });
+    pruefe(db.prepare('SELECT auto_topics FROM plans WHERE id = ?').get(planAuto.daten.id).auto_topics === 0,
+      'Und wieder abschalten');
+    await ruf(`/api/app/plans/${planAuto.daten.id}`, { method: 'DELETE' });
+
+    pruefe(ai.schemata().thema.required.includes('luecke'),
+      'Die KI muss begruenden, welche Luecke sie gefunden hat');
+
+    /* Das Versprechen "keine Wiederholungen" haengt nicht am Prompt, sondern am
+       Nachpruefen. Hier antwortet die KI absichtlich mit Bekanntem. */
+    const echtesThema = ai.naechstesThema;
+    const planFuerTest = { id: 'plan_test', name: 'Testplan', areas: 'Kaffee' };
+    db.prepare("INSERT INTO topics (id, site_id, keyword, angle, source) VALUES ('top_test', ?, ?, '', 'manual')")
+      .run(siteId, 'Kaffeemaschine entkalken');
+    try {
+      // 1. Dreimal dasselbe in anderen Worten: Es darf nichts durchkommen.
+      let gefragt = 0;
+      ai.naechstesThema = async () => {
+        gefragt += 1;
+        return { keyword: 'So entkalkst du deine Kaffeemaschine', angle: 'a', luecke: 'l' };
+      };
+      const nichts = await service.automatischesThema(planFuerTest,
+        db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId));
+      pruefe(nichts === null && gefragt === 3,
+        'Ein bekanntes Thema kommt auch nach drei Anlaeufen nicht durch',
+        `${gefragt} Anlaeufe, Ergebnis ${JSON.stringify(nichts)}`);
+
+      // 2. Beim zweiten Anlauf etwas Neues: Das wird genommen.
+      let runde = 0;
+      const gesehen = [];
+      ai.naechstesThema = async ({ vermeiden }) => {
+        runde += 1;
+        gesehen.push(vermeiden.length);
+        return runde === 1
+          ? { keyword: 'Kaffeemaschine entkalken leicht gemacht', angle: 'a', luecke: 'l' }
+          : { keyword: 'Wasserhärte messen und einstellen', angle: 'b', luecke: 'l' };
+      };
+      const neues = await service.automatischesThema(planFuerTest,
+        db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId));
+      pruefe(neues && /Wasserhärte/.test(neues.keyword),
+        'Ein wirklich neues Thema wird genommen', neues && neues.keyword);
+      pruefe(gesehen.length === 2 && gesehen[1] === gesehen[0] + 1,
+        'Der abgelehnte Vorschlag wandert in die Liste, die die KI beim naechsten Mal sieht',
+        JSON.stringify(gesehen));
+    } finally {
+      ai.naechstesThema = echtesThema;
+      db.prepare("DELETE FROM topics WHERE id = 'top_test'").run();
+    }
+
     // Sammelversand: einzelne oder alle Beitraege auf einmal an WordPress.
     console.log('\nSammelversand');
     await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });

@@ -7,9 +7,11 @@ const images = require('./images');
 const youtube = require('./youtube');
 const { randomId } = require('./util');
 const { PUBLIC_URL } = require('./config');
-const { pruefeUebernahme } = require('./textvergleich');
+const textvergleich = require('./textvergleich');
+const { pruefeUebernahme } = textvergleich;
 const { safeLink, escapeHtml } = require('./sanitize');
 const webseite = require('./webseite');
+const siteprofil = require('./siteprofil');
 
 const getSite = (id) => db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
 
@@ -857,7 +859,124 @@ function scheduleNextRun(planId) {
 }
 
 /** Naechstes Thema fuer einen Plan: offene Themen zuerst, sonst neue von der KI. */
+/**
+ * Alles, was die Website schon hat - fuer die Suche nach dem naechsten Thema.
+ *
+ * Drei Quellen, die sich ergaenzen: die Kategorien (was gehoert ueberhaupt hierher),
+ * die Beitraege (was ist schon gesagt) und die vergebenen Themen (was ist in Arbeit).
+ * Der Hub kennt nur, was er selbst erzeugt hat; die Website kennt auch alles, was
+ * vorher da war. Deshalb wird beides zusammengelegt.
+ */
+function themenKontext(site, liveTitel = []) {
+  let kategorien = [];
+  try {
+    kategorien = JSON.parse(site.categories || '[]')
+      .filter((k) => k && k.name)
+      .sort((a, b) => (b.count || 0) - (a.count || 0))
+      .slice(0, 30)
+      .map((k) => `${k.name}${k.count ? ` (${k.count} Beiträge)` : ' (noch leer)'}`);
+  } catch { /* noch nichts gemeldet */ }
+
+  const ausDemHub = db
+    .prepare('SELECT title, keyword FROM articles WHERE site_id = ? ORDER BY created_at DESC LIMIT 200')
+    .all(site.id)
+    .map((a) => (a.title || a.keyword || '').trim())
+    .filter(Boolean);
+
+  const themen = db
+    .prepare('SELECT keyword FROM topics WHERE site_id = ? ORDER BY created_at DESC LIMIT 200')
+    .all(site.id)
+    .map((t) => String(t.keyword || '').trim())
+    .filter(Boolean);
+
+  // Doppeltes raus, Reihenfolge erhalten: Neues zuerst, das ist das Aussagekraeftigste.
+  const beitraege = [...new Set([...ausDemHub, ...liveTitel])];
+  return { kategorien, beitraege, themen, vermeiden: [...new Set([...beitraege, ...themen])] };
+}
+
+/**
+ * Die Beitragstitel, die wirklich auf der Website stehen.
+ *
+ * Darf scheitern: Die Schnittstelle kann gesperrt sein, die Seite langsam. Dann
+ * arbeitet die Themensuche mit dem, was der Hub selbst weiss - schlechter, aber
+ * nicht falsch.
+ */
+async function liveTitel(site) {
+  if (!site.url) return [];
+  try {
+    const ziel = `${String(site.url).replace(/\/+$/, '')}/wp-json/wp/v2/posts`
+      + '?per_page=100&orderby=date&order=desc&_fields=title';
+    const posts = await webseite.leseJson(ziel);
+    return (Array.isArray(posts) ? posts : [])
+      .map((p) => siteprofil.ohneTags(p.title && p.title.rendered))
+      .filter(Boolean);
+  } catch (err) {
+    logger.debug('plan', 'themen', `Beitragstitel nicht abrufbar: ${err.message || err}`, { siteId: site.id });
+    return [];
+  }
+}
+
+const AEHNLICH_GRENZE = 0.7;
+const VERSUCHE = 3;
+
+/**
+ * Sucht ein Thema, das es noch nicht gibt.
+ *
+ * Mehrere Anlaeufe, und jeder abgelehnte Vorschlag wandert in die Liste der
+ * vergebenen Themen. Das ist wirksamer als eine Ermahnung im Prompt: Das Modell
+ * sieht beim naechsten Anlauf schwarz auf weiss, dass dieser Weg schon beschritten
+ * ist. Findet es nach drei Anlaeufen nichts Neues, faellt dieser Durchlauf aus -
+ * lieber kein Artikel als derselbe Artikel zweimal.
+ */
+async function automatischesThema(plan, site) {
+  const bereiche = String(plan.areas || '').split('\n').map((a) => a.trim()).filter(Boolean);
+  const kontext = themenKontext(site, await liveTitel(site));
+  const vermeiden = [...kontext.vermeiden];
+
+  for (let versuch = 1; versuch <= VERSUCHE; versuch += 1) {
+    const vorschlag = await ai.naechstesThema({ site, bereiche, kontext, vermeiden });
+    if (!vorschlag.keyword) continue;
+
+    const schon = textvergleich.schonDagewesen(vorschlag.keyword, vermeiden, AEHNLICH_GRENZE);
+    if (!schon) {
+      logger.info('plan', 'themen', `Neues Thema gefunden: "${vorschlag.keyword}"`, {
+        siteId: site.id,
+        context: {
+          plan: plan.name, angle: vorschlag.angle, luecke: vorschlag.luecke,
+          versuch, geprueft_gegen: vermeiden.length,
+        },
+      });
+      return vorschlag;
+    }
+
+    logger.warn('plan', 'themen',
+      `Vorschlag "${vorschlag.keyword}" gibt es schon als "${schon.thema}" - neuer Anlauf`, {
+        siteId: site.id,
+        context: { plan: plan.name, naehe: Number(schon.naehe.toFixed(2)), versuch },
+      });
+    vermeiden.push(vorschlag.keyword);
+  }
+
+  logger.warn('plan', 'themen',
+    `Plan "${plan.name}": nach ${VERSUCHE} Anläufen kein Thema, das es nicht schon gibt.`
+    + ' Dieser Durchlauf fällt aus, der nächste versucht es erneut.', { siteId: site.id });
+  return null;
+}
+
 async function nextTopicForPlan(plan, site) {
+  // Automatische Themen gehen nicht ueber die Themenliste: Es wird jedes Mal frisch
+  // gesucht, mit Blick auf alles, was die Website schon hat.
+  if (plan.auto_topics) {
+    const vorschlag = await automatischesThema(plan, site);
+    if (!vorschlag) return null;
+
+    const id = randomId('top');
+    db.prepare(
+      "INSERT INTO topics (id, site_id, plan_id, keyword, angle, source, status) VALUES (?, ?, ?, ?, ?, 'ai', 'used')"
+    ).run(id, site.id, plan.id, vorschlag.keyword, vorschlag.angle);
+    return { id, keyword: vorschlag.keyword, angle: vorschlag.angle };
+  }
+
   const pick = () =>
     db.prepare("SELECT * FROM topics WHERE site_id = ? AND status = 'open' ORDER BY created_at ASC LIMIT 1").get(site.id);
 
@@ -964,5 +1083,5 @@ module.exports = {
   startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
   computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer, darfSenden,
   startBacklink, ankerVarianten, setzeVerweis, nacheinander,
-  raeumeHaengende, brichAb, sendeMehrere,
+  raeumeHaengende, brichAb, sendeMehrere, themenKontext, automatischesThema,
 };
