@@ -388,6 +388,21 @@ async function main() {
     pruefe(site.daten.wp_status === 'publish',
       'Eine neue Website veroeffentlicht sofort, statt Entwuerfe anzulegen', site.daten.wp_status);
 
+    // Die Websiteliste traegt die Spalten, nach denen sie sortiert wird.
+    const zweite = await ruf('/api/app/sites', {
+      method: 'POST', body: { name: 'Aaa-Testblog', url: 'https://aaa.example' },
+    });
+    const seitenListe = await ruf('/api/app/sites');
+    pruefe(seitenListe.daten.length === 2 && seitenListe.daten[0].name === 'Aaa-Testblog',
+      'Die Websiteliste kommt nach Namen sortiert', seitenListe.daten.map((x) => x.name).join(', '));
+    pruefe(seitenListe.daten.every((x) => 'article_count' in x && 'published_count' in x
+      && 'created_at' in x && 'last_seen_at' in x),
+      'Sie bringt die Werte mit, nach denen sich sortieren laesst',
+      JSON.stringify(Object.keys(seitenListe.daten[0]).filter((k) => /count|_at$/.test(k))));
+    pruefe(seitenListe.daten.every((x) => !('token' in x) && !('secret' in x)),
+      'Der Token bleibt dabei weiterhin draussen');
+    await ruf(`/api/app/sites/${zweite.daten.id}`, { method: 'DELETE' });
+
     fakeWp = starteFakeWordPress(token, siteId);
 
     const falscherToken = await ruf('/api/plugin/connect', { method: 'POST', body: { token: 'wpab_falsch' }, mitCookie: false });

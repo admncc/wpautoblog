@@ -4,6 +4,7 @@
 const state = {
   session: null, route: 'dashboard', param: null, data: {}, busy: false,
   sortA: ['created', 'ab'],   /* Artikelliste: Spalte, Richtung */
+  sortS: ['name', 'auf'],     /* Websites: nach Name, von A nach Z */
   sortL: ['zeit', 'ab'],      /* Protokoll */
 };
 const root = document.getElementById('root');
@@ -785,6 +786,45 @@ async function renderDashboard(view) {
 
 // ---------------------------------------------------------------- Websites
 
+/* Die Websiteliste als Tabelle. Voreinstellung ist der Name von A nach Z: Danach
+   sucht man eine bestimmte Seite. Alles andere beantwortet eine Frage, die man
+   seltener hat, und ist deshalb nur einen Klick entfernt. */
+function siteTable(sites) {
+  const sortiert = sortiere(sites, state.sortS, {
+    name: (s) => (s.name || '').toLowerCase(),
+    status: (s) => (s.connected ? 1 : 0),
+    beitraege: (s) => s.article_count || 0,
+    plugin: (s) => (s.plugin_version || '').padStart(12, '0'),
+    gesehen: (s) => s.last_seen_at || '',
+    angelegt: (s) => s.created_at || '',
+  });
+
+  return `<div class="tblwrap"><table>
+    <thead><tr>
+      ${sortKopf('sortS', 'name', 'Website')}
+      ${sortKopf('sortS', 'status', 'Status')}
+      ${sortKopf('sortS', 'beitraege', 'Beiträge', 'right')}
+      ${sortKopf('sortS', 'plugin', 'Plugin')}
+      ${sortKopf('sortS', 'gesehen', 'Zuletzt gesehen', 'nowrap')}
+      ${sortKopf('sortS', 'angelegt', 'Hinzugefügt', 'nowrap')}
+    </tr></thead>
+    <tbody>${sortiert.map((site) => `<tr class="clickable ${site.connected ? 'is-ok' : 'is-warn'}"
+      data-site="${esc(site.id)}">
+      <td><span class="ttl">${esc(site.name)}</span>
+        <span class="meta">${esc(site.url || 'noch keine Adresse')}</span></td>
+      <td data-label="Status">${site.connected
+        ? `<span class="badge ok">${ic('check', 'sm')}verbunden</span>`
+        : `<span class="badge warn">${ic('clock', 'sm')}wartet auf Plugin</span>`}</td>
+      <td data-label="Beiträge" class="right">${site.article_count
+        ? `<b>${site.article_count}</b><span class="meta">${site.published_count} veröffentlicht</span>`
+        : '–'}</td>
+      <td data-label="Plugin">${esc(site.plugin_version || '–')}</td>
+      <td data-label="Zuletzt gesehen" class="nowrap">${esc(fmtDate(site.last_seen_at))}</td>
+      <td data-label="Hinzugefügt" class="nowrap">${esc(fmtDate(site.created_at))}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
 async function renderSites(view) {
   const sites = await api('/api/app/sites');
 
@@ -796,17 +836,7 @@ async function renderSites(view) {
 
     ${sites.length ? `<section class="card flat">
       <div class="card-head"><h2>Angelegte Websites</h2><span class="count">${sites.length}</span></div>
-      ${sites.map((site) => `<div class="item ${site.connected ? 'is-ok' : 'is-warn'}" data-site="${esc(site.id)}">
-        <span class="dot ${site.connected ? 'ok' : 'warn'}"></span>
-        <span class="grow"><span class="ttl">${esc(site.name)}</span>
-          <span class="kv"><span>${esc(site.url || 'noch keine Adresse')}</span>
-            <span>Plugin <b>${esc(site.plugin_version || '—')}</b></span>
-            <span>zuletzt gesehen <b>${esc(fmtDate(site.last_seen_at))}</b></span></span></span>
-        <span class="side">${site.connected
-          ? `<span class="badge ok">${ic('check', 'sm')}verbunden</span>`
-          : `<span class="badge warn">${ic('clock', 'sm')}wartet auf Plugin</span>`}
-          ${ic('chev', 'sm')}</span>
-      </div>`).join('')}
+      ${siteTable(sites)}
     </section>`
     : `<div class="card"><div class="empty"><span class="ring">${ic('globe', 'lg')}</span>
         <b>Noch keine Website</b>

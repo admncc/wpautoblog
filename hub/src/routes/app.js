@@ -191,8 +191,21 @@ router.get(
   '/sites',
   wrap((req, res) => {
     // Der Token steht nur auf der Detailseite, wo er auch gebraucht wird.
-    res.json(db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all()
-      .map(publicSite).map(({ token, ...rest }) => rest));
+    // Die Zahlen kommen in einem Zug mit: Die Liste sortiert danach, und ein
+    // Abruf je Website waere bei zwanzig Seiten ein Dutzend Abfragen zu viel.
+    const zahlen = new Map(db.prepare(
+      `SELECT site_id, COUNT(*) AS gesamt,
+              SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) AS veroeffentlicht
+       FROM articles GROUP BY site_id`
+    ).all().map((z) => [z.site_id, z]));
+
+    res.json(db.prepare('SELECT * FROM sites ORDER BY name COLLATE NOCASE').all()
+      .map(publicSite)
+      .map(({ token, ...rest }) => ({
+        ...rest,
+        article_count: (zahlen.get(rest.id) || {}).gesamt || 0,
+        published_count: (zahlen.get(rest.id) || {}).veroeffentlicht || 0,
+      })));
   })
 );
 
