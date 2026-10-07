@@ -2086,6 +2086,33 @@ function adsLive(wert) {
   return { stand, text, stil };
 }
 
+/*
+ * Die OWNERDOMAIN-Spalte: Steht in der Datei, wem die Seite gehoert?
+ *
+ * Die Zeile ergibt sich aus der Adresse der Website, es gibt also nichts zu
+ * entscheiden - deshalb steht hier kein Formular, sondern eine Antwort und
+ * hoechstens ein Knopf.
+ */
+function adsOwnerZelle(o) {
+  if (!o || o.stand === 'unbekannt') {
+    return '<span class="meta">keine Domain ablesbar</span>';
+  }
+  if (o.stand === 'ungelesen') return '<span class="meta">noch nicht gelesen</span>';
+  if (o.stand === 'ok') {
+    return `<span class="badge ok">${ic('check', 'sm')}ja</span>
+      <span class="meta">${esc(o.ist)}</span>`;
+  }
+  if (o.stand === 'anders') {
+    return `<span class="badge warn">andere Domain</span>
+      <span class="meta">${esc(o.ist)}</span>
+      <button class="btn sm quiet stop" data-adsowner="${esc(o.id)}" data-force="1"
+        title="OWNERDOMAIN=${esc(o.soll)} eintragen">ändern</button>`;
+  }
+  return `<span class="badge warn">nein</span>
+    <button class="btn sm quiet stop" data-adsowner="${esc(o.id)}"
+      title="OWNERDOMAIN=${esc(o.soll)} eintragen">jetzt setzen</button>`;
+}
+
 /* Eine Zeile so zeigen, wie sie in der Datei steht. */
 function adsZeileText(zeile) {
   if (zeile.art !== 'eintrag') return zeile.roh || '';
@@ -2106,6 +2133,10 @@ async function renderAds(view, siteId) {
   const mitDoppelten = verbunden.filter((s) => s.doppelt);
   const doppelteGesamt = mitDoppelten.reduce((summe, s) => summe + s.doppelt, 0);
 
+  // OWNERDOMAIN traegt der Hub einmal taeglich von selbst nach. Der Knopf ist fuer
+  // alle, die nicht bis morgen warten wollen.
+  const ohneOwner = verbunden.filter((s) => s.ownerdomain && s.ownerdomain.stand === 'fehlt');
+
   const tabs = [
     ['uebersicht', 'Je Website', verbunden.length],
     ['eintraege', 'Auf mehreren Seiten ändern'],
@@ -2119,6 +2150,8 @@ async function renderAds(view, siteId) {
       <div class="acts">
         ${doppelteGesamt ? `<button class="btn" id="ads-entdoppeln-alle">${ic('trash', 'sm')}${doppelteGesamt}
           doppelte Zeile${doppelteGesamt === 1 ? '' : 'n'} entfernen</button>` : ''}
+        ${ohneOwner.length ? `<button class="btn" id="ads-owner-alle">${ic('check', 'sm')}OWNERDOMAIN auf
+          ${mehrzahl(ohneOwner.length, 'Website', 'Websites')} setzen</button>` : ''}
         <button class="btn" id="ads-alle-lesen">${ic('refresh', 'sm')}Alle neu einlesen</button>
       </div>
     </div>
@@ -2161,6 +2194,13 @@ async function renderAds(view, siteId) {
     await render();
   }));
 
+  on('#ads-owner-alle', 'click', (event) => guard(event.currentTarget, async () => {
+    const { ergebnisse } = await api('/api/app/ads/ownerdomain', {
+      method: 'POST', body: { site_ids: ohneOwner.map((s) => s.id) },
+    });
+    await adsOwnerMeldung(ergebnisse);
+  }));
+
   on('#ads-alle-lesen', 'click', (event) => guard(event.currentTarget, async () => {
     const { ergebnisse } = await api('/api/app/ads/lesen', { method: 'POST' });
     const gut = ergebnisse.filter((e) => e.ok).length;
@@ -2169,6 +2209,29 @@ async function renderAds(view, siteId) {
       gut === ergebnisse.length ? 'ok' : 'err');
     await render();
   }));
+}
+
+/** Was aus einem OWNERDOMAIN-Durchlauf geworden ist, in einem Satz. */
+async function adsOwnerMeldung(ergebnisse) {
+  const schief = (ergebnisse || []).filter((e) => !e.ok);
+  const warten = (ergebnisse || []).filter((e) => e.ok && e.wartet).length;
+  const gesetzt = (ergebnisse || []).filter((e) => e.ok && e.geaendert).length;
+
+  if (schief.length) {
+    // Bei gemischtem Ausgang zuerst, was geklappt hat - sonst sieht es aus, als
+    // waere gar nichts passiert.
+    const erledigt = gesetzt + warten;
+    toast((erledigt ? `${mehrzahl(erledigt, 'Website', 'Websites')} erledigt. ` : '')
+      + (schief.length === 1
+        ? schief[0].message
+        : `${mehrzahl(schief.length, 'Website', 'Websites')} meldeten einen Fehler: ${schief[0].message}`), 'err');
+  } else if (gesetzt || warten) {
+    toast(`OWNERDOMAIN auf ${mehrzahl(gesetzt, 'Website', 'Websites')} gesetzt`
+      + `${warten ? `, ${warten} holen den Auftrag selbst ab` : ''}.`);
+  } else {
+    toast('Die Zeile stand überall schon richtig drin.');
+  }
+  await render();
 }
 
 /** Die Liste aller Websites mit ihrem Stand. */
@@ -2187,13 +2250,15 @@ function adsUebersicht(body, sites) {
         <button class="btn sm" id="ads-aus-keine">Auswahl aufheben</button>
         <button class="btn sm" id="ads-aus-lesen">${ic('refresh', 'sm')}Neu einlesen</button>
         <button class="btn sm" id="ads-aus-dedup">${ic('trash', 'sm')}Doppelte entfernen</button>
+        <button class="btn sm" id="ads-aus-owner">${ic('check', 'sm')}OWNERDOMAIN setzen</button>
         <button class="btn sm danger" id="ads-aus-leeren">${ic('trash', 'sm')}Alle Einträge entfernen</button>
       </div>` : ''}
       <div class="tblwrap"><table>
         <thead><tr>
           <th style="width:34px">${waehlbar.length ? `<input type="checkbox" id="ads-aus-alle"
             title="Alle verbundenen Websites auswählen" ${alleDrin ? 'checked' : ''} />` : ''}</th>
-          <th>Website</th><th class="right">Einträge</th><th>Wo die Datei liegt</th>
+          <th>Website</th><th class="right">Einträge</th><th>OWNERDOMAIN</th>
+          <th>Wo die Datei liegt</th>
           <th>Öffentlich abrufbar</th><th class="nowrap">Zuletzt gelesen</th>
         </tr></thead>
         <tbody>${sites.map((s) => {
@@ -2215,6 +2280,7 @@ function adsUebersicht(body, sites) {
                 mit DIRECT und RESELLER</span>` : ''}</td>
             <td data-label="Einträge" class="right">${s.gelesen_am ? `<b>${s.eintraege}</b>
               <span class="meta">${s.direkt} direkt, ${s.reseller} Reseller</span>` : '–'}</td>
+            <td data-label="OWNERDOMAIN">${adsOwnerZelle({ ...s.ownerdomain, id: s.id })}</td>
             <td data-label="Datei"><span class="badge ${stil}">${esc(text)}</span>
               ${s.mode === 'datei' && !s.writable ? '<span class="meta" style="color:var(--warn)">schreibgeschützt</span>' : ''}</td>
             <td data-label="Öffentlich">${live
@@ -2253,6 +2319,24 @@ function adsUebersicht(body, sites) {
     const weg = ergebnisse.reduce((summe, e) => summe + (e.entfernt || 0), 0);
     toast(`${mehrzahl(weg, 'doppelte Zeile', 'doppelte Zeilen')} entfernt.`);
     await render();
+  }));
+
+  on('#ads-aus-owner', 'click', (event) => guard(event.currentTarget, async () => {
+    const { ergebnisse } = await api('/api/app/ads/ownerdomain', {
+      method: 'POST', body: { site_ids: gewaehlt },
+    });
+    await adsOwnerMeldung(ergebnisse);
+  }));
+
+  /* Ein einzelner Knopf in der Zeile. "data-force" gibt es nur dort, wo eine
+     fremde Domain drinsteht - dann ist der Klick die Entscheidung dafuer. */
+  on('[data-adsowner]', 'click', (event) => guard(event.currentTarget, async () => {
+    const el = event.currentTarget;
+    const { ergebnisse } = await api('/api/app/ads/ownerdomain', {
+      method: 'POST',
+      body: { site_ids: [el.dataset.adsowner], ueberschreiben: el.dataset.force === '1' },
+    });
+    await adsOwnerMeldung(ergebnisse);
   }));
 
   /* Leeren stellt Werbeeinnahmen ab. Eine Rueckfrage, die benennt, was genau
@@ -2474,6 +2558,7 @@ async function renderAdsSite(view, siteId) {
   const daten = await api(`/api/app/ads/${siteId}`);
   const [stil, modusText] = ADS_MODUS[daten.mode] || ['', 'noch nicht gelesen'];
   const live = adsLive(daten.live);
+  const owner = daten.ownerdomain || { stand: 'unbekannt', soll: '', ist: '' };
   const eintraege = daten.zeilen.filter((z) => z.art === 'eintrag');
   const variablen = daten.zeilen.filter((z) => z.art === 'variable');
   const kaputt = daten.zeilen.filter((z) => z.art === 'fehler');
@@ -2505,6 +2590,19 @@ async function renderAdsSite(view, siteId) {
       Bitte die Schreibrechte für ${esc(daten.path)} beim Hoster setzen lassen.</span></div>` : ''}
     ${live && live.stand !== 'ok' ? `<div class="notice ${live.stil}">${ic('alert')}<span class="grow">
       <b>Öffentlicher Abruf:</b> ${esc(live.text)}</span></div>` : ''}
+
+    ${owner.stand === 'fehlt' ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>Die Zeile OWNERDOMAIN fehlt.</b> Sie nennt die Domain, der die Werbeplätze gehören;
+      Vermarkter lesen sie, um zusammengehörende Seiten zu erkennen. Hierhin gehört:
+      <span class="code">OWNERDOMAIN=${esc(owner.soll)}</span>
+      Der Hub trägt sie einmal täglich von selbst nach.</span>
+      <button class="btn sm" id="ads-owner">${ic('check', 'sm')}Jetzt setzen</button></div>` : ''}
+    ${owner.stand === 'anders' ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>In der Datei steht eine andere Domain:</b>
+      <span class="code">OWNERDOMAIN=${esc(owner.ist)}</span>
+      Zur Adresse dieser Website würde <b>${esc(owner.soll)}</b> passen. Von selbst ändert der Hub
+      das nicht: Wer die Zeile gesetzt hat, hatte vielleicht einen Grund.</span>
+      <button class="btn sm" id="ads-owner-andere">${ic('check', 'sm')}Auf ${esc(owner.soll)} ändern</button></div>` : ''}
 
     <section class="card flat">
       <div class="card-head"><h2>Einträge</h2><span class="count">${eintraege.length}</span>
@@ -2592,6 +2690,16 @@ async function renderAdsSite(view, siteId) {
       : `${antwort.entfernt} doppelte Zeile(n) entfernt.`);
     await render();
   }));
+
+  const ownerSetzen = (ueberschreiben) => (event) => guard(event.currentTarget, async () => {
+    const neu2 = await api(`/api/app/ads/${siteId}/ownerdomain`, { method: 'POST', body: { ueberschreiben } });
+    toast(neu2.wartet
+      ? 'Auftrag abgelegt, die Website holt ihn selbst ab.'
+      : `OWNERDOMAIN=${owner.soll} steht jetzt in der Datei.`);
+    await render();
+  });
+  on('#ads-owner', 'click', ownerSetzen(false));
+  on('#ads-owner-andere', 'click', ownerSetzen(true));
 
   on('#ads-zurueck', 'click', (event) => guard(event.currentTarget, async () => {
     const neu = await api(`/api/app/ads/${siteId}/zurueck`, { method: 'POST' });

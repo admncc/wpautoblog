@@ -25,6 +25,11 @@ const { VERSION } = require('./config');
 const PARALLEL = 3;
 const LIVE_TIMEOUT_MS = 12000;
 
+/* Ab dieser Fassung ersetzt das Plugin eine vorhandene Variable, statt sie ein
+   zweites Mal anzuhaengen. Ohne das wuerde jeder Durchlauf eine weitere
+   OWNERDOMAIN-Zeile in die Datei schreiben. */
+const OWNERDOMAIN_PLUGIN = '1.6.2';
+
 /** Hoechstens `grenze` Aufrufe gleichzeitig. Zwanzig Websites auf einmal sind zu viel. */
 function nacheinander(grenze) {
   let laufend = 0;
@@ -432,6 +437,137 @@ async function zuruecknehmen(siteId) {
   return { ...antwort, wartet: false };
 }
 
+// ------------------------------------------------------------- OWNERDOMAIN
+
+/**
+ * Steht in der ads.txt, wem die Seite gehoert?
+ *
+ * OWNERDOMAIN nennt die Domain des Inhabers der Werbeplaetze. Vermarkter und
+ * Pruefwerkzeuge lesen die Zeile, um zusammengehoerende Seiten zu erkennen; fehlt
+ * sie, zaehlt die Seite als unvollstaendig gepflegt. Die Zeile ist immer dieselbe
+ * und ergibt sich aus der Adresse der Website - niemand muss sie je selbst tippen.
+ *
+ * Vier Zustaende, und nur einer davon ist Arbeit:
+ *   ok         - steht drin und passt
+ *   fehlt      - die Zeile gehoert hinein (das macht der Hub von selbst)
+ *   anders     - dort steht eine andere Domain. Das aendert nur ein Mensch.
+ *   ungelesen  - noch nie gelesen, es gibt also nichts zu beurteilen
+ *   unbekannt  - keine Adresse hinterlegt, aus der sich eine Domain ergibt
+ */
+function ownerdomain(s) {
+  const soll = adstxt.domainAusAdresse(s.url);
+  const ist = adstxt.variable(s.ads_txt || '', 'OWNERDOMAIN');
+  // "www.maikikii.de" statt "maikikii.de" ist kein Fehler, den man jemandem
+  // melden muss - gemeint ist dieselbe Domain.
+  const wie = (wert) => String(wert || '').trim().toLowerCase().replace(/^www\./, '');
+
+  let stand = 'ok';
+  if (!soll) stand = 'unbekannt';
+  else if (!s.ads_at) stand = 'ungelesen';
+  else if (ist === null) stand = 'fehlt';
+  else if (wie(ist) !== soll) stand = 'anders';
+
+  return { soll, ist: ist === null ? '' : ist, stand };
+}
+
+/**
+ * Setzt die OWNERDOMAIN-Zeile auf einer Website.
+ *
+ * Geschickt wird nur die eine Zeile, nicht die ganze Datei: Das Zusammenfuehren
+ * passiert im Plugin, und was dort sonst noch steht, bleibt unangetastet.
+ *
+ * Eine fremde Domain wird nicht von selbst ueberschrieben. Wer OWNERDOMAIN von
+ * Hand auf etwas anderes gesetzt hat, hatte einen Grund - den Knopf dafuer gibt
+ * es, aber ein Mensch muss ihn druecken.
+ */
+async function setzeOwnerdomain(siteId, { ueberschreiben = false } = {}) {
+  const s = site(siteId);
+  if (!s) throw new Error('Website nicht gefunden.');
+  if (s.status !== 'connected') throw new Error(`"${s.name}" ist nicht verbunden.`);
+
+  const stand = ownerdomain(s);
+  if (!stand.soll) {
+    throw new Error(`Aus der Adresse von "${s.name}" lässt sich keine Domain ablesen`
+      + `${s.url ? ` ("${s.url}")` : ''}. OWNERDOMAIN braucht eine echte Domain.`);
+  }
+  if (stand.stand === 'ok') return { ...stand, geaendert: false, wartet: false };
+  if (stand.stand === 'anders' && !ueberschreiben) {
+    throw new Error(`In der ads.txt von "${s.name}" steht schon OWNERDOMAIN=${stand.ist}.`
+      + ' Das ändert der Hub nicht von selbst.');
+  }
+  if (!versionReicht(s.plugin_version, OWNERDOMAIN_PLUGIN)) {
+    throw new Error(`Das Plugin auf "${s.name}" ist noch auf Version ${s.plugin_version || 'unbekannt'}.`
+      + ` Für OWNERDOMAIN braucht es mindestens ${OWNERDOMAIN_PLUGIN}, sonst stünde die Zeile`
+      + ' hinterher doppelt in der Datei. Das Update kommt von selbst, oder du stößt es unter'
+      + ' Websites an.');
+  }
+
+  const zeile = `OWNERDOMAIN=${stand.soll}`;
+  if (s.delivery === 'pull') {
+    legeAuftragAb(s.id, 'add', { entries: [zeile] });
+    return { ...stand, geaendert: false, wartet: true };
+  }
+
+  try {
+    const antwort = await wp.callSite(s, 'ads-write', { mode: 'add', entries: [zeile] });
+    merke(s.id, antwort);
+    const nachher = ownerdomain(site(siteId));
+    logger.info('ads', 'ownerdomain', `OWNERDOMAIN=${stand.soll} in der ads.txt von ${s.name} gesetzt`, {
+      siteId: s.id, context: { vorher: stand.ist || '(fehlte)', nachher: nachher.ist },
+    });
+    return { ...nachher, geaendert: true, wartet: false };
+  } catch (err) {
+    merkeFehler(s.id, err.message);
+    throw err;
+  }
+}
+
+/** Dasselbe fuer mehrere Websites. */
+async function setzeOwnerdomainAlle(siteIds, { ueberschreiben = false } = {}) {
+  const reihe = nacheinander(PARALLEL);
+  return Promise.all(siteIds.map((id) => reihe(async () => {
+    const s = site(id);
+    if (!s) return { site_id: id, name: 'unbekannt', ok: false, message: 'Website nicht gefunden.' };
+    try {
+      const stand = await setzeOwnerdomain(id, { ueberschreiben });
+      return {
+        site_id: s.id, name: s.name, ok: true, domain: stand.soll,
+        geaendert: Boolean(stand.geaendert), wartet: Boolean(stand.wartet),
+      };
+    } catch (err) {
+      return { site_id: s.id, name: s.name, ok: false, message: err.message };
+    }
+  })));
+}
+
+/**
+ * Der taegliche Durchlauf: nachsehen und nachtragen.
+ *
+ * Erst wird jede Datei frisch gelesen - danach urteilt der Hub nicht ueber einen
+ * Stand von letzter Woche. Nachgetragen wird nur, wo die Zeile ganz fehlt. Eine
+ * Website im Abhol-Modus gibt ihren Stand erst beim naechsten Lebenszeichen her
+ * und kommt deshalb im naechsten Durchlauf dran.
+ */
+async function pflegeOwnerdomain() {
+  await leseAlle();
+
+  const faellig = uebersicht().filter((s) => s.connected && s.ownerdomain.stand === 'fehlt');
+  if (!faellig.length) return { geprueft: 0, gesetzt: 0, fehler: 0, ergebnisse: [] };
+
+  const ergebnisse = await setzeOwnerdomainAlle(faellig.map((s) => s.id));
+  const gesetzt = ergebnisse.filter((e) => e.ok && !e.wartet).length;
+  const fehler = ergebnisse.filter((e) => !e.ok);
+
+  logger.info('ads', 'ownerdomain',
+    `OWNERDOMAIN auf ${gesetzt} von ${faellig.length} Website(s) nachgetragen`, {
+      context: {
+        gesetzt: ergebnisse.filter((e) => e.ok).map((e) => `${e.name}: ${e.domain}`),
+        fehler: fehler.map((e) => `${e.name}: ${e.message}`),
+      },
+    });
+  return { geprueft: faellig.length, gesetzt, fehler: fehler.length, ergebnisse };
+}
+
 // ------------------------------------------------------------- Fuer die Oberflaeche
 
 /** Kurzfassung je Website fuer die Uebersicht. */
@@ -463,6 +599,7 @@ function uebersicht() {
       doppelt: zahlen.doppelt.length,
       widerspruch: zahlen.widerspruch.length,
       vermarkter: adstxt.vermarkter(s.ads_txt || ''),
+      ownerdomain: ownerdomain(s),
       wartet: auftrag ? { action: auftrag.action, seit: auftrag.created_at } : null,
     };
   });
@@ -515,6 +652,7 @@ function vergleich() {
 
 module.exports = {
   lese, leseAlle, ersetze, aufSeiten, entdoppele, entdoppeleAlle, leere, zuruecknehmen, pruefeOeffentlich,
+  ownerdomain, setzeOwnerdomain, setzeOwnerdomainAlle, pflegeOwnerdomain, OWNERDOMAIN_PLUGIN,
   uebersicht, einzeln, vergleich,
   offenerAuftrag, auftragFertig, wartet, nacheinander, versionReicht,
 };

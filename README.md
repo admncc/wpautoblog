@@ -47,7 +47,8 @@ WordPress-Seiten veröffentlicht.
 - **Posts → Gezielte Posts:** vorbereitet für die Keyword-Recherche (nächste Ausbaustufe)
 - **ads.txt:** die Datei im Wurzelverzeichnis jeder Website lesen und pflegen, einzeln oder
   auf allen Seiten auf einmal; eine Vergleichsansicht zeigt, wo ein Vermarkter fehlt,
-  und doppelte Zeilen lassen sich per Knopfdruck aufräumen
+  und doppelte Zeilen lassen sich per Knopfdruck aufräumen. Die Zeile `OWNERDOMAIN=`
+  trägt der Hub einmal täglich von selbst nach, wo sie fehlt
 - **Einstellungen:** Anthropic API-Key, Modellwahl und das komplette **Prompt-Framework** frei bearbeitbar
 - **Bilder:** Beitragsbild und Bilder im Text über einen frei wählbaren Bilddienst,
   automatisch in die WordPress-Mediathek

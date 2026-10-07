@@ -155,15 +155,59 @@ class Autoblog_Ads {
      */
     public static function ergaenzen(array $zeilen) {
         $status  = self::status();
-        $inhalt  = $status['content'];
-        $bekannt = self::schluessel_aus_text($inhalt);
+        $bestand = preg_split('/\r\n|\r|\n/', $status['content']);
+        if ($bestand === false) {
+            $bestand = [];
+        }
 
-        $neu = [];
+        $bekannt   = [];   // Vermarkter|Konto-ID => schon vorhanden
+        $variablen = [];   // Name der Variablen => Zeilennummer im Bestand
+        foreach ($bestand as $i => $zeile) {
+            $key = self::schluessel($zeile);
+            if ($key !== '') {
+                $bekannt[$key] = true;
+            }
+            $name = self::variablen_name($zeile);
+            if ($name !== '' && !isset($variablen[$name])) {
+                $variablen[$name] = $i;
+            }
+        }
+
+        $neu        = [];      // kommt ans Ende der Datei
+        $neu_var    = [];      // Name der Variablen => Stelle in $neu
+        $geaendert  = false;
+
         foreach ($zeilen as $zeile) {
             $zeile = trim((string) $zeile);
             if ($zeile === '') {
                 continue;
             }
+
+            /*
+             * Eine Variable (OWNERDOMAIN=, CONTACT= ...) gibt es je Datei nur einmal
+             * sinnvoll. Eine vorhandene wird an ihrer Stelle ersetzt, statt ein
+             * zweites Mal angehaengt - sonst waechst die Datei bei jedem Durchlauf
+             * um eine weitere Zeile, und welche davon gilt, weiss niemand.
+             */
+            $name = self::variablen_name($zeile);
+            if ($name !== '') {
+                if (isset($variablen[$name])) {
+                    $stelle = $variablen[$name];
+                    if (trim($bestand[$stelle]) === $zeile) {
+                        continue;
+                    }
+                    $bestand[$stelle] = $zeile;
+                    $geaendert = true;
+                } elseif (isset($neu_var[$name])) {
+                    $neu[$neu_var[$name]] = $zeile;
+                } else {
+                    $neu_var[$name] = count($neu);
+                    $neu[]          = $zeile;
+                    $geaendert      = true;
+                }
+                continue;
+            }
+
             $key = self::schluessel($zeile);
             if ($key !== '' && isset($bekannt[$key])) {
                 continue;
@@ -171,18 +215,39 @@ class Autoblog_Ads {
             if ($key !== '') {
                 $bekannt[$key] = true;
             }
-            $neu[] = $zeile;
+            $neu[]     = $zeile;
+            $geaendert = true;
         }
 
-        if (empty($neu)) {
+        if (!$geaendert) {
             return self::status();
         }
 
-        $inhalt = rtrim($inhalt, "\n");
-        if ($inhalt !== '') {
-            $inhalt .= "\n";
+        $inhalt = rtrim(implode("\n", $bestand), "\n");
+        if (!empty($neu)) {
+            $inhalt = ($inhalt === '' ? '' : $inhalt . "\n") . implode("\n", $neu);
         }
-        return self::schreiben($inhalt . implode("\n", $neu) . "\n");
+        return self::schreiben($inhalt . "\n");
+    }
+
+    /**
+     * Der Name einer Variablenzeile, zum Beispiel OWNERDOMAIN oder CONTACT.
+     * Leer, wenn die Zeile keine Variable ist.
+     */
+    private static function variablen_name($zeile) {
+        $zeile   = (string) $zeile;
+        $trenner = strpos($zeile, '#');
+        if ($trenner !== false) {
+            $zeile = substr($zeile, 0, $trenner);
+        }
+        $zeile = trim($zeile);
+        if ($zeile === '' || strpos($zeile, ',') !== false) {
+            return '';
+        }
+        if (!preg_match('/^([A-Za-z][A-Za-z0-9_]*)\s*=/', $zeile, $treffer)) {
+            return '';
+        }
+        return strtoupper($treffer[1]);
     }
 
     /** Entfernt Zeilen. Kommentare und Variablen bleiben unangetastet. */

@@ -193,16 +193,34 @@ function starteFakeWordPress(token, siteId) {
       if (req.url.endsWith('/ads-write')) {
         const modus = daten.mode || 'replace';
         if (modus === 'add') {
-          const bekannt = new Set(ads.inhalt.split('\n').map(adsSchluessel).filter(Boolean));
-          const neuZeilen = (daten.entries || []).filter((z) => {
-            const key = adsSchluessel(z);
-            if (key && bekannt.has(key)) return false;
+          const bestand = ads.inhalt.replace(/\n+$/, '').split('\n');
+          const bekannt = new Set(bestand.map(adsSchluessel).filter(Boolean));
+          // Wie im Plugin ab 1.6.2: Eine vorhandene Variable wird an ihrer Stelle
+          // ersetzt, statt ein zweites Mal angehaengt zu werden.
+          const varName = (z) => {
+            const ohne = String(z).split('#')[0].trim();
+            if (!ohne || ohne.includes(',')) return '';
+            const t = ohne.match(/^([A-Za-z][A-Za-z0-9_]*)\s*=/);
+            return t ? t[1].toUpperCase() : '';
+          };
+          const neuZeilen = [];
+          for (const roh of daten.entries || []) {
+            const zeile = String(roh).trim();
+            if (!zeile) continue;
+            const name = varName(zeile);
+            if (name) {
+              const stelle = bestand.findIndex((z) => varName(z) === name);
+              if (stelle >= 0) bestand[stelle] = zeile;
+              else neuZeilen.push(zeile);
+              continue;
+            }
+            const key = adsSchluessel(zeile);
+            if (key && bekannt.has(key)) continue;
             if (key) bekannt.add(key);
-            return true;
-          });
-          const vorher = ads.inhalt.replace(/\n+$/, '');
+            neuZeilen.push(zeile);
+          }
           return res.end(JSON.stringify({ ok: true,
-            ...adsSchreiben([vorher, ...neuZeilen].filter(Boolean).join('\n')) }));
+            ...adsSchreiben([...bestand, ...neuZeilen].filter(Boolean).join('\n')) }));
         }
         if (modus === 'remove') {
           const raus = new Set((daten.entries || []).map(adsSchluessel).filter(Boolean));
@@ -1661,6 +1679,120 @@ async function main() {
     pruefe(adsNachher.daten.eintraege === 1 && !adsNachher.daten.wartet,
       'Nach der Rueckmeldung steht der neue Stand im Hub', String(adsNachher.daten.eintraege));
     await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+
+    // --- OWNERDOMAIN: wem gehoeren die Werbeplaetze? ------------------------
+    console.log('\nads.txt: OWNERDOMAIN');
+    const adsModul = require('../src/ads');
+
+    pruefe(adstxt.domainAusAdresse('https://www.maikikii.de/blog/') === 'maikikii.de'
+      && adstxt.domainAusAdresse('http://maikikii.de') === 'maikikii.de'
+      && adstxt.domainAusAdresse('maikikii.de:8443/x?y') === 'maikikii.de',
+      'Aus der Adresse einer Website wird die Domain abgelesen',
+      adstxt.domainAusAdresse('https://www.maikikii.de/blog/'));
+    pruefe(!adstxt.domainAusAdresse('http://127.0.0.1:4455') && !adstxt.domainAusAdresse('http://localhost:3000')
+      && !adstxt.domainAusAdresse(''),
+      'Eine IP-Adresse ist keine Domain und taugt nicht fuer OWNERDOMAIN');
+    pruefe(adstxt.variable('# x\nOWNERDOMAIN=maikikii.de\ngoogle.com, pub-1, DIRECT', 'ownerdomain') === 'maikikii.de'
+      && adstxt.variable('google.com, pub-1, DIRECT', 'OWNERDOMAIN') === null,
+      'Der Wert einer Variablen laesst sich aus der Datei lesen');
+
+    /* Eine Variablenzeile darf beim Ergaenzen nicht wachsen. Das ist der Weg, auf
+       dem OWNERDOMAIN zur Website geht: dieselbe Anfrage, zweimal geschickt. */
+    await ruf('/api/app/ads/eintraege', {
+      method: 'POST', body: { action: 'add', entries: 'OWNERDOMAIN=maikikii.de', site_ids: [siteId] },
+    });
+    await ruf('/api/app/ads/eintraege', {
+      method: 'POST', body: { action: 'add', entries: 'OWNERDOMAIN=maikikii.de', site_ids: [siteId] },
+    });
+    pruefe((fakeWp.ads.inhalt.match(/OWNERDOMAIN=/g) || []).length === 1,
+      'Zweimal gesendet steht die Zeile trotzdem nur einmal in der Datei',
+      fakeWp.ads.inhalt.replace(/\n/g, ' | '));
+
+    // Zur IP-Adresse der Testseite gibt es keine Domain - und das sagt der Hub auch.
+    await ruf(`/api/app/ads/${siteId}/lesen`, { method: 'POST' });
+    const ownerListe = await ruf('/api/app/ads');
+    const ownerReihe = ownerListe.daten.sites.find((x) => x.id === siteId);
+    pruefe(ownerReihe && ownerReihe.ownerdomain && ownerReihe.ownerdomain.stand === 'unbekannt',
+      'Ohne ablesbare Domain steht in der Spalte kein Urteil',
+      JSON.stringify(ownerReihe && ownerReihe.ownerdomain));
+    const ownerOhneDomain = await ruf(`/api/app/ads/${siteId}/ownerdomain`, { method: 'POST' });
+    pruefe(ownerOhneDomain.status >= 400 && /Domain/.test(JSON.stringify(ownerOhneDomain.daten)),
+      'Und der Hub schreibt dann auch keine IP-Adresse in die Datei',
+      JSON.stringify(ownerOhneDomain.daten));
+
+    /* Ab hier mit einer echten Domain. Geschrieben wird im Abhol-Modus, weil die
+       Testseite unter einer IP-Adresse laeuft: So laesst sich pruefen, welcher
+       Auftrag entsteht, ohne dass die beiden Dinge sich in die Quere kommen. */
+    db.prepare('UPDATE sites SET url = ?, ads_txt = ? WHERE id = ?')
+      .run('https://maikikii.de', 'google.com, pub-1, DIRECT\n', siteId);
+    const ownerFehlt = await ruf('/api/app/ads');
+    pruefe((ownerFehlt.daten.sites.find((x) => x.id === siteId) || {}).ownerdomain.stand === 'fehlt',
+      'Fehlt die Zeile, steht das in der Spalte');
+
+    // Eine aeltere Plugin-Fassung wuerde die Zeile jedes Mal erneut anhaengen.
+    db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run('1.6.1', siteId);
+    const ownerZuAlt = await ruf(`/api/app/ads/${siteId}/ownerdomain`, { method: 'POST' });
+    pruefe(ownerZuAlt.status >= 400 && /1\.6\.2/.test(JSON.stringify(ownerZuAlt.daten)),
+      'Ein zu altes Plugin wird benannt, statt die Zeile zu verdoppeln',
+      JSON.stringify(ownerZuAlt.daten));
+    db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run('1.6.2', siteId);
+
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'pull' } });
+    const ownerSammel = await ruf('/api/app/ads/ownerdomain', { method: 'POST', body: {} });
+    pruefe(ownerSammel.status === 200 && ownerSammel.daten.ergebnisse.some((e) => e.site_id === siteId && e.ok),
+      'Ohne Auswahl holt der Hub sich alle Websites, bei denen die Zeile fehlt',
+      JSON.stringify(ownerSammel.daten.ergebnisse));
+
+    const ownerPuls = await alsPlugin('/api/plugin/heartbeat', siteId, token, {});
+    pruefe(ownerPuls.daten.ads_job && ownerPuls.daten.ads_job.action === 'add'
+      && ownerPuls.daten.ads_job.entries.length === 1
+      && ownerPuls.daten.ads_job.entries[0] === 'OWNERDOMAIN=maikikii.de',
+      'Der Auftrag enthaelt genau die eine Zeile, nicht die ganze Datei',
+      JSON.stringify(ownerPuls.daten.ads_job || null));
+
+    await alsPlugin('/api/plugin/ads-result', siteId, token, {
+      job_id: ownerPuls.daten.ads_job.id,
+      ok: true, mode: 'datei', bytes: 60, writable: true, root: true,
+      content: 'google.com, pub-1, DIRECT\nOWNERDOMAIN=maikikii.de\n',
+      url: 'https://maikikii.de/ads.txt', digest: 'abc',
+    });
+    const ownerDa = await ruf('/api/app/ads');
+    pruefe((ownerDa.daten.sites.find((x) => x.id === siteId) || {}).ownerdomain.stand === 'ok',
+      'Nach der Rueckmeldung gilt die Zeile als vorhanden');
+
+    const ownerNochmal = await ruf(`/api/app/ads/${siteId}/ownerdomain`, { method: 'POST' });
+    pruefe(ownerNochmal.status === 200 && !ownerNochmal.daten.wartet && !adsModul.wartet(siteId),
+      'Steht sie schon richtig drin, entsteht kein neuer Auftrag');
+
+    // "www." davor ist dieselbe Domain und keine Meldung wert.
+    db.prepare('UPDATE sites SET ads_txt = ? WHERE id = ?')
+      .run('OWNERDOMAIN=www.maikikii.de\ngoogle.com, pub-1, DIRECT\n', siteId);
+    pruefe(adsModul.ownerdomain(db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId)).stand === 'ok',
+      '"www.maikikii.de" gilt als dieselbe Domain');
+
+    // Eine fremde Domain ruehrt der Hub nicht von selbst an.
+    db.prepare('UPDATE sites SET ads_txt = ? WHERE id = ?')
+      .run('OWNERDOMAIN=fremde-firma.de\ngoogle.com, pub-1, DIRECT\n', siteId);
+    const ownerAnders = await ruf('/api/app/ads');
+    pruefe((ownerAnders.daten.sites.find((x) => x.id === siteId) || {}).ownerdomain.stand === 'anders',
+      'Eine fremde Domain wird als solche gemeldet');
+    const ownerSammel2 = await ruf('/api/app/ads/ownerdomain', { method: 'POST', body: {} });
+    pruefe(!ownerSammel2.daten.ergebnisse.some((e) => e.site_id === siteId),
+      'Der Sammelaufruf laesst sie in Ruhe');
+    const ownerZwang = await ruf(`/api/app/ads/${siteId}/ownerdomain`, { method: 'POST' });
+    pruefe(ownerZwang.status >= 400 && /fremde-firma\.de/.test(JSON.stringify(ownerZwang.daten)),
+      'Auch einzeln wird sie nicht ueberschrieben, sondern benannt',
+      JSON.stringify(ownerZwang.daten));
+    const ownerMitWillen = await ruf(`/api/app/ads/${siteId}/ownerdomain`, {
+      method: 'POST', body: { ueberschreiben: true },
+    });
+    pruefe(ownerMitWillen.status === 200 && adsModul.wartet(siteId),
+      'Wer es ausdruecklich will, kann sie aendern');
+
+    // Und wieder so hinterlassen, wie die anderen Pruefungen die Website kennen.
+    await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'push' } });
+    db.prepare("DELETE FROM ads_jobs WHERE site_id = ? AND status = 'wartet'").run(siteId);
+    db.prepare('UPDATE sites SET url = ? WHERE id = ?').run(`http://127.0.0.1:${WP_PORT}`, siteId);
 
     // Der PHP-Teil des Plugins hat eigene Pruefungen mit einer WordPress-Attrappe.
     const phpDa = spawnSync('php', ['-v'], { stdio: 'ignore' }).status === 0;

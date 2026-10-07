@@ -299,6 +299,45 @@ function pruefe(text) {
   };
 }
 
+/**
+ * Der Wert einer Variablen, zum Beispiel OWNERDOMAIN oder CONTACT.
+ *
+ * Steht sie mehrfach drin, gilt die erste - so lesen es die Pruefwerkzeuge der
+ * Vermarkter auch. `null` heisst: Die Angabe fehlt ganz.
+ */
+function variable(text, name) {
+  const gesucht = String(name || '').toUpperCase();
+  for (const zeile of parse(text)) {
+    if (zeile.art === 'variable' && zeile.name === gesucht) return zeile.wert;
+  }
+  return null;
+}
+
+/**
+ * Die Domain hinter einer Adresse, so wie sie in OWNERDOMAIN gehoert.
+ *
+ * Aus "https://www.maikikii.de/blog/" wird "maikikii.de": ohne Schema, ohne "www.",
+ * ohne Pfad und ohne Port. Was keine Domain ist - eine IP-Adresse, "localhost",
+ * ein Name ohne Punkt - gibt einen leeren Wert zurueck. OWNERDOMAIN nennt den
+ * Inhaber des Werbeplatzes, und eine IP-Adresse nennt niemanden.
+ */
+function domainAusAdresse(adresse) {
+  const roh = String(adresse == null ? '' : adresse).trim();
+  if (!roh) return '';
+
+  const ohneSchema = roh.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const host = ohneSchema.split(/[/?#]/)[0].split('@').pop()
+    .replace(/:\d+$/, '').replace(/\.+$/, '').trim().toLowerCase()
+    .replace(/^www\./, '');
+
+  if (!istDomain(host)) return '';
+  // Die letzte Stelle muss eine echte Endung sein. Das sortiert IP-Adressen aus,
+  // die sonst durchgehen wuerden: "127.0.0.1" sieht fuer das Muster oben wie eine
+  // Domain aus.
+  const endung = host.split('.').pop();
+  return /^[a-z]{2,}$/.test(endung) ? host : '';
+}
+
 /** Die Vermarkter einer Datei, damit sich Seiten vergleichen lassen. */
 function vermarkter(text) {
   const namen = new Set();
@@ -310,5 +349,6 @@ function vermarkter(text) {
 
 module.exports = {
   parse, leseZeile, schluessel, vollSchluessel, alsText, schreibe, leseEingabe,
-  ergaenze, entferne, entdoppele, pruefe, vermarkter, istDomain, ARTEN, VARIABLEN,
+  ergaenze, entferne, entdoppele, pruefe, vermarkter, istDomain, variable, domainAusAdresse,
+  ARTEN, VARIABLEN,
 };

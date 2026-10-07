@@ -1224,6 +1224,40 @@ router.post(
   })
 );
 
+/**
+ * OWNERDOMAIN nachtragen.
+ *
+ * Ohne site_ids gilt der Aufruf fuer alle verbundenen Websites, bei denen die Zeile
+ * fehlt. Das darf hier grosszuegig sein: Es kommt eine Zeile hinzu, es verschwindet
+ * keine. Eine fremde Domain wird nur mit "ueberschreiben" angefasst, und das setzt
+ * ein Mensch je Website.
+ */
+router.post(
+  '/ads/ownerdomain',
+  wrap(async (req, res) => {
+    const ueberschreiben = Boolean(req.body.ueberschreiben);
+    const gewaehlt = Array.isArray(req.body.site_ids) ? req.body.site_ids.map(String).slice(0, 100) : null;
+    const siteIds = gewaehlt && gewaehlt.length
+      ? gewaehlt
+      : ads.uebersicht()
+        .filter((s) => s.connected && (s.ownerdomain.stand === 'fehlt'
+          || (ueberschreiben && s.ownerdomain.stand === 'anders')))
+        .map((s) => s.id);
+    if (!siteIds.length) return res.json({ ok: true, ergebnisse: [] });
+    return res.json({ ok: true, ergebnisse: await ads.setzeOwnerdomainAlle(siteIds, { ueberschreiben }) });
+  })
+);
+
+router.post(
+  '/ads/:siteId/ownerdomain',
+  wrap(async (req, res) => {
+    const stand = await ads.setzeOwnerdomain(req.params.siteId, {
+      ueberschreiben: Boolean(req.body.ueberschreiben),
+    });
+    res.json({ ok: true, ...ads.einzeln(req.params.siteId), wartet: Boolean(stand.wartet) });
+  })
+);
+
 /** Zeilen pruefen, ohne sie zu senden. Fuer die Vorschau im Formular. */
 router.post(
   '/ads/pruefen',

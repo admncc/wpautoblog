@@ -6,6 +6,7 @@ const service = require('./service');
 const images = require('./images');
 const youtube = require('./youtube');
 const plugins = require('./plugins');
+const ads = require('./ads');
 
 let running = false;
 
@@ -69,6 +70,22 @@ function start() {
     }
   });
 
+  /* Einmal taeglich die ads.txt aller Websites lesen und die OWNERDOMAIN-Zeile
+     nachtragen, wo sie fehlt. Absichtlich nach der Plugin-Pruefung: Eine Website,
+     die gerade erst auf die neue Fassung gehoben wurde, ist dann schon dabei. */
+  cron.schedule('40 4 * * *', async () => {
+    const timer = logger.start('ads', 'ownerdomain', 'ads.txt wird gelesen, OWNERDOMAIN geprueft');
+    try {
+      const ergebnis = await ads.pflegeOwnerdomain();
+      if (ergebnis.gesetzt || ergebnis.fehler) {
+        timer.ok(`OWNERDOMAIN auf ${ergebnis.gesetzt} Website(s) nachgetragen`
+          + `${ergebnis.fehler ? `, ${ergebnis.fehler} fehlgeschlagen` : ''}`, { context: ergebnis });
+      }
+    } catch (err) {
+      timer.fail(err);
+    }
+  });
+
   // Naechtliches Aufraeumen des Protokolls.
   cron.schedule('30 3 * * *', () => {
     const removed = pruneLogs();
@@ -80,7 +97,8 @@ function start() {
   });
 
   logger.info('scheduler', 'start',
-    'Zeitplan aktiv: Redaktionsplaene alle 15 Minuten, YouTube-Kanaele stuendlich, Aufraeumen taeglich um 03:30 UTC');
+    'Zeitplan aktiv: Redaktionsplaene alle 15 Minuten, YouTube-Kanaele stuendlich, '
+    + 'ads.txt und OWNERDOMAIN taeglich um 04:40 UTC, Aufraeumen taeglich um 03:30 UTC');
 }
 
 module.exports = { start };

@@ -315,12 +315,26 @@ der betroffenen Einträge und weist darauf hin, dass das Plugin den bisherigen S
 gesichert hat.
 
 Tabelle: Website (mit Adresse und Warnungen), Einträge (Zahl, darunter
-„x direkt, y Reseller"), wo die Datei liegt (Abzeichen: echte Datei im Wurzelverzeichnis,
-von WordPress ausgeliefert, oder noch keine), öffentlich abrufbar (Abzeichen `ok` /
-`abweichung` / `fehlt` / `fehler` mit Erklärung) und wann zuletzt gelesen wurde. Zeile
-anklicken führt zur Einzelansicht. Oben rechts „Alle neu einlesen" und, sobald irgendwo
-etwas doppelt steht, „N doppelte Zeilen entfernen". In der Zeile selbst steht die Zahl
-der doppelten Zeilen mit einem kleinen „jetzt entfernen" daneben.
+„x direkt, y Reseller"), OWNERDOMAIN (siehe unten), wo die Datei liegt (Abzeichen: echte
+Datei im Wurzelverzeichnis, von WordPress ausgeliefert, oder noch keine), öffentlich
+abrufbar (Abzeichen `ok` / `abweichung` / `fehlt` / `fehler` mit Erklärung) und wann
+zuletzt gelesen wurde. Zeile anklicken führt zur Einzelansicht. Oben rechts „Alle neu
+einlesen" und, sobald irgendwo etwas doppelt steht, „N doppelte Zeilen entfernen". In der
+Zeile selbst steht die Zahl der doppelten Zeilen mit einem kleinen „jetzt entfernen"
+daneben.
+
+**Die Spalte OWNERDOMAIN.** `OWNERDOMAIN=` nennt die Domain, der die Werbeplätze gehören.
+Sie ergibt sich aus der Adresse der Website, es gibt also nichts zu entscheiden: Die Spalte
+zeigt `ja` mit der Domain, `nein` mit einem „jetzt setzen" daneben, oder `andere Domain`
+mit dem abweichenden Wert und einem „ändern". Steht die Zeile nirgends, erscheint oben
+rechts „OWNERDOMAIN auf N Websites setzen", in der Auswahlleiste „OWNERDOMAIN setzen".
+
+Nachgetragen wird die Zeile auch ohne Zutun: Einmal täglich (04:40 UTC) liest der Hub alle
+Dateien und ergänzt sie überall dort, wo sie **fehlt**. Eine abweichende Domain fasst er
+dabei nie an, denn wer sie gesetzt hat, hatte vielleicht einen Grund; dafür gibt es den
+Knopf. Geschickt wird nur die eine Zeile, nicht die ganze Datei. Das Plugin ersetzt ab
+Version 1.6.2 eine vorhandene Variable an ihrer Stelle, statt sie ein zweites Mal
+anzuhängen; ältere Fassungen lehnt der Hub mit dieser Begründung ab.
 
 **Auf mehreren Seiten ändern** — Umschalter „Ergänzen / Entfernen", ein Textfeld in
 Festbreitenschrift für die Zeilen, darunter die Website-Auswahl mit „Alle auswählen".
@@ -340,6 +354,8 @@ Zwei Hinweise gehören zur Datei selbst: doppelte Zeilen (mit der Liste der Zeil
 beim Aufräumen verschwinden würden, und dem Knopf „Doppelte entfernen" im Hinweis selbst)
 und Widersprüche, also dieselbe Konto-ID einmal als DIRECT und einmal als RESELLER. Den
 Widerspruch räumt das System bewusst **nicht** von selbst weg.
+Dazu die beiden OWNERDOMAIN-Fälle: Fehlt die Zeile, steht hier, wie sie lauten würde, mit
+„Jetzt setzen"; steht eine andere Domain darin, wird sie gezeigt, mit „Auf <Domain> ändern".
 Dann die Einträge als Tabelle (Vermarkter, Konto-ID, Art, Kennung, „×" zum Entfernen),
 die Angaben zur Domain (`CONTACT=`, `OWNERDOMAIN=` …), ein Feld für eine neue Zeile und
 ganz unten aufklappbar der Editor für die ganze Datei.
