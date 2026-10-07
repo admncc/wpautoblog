@@ -83,5 +83,34 @@ pruefe(substr_count($gemischt, 'CONTACT=') === 1 && strpos($gemischt, 'neu@beisp
 pruefe(substr_count($gemischt, 'OWNERDOMAIN=maikikii.de') === 1 && strpos($gemischt, 'openx.com, 5555, RESELLER') !== false,
     'Neue Variablen und neue Eintraege kommen dazu');
 
+// --- Doppelte Angaben: aufraeumen und einzeln entfernen ---------------------
+file_put_contents($pfad,
+    "OWNERDOMAIN=altstadtkirche.de\n"
+    . "MANAGERDOMAIN=primis.tech\n"
+    . "MANAGERDOMAIN=primis.tech\n"
+    . "MANAGERDOMAIN=andere.tech\n"
+    . "google.com, pub-1, DIRECT\n");
+
+Autoblog_Ads::entdoppeln();
+$angaben = file_get_contents($pfad);
+pruefe(substr_count($angaben, 'MANAGERDOMAIN=primis.tech') === 1,
+    'Die zweite gleiche Angabe wird weggeraeumt', trim(str_replace("\n", ' | ', $angaben)));
+pruefe(strpos($angaben, 'MANAGERDOMAIN=andere.tech') !== false,
+    'Der Widerspruch mit anderem Wert bleibt stehen, den entscheidet ein Mensch');
+pruefe(strpos($angaben, 'OWNERDOMAIN=altstadtkirche.de') !== false
+    && strpos($angaben, 'google.com, pub-1, DIRECT') !== false,
+    'Alles andere bleibt unangetastet');
+
+Autoblog_Ads::entfernen(['MANAGERDOMAIN=andere.tech']);
+$nachEntfernen = file_get_contents($pfad);
+pruefe(strpos($nachEntfernen, 'andere.tech') === false && strpos($nachEntfernen, 'primis.tech') !== false,
+    'Eine Angabe laesst sich einzeln entfernen, die gleichnamige mit anderem Wert bleibt',
+    trim(str_replace("\n", ' | ', $nachEntfernen)));
+
+Autoblog_Ads::entfernen(['google.com, pub-1, DIRECT']);
+pruefe(strpos(file_get_contents($pfad), 'google.com') === false
+    && strpos(file_get_contents($pfad), 'OWNERDOMAIN=') !== false,
+    'Eintraege lassen sich weiterhin entfernen, ohne die Angaben mitzunehmen');
+
 echo empty($GLOBALS['schlecht']) ? "\nAlles gruen.\n" : "\nEs gab Fehler.\n";
 exit(empty($GLOBALS['schlecht']) ? 0 : 1);

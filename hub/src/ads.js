@@ -321,6 +321,16 @@ async function entdoppele(siteId) {
       + ' unter Websites an.');
   }
 
+  // Doppelte Angaben wie zweimal MANAGERDOMAIN erkennt erst die neuere Fassung.
+  // Ein aelteres Plugin raeumte die Eintraege weg und liesse die Angabe stehen -
+  // der Hub meldete dann "aufgeraeumt", und die doppelte Zeile stuende weiter da.
+  const entfaellt = adstxt.entdoppele(s.ads_txt || '').entfernt;
+  if (entfaellt.some((z) => z.art === 'variable') && !versionReicht(s.plugin_version, '1.6.3')) {
+    throw new Error(`Auf "${s.name}" steht eine Angabe wie ${entfaellt.find((z) => z.art === 'variable').name}`
+      + ` doppelt. Dafür braucht es Plugin 1.6.3, dort läuft noch ${s.plugin_version || 'eine ältere Fassung'}.`
+      + ' Das Update kommt von selbst, oder du stößt es unter Websites an.');
+  }
+
   const vorher = adstxt.pruefe(s.ads_txt || '').doppelt.length;
   if (s.delivery === 'pull') return legeAuftragAb(s.id, 'dedupe');
 

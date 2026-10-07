@@ -381,10 +381,18 @@ Zwei Hinweise gehören zur Datei selbst: doppelte Zeilen (mit der Liste der Zeil
 beim Aufräumen verschwinden würden, und dem Knopf „Doppelte entfernen" im Hinweis selbst)
 und Widersprüche, also dieselbe Konto-ID einmal als DIRECT und einmal als RESELLER. Den
 Widerspruch räumt das System bewusst **nicht** von selbst weg.
+
+Beides gilt für Einträge wie für Angaben zur Domain. Doppelt heißt bei einem Eintrag:
+gleicher Vermarkter, gleiche Konto-ID, gleiche Art; bei einer Angabe: derselbe Name,
+derselbe Wert. Steht dieselbe Angabe zweimal mit **verschiedenen** Werten da (zweimal
+`MANAGERDOMAIN=`, aber unterschiedlich), ist das der Widerspruch dieser Sorte: Gelten kann
+nur einer, und welcher, entscheidet ein Mensch. Dafür hat jede Zeile unter „Angaben zur
+Domain" ein „×", das genau diese Zeile entfernt, nicht die gleichnamige daneben.
 Dazu die beiden OWNERDOMAIN-Fälle: Fehlt die Zeile, steht hier, wie sie lauten würde, mit
 „Jetzt setzen"; steht eine andere Domain darin, wird sie gezeigt, mit „Auf <Domain> ändern".
 Dann die Einträge als Tabelle (Vermarkter, Konto-ID, Art, Kennung, „×" zum Entfernen),
-die Angaben zur Domain (`CONTACT=`, `OWNERDOMAIN=` …), ein Feld für eine neue Zeile und
+die Angaben zur Domain (`CONTACT=`, `OWNERDOMAIN=` …, jede mit „×" zum Entfernen),
+ein Feld für eine neue Zeile und
 ganz unten aufklappbar der Editor für die ganze Datei.
 
 *Wichtig für den Entwurf:* Diese Datei entscheidet über Werbeeinnahmen. Jede Anzeige muss

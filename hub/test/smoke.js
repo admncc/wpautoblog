@@ -94,6 +94,17 @@ function adsSchluessel(zeile) {
   return `${felder[0].toLowerCase()}|${felder[1]}`;
 }
 
+/* Woran die gespielte Website eine Zeile beim Entfernen und beim Aufraeumen
+   erkennt: ein Eintrag an Vermarkter und Konto-ID, eine Angabe an Name und Wert. */
+function adsWegSchluessel(zeile) {
+  const ohne = String(zeile).split('#')[0].trim();
+  if (ohne && !ohne.includes(',')) {
+    const treffer = ohne.match(/^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (treffer) return `var|${treffer[1].toUpperCase()}|${treffer[2].trim().toLowerCase()}`;
+  }
+  return adsSchluessel(zeile);
+}
+
 function starteFakeWordPress(token, siteId) {
   const empfangen = [];
   const ads = { inhalt: '', sicherung: null };
@@ -223,9 +234,11 @@ function starteFakeWordPress(token, siteId) {
             ...adsSchreiben([...bestand, ...neuZeilen].filter(Boolean).join('\n')) }));
         }
         if (modus === 'remove') {
-          const raus = new Set((daten.entries || []).map(adsSchluessel).filter(Boolean));
+          // Wie im Plugin ab 1.6.3: Eine Angabe wie OWNERDOMAIN wird ueber Name und
+          // Wert erkannt, ein Eintrag ueber Vermarkter und Konto-ID.
+          const raus = new Set((daten.entries || []).map(adsWegSchluessel).filter(Boolean));
           const bleibt = ads.inhalt.split('\n').filter((z) => {
-            const key = adsSchluessel(z);
+            const key = adsWegSchluessel(z);
             return !key || !raus.has(key);
           });
           return res.end(JSON.stringify({ ok: true, ...adsSchreiben(bleibt.join('\n')) }));
@@ -235,6 +248,9 @@ function starteFakeWordPress(token, siteId) {
           // gleiche Art. Die vollstaendigste Zeile bleibt stehen.
           const teile = (z) => {
             const ohne = String(z).split('#')[0].trim();
+            // Eine Angabe wie MANAGERDOMAIN steht genauso zweimal da wie ein Eintrag.
+            const varKey = adsWegSchluessel(z);
+            if (varKey.startsWith('var|')) return { key: varKey, kennung: '', kommentar: String(z).includes('#') };
             const f = ohne.split(',').map((x) => x.trim());
             if (f.length < 3 || !f[0] || !f[1]) return null;
             return { key: `${f[0].toLowerCase()}|${f[1]}|${f[2].toUpperCase()}`,
@@ -1584,6 +1600,41 @@ async function main() {
       'Der Widerspruch wird nicht stillschweigend wegoptimiert');
     pruefe(adsGeraeumt.text.includes('# Kopf') && adsGeraeumt.text.includes('CONTACT='),
       'Kommentar und Variable ueberstehen das Aufraeumen');
+    /* Dieselbe Angabe zweimal: fuer die Datei genauso ein Fall fuers Aufraeumen wie
+       ein doppelter Eintrag. Zweimal derselbe Wert ist eine Zeile zu viel, zweimal
+       ein anderer ist ein Widerspruch, den nur ein Mensch entscheiden kann. */
+    const adsAngaben = [
+      'OWNERDOMAIN=altstadtkirche.de',
+      'MANAGERDOMAIN=primis.tech',
+      'MANAGERDOMAIN=primis.tech',
+      'MANAGERDOMAIN=andere.tech',
+      'google.com, pub-1, DIRECT',
+    ].join('\n');
+    const adsAngabenPruefung = adstxt.pruefe(adsAngaben);
+    pruefe(adsAngabenPruefung.doppelt.length === 1
+      && adsAngabenPruefung.doppelt[0].zeile.name === 'MANAGERDOMAIN',
+      'Dieselbe Angabe zweimal gilt als doppelte Zeile',
+      JSON.stringify(adsAngabenPruefung.doppelt.map((d) => d.zeile.roh)));
+    pruefe(adsAngabenPruefung.widerspruch.length === 1
+      && adsAngabenPruefung.widerspruch[0].art === 'variable'
+      && adsAngabenPruefung.widerspruch[0].andere === 'primis.tech',
+      'Zwei verschiedene Werte derselben Angabe gelten als Widerspruch',
+      JSON.stringify(adsAngabenPruefung.widerspruch.map((d) => d.zeile.roh)));
+
+    const adsAngabenGeraeumt = adstxt.entdoppele(adsAngaben);
+    pruefe(adsAngabenGeraeumt.entfernt.length === 1
+      && (adsAngabenGeraeumt.text.match(/MANAGERDOMAIN=primis\.tech/g) || []).length === 1
+      && /MANAGERDOMAIN=andere\.tech/.test(adsAngabenGeraeumt.text),
+      'Aufraeumen entfernt die zweite gleiche Angabe und laesst den Widerspruch stehen',
+      adsAngabenGeraeumt.text.replace(/\n/g, ' | '));
+
+    const adsAngabeWeg = adstxt.entferne(adsAngabenGeraeumt.text,
+      [adstxt.leseZeile('MANAGERDOMAIN=andere.tech', 1)]);
+    pruefe(adsAngabeWeg.entfernt.length === 1 && !/andere\.tech/.test(adsAngabeWeg.text)
+      && /primis\.tech/.test(adsAngabeWeg.text),
+      'Eine Angabe laesst sich einzeln entfernen, die andere bleibt stehen',
+      adsAngabeWeg.text.replace(/\n/g, ' | '));
+
     pruefe(adstxt.entdoppele(adsGeraeumt.text).entfernt.length === 0,
       'Ein zweiter Durchlauf findet nichts mehr');
 
@@ -1622,6 +1673,55 @@ async function main() {
 
     const adsNichtsZuTun = await ruf(`/api/app/ads/${siteId}/entdoppeln`, { method: 'POST' });
     pruefe(adsNichtsZuTun.daten.entfernt === 0, 'Ein zweiter Aufruf aendert nichts mehr');
+
+    // Dieselbe Angabe zweimal, jetzt ueber die Website.
+    await ruf(`/api/app/ads/${siteId}`, {
+      method: 'PUT',
+      body: {
+        force: true,
+        content: ['MANAGERDOMAIN=primis.tech', 'MANAGERDOMAIN=primis.tech',
+          'MANAGERDOMAIN=andere.tech', 'openx.com, 5555, DIRECT'].join('\n'),
+      },
+    });
+    const adsMitAngaben = await ruf('/api/app/ads');
+    pruefe((adsMitAngaben.daten.sites.find((x) => x.id === siteId) || {}).doppelt === 1,
+      'Die Uebersicht meldet auch eine doppelte Angabe');
+
+    /* Das Aufraeumen laeuft im Plugin. Eine Fassung, die Angaben dabei nicht kennt,
+       wuerde die Eintraege aufraeumen, die doppelte Zeile stehen lassen und dem Hub
+       "erledigt" melden. Dann soll er das lieber vorher sagen. */
+    db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run('1.6.2', siteId);
+    const adsAngabeZuAlt = await ruf(`/api/app/ads/${siteId}/entdoppeln`, { method: 'POST' });
+    pruefe(adsAngabeZuAlt.status >= 400 && /1\.6\.3/.test(JSON.stringify(adsAngabeZuAlt.daten)),
+      'Fuer doppelte Angaben wird die noetige Plugin-Fassung benannt',
+      JSON.stringify(adsAngabeZuAlt.daten));
+    db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run('1.6.3', siteId);
+
+    const adsAngabeRaeumen = await ruf(`/api/app/ads/${siteId}/entdoppeln`, { method: 'POST' });
+    pruefe(adsAngabeRaeumen.status === 200
+      && (fakeWp.ads.inhalt.match(/MANAGERDOMAIN=primis\.tech/g) || []).length === 1
+      && /MANAGERDOMAIN=andere\.tech/.test(fakeWp.ads.inhalt),
+      'Auf der Website bleibt eine der gleichen Angaben stehen, der Widerspruch bleibt',
+      fakeWp.ads.inhalt.replace(/\n/g, ' | '));
+
+    // Und einzeln entfernen trifft genau die genannte Zeile.
+    await ruf('/api/app/ads/eintraege', {
+      method: 'POST', body: { action: 'remove', entries: 'MANAGERDOMAIN=andere.tech', site_ids: [siteId] },
+    });
+    pruefe(!/andere\.tech/.test(fakeWp.ads.inhalt) && /primis\.tech/.test(fakeWp.ads.inhalt),
+      'Eine einzelne Angabe laesst sich von der Website entfernen',
+      fakeWp.ads.inhalt.replace(/\n/g, ' | '));
+
+    // Alle Pruefungen teilen sich dieselbe Website. Fuer die naechsten steht hier
+    // wieder der Stand von vor diesem Abschnitt.
+    await ruf(`/api/app/ads/${siteId}`, {
+      method: 'PUT',
+      body: {
+        force: true,
+        content: ['google.com, pub-0000000000000001, DIRECT, f08c47fec0942fa0',
+          'openx.com, 5555, DIRECT'].join('\n'),
+      },
+    });
 
     const adsSammelRaeumen = await ruf('/api/app/ads/entdoppeln', { method: 'POST', body: {} });
     pruefe(adsSammelRaeumen.status === 200 && Array.isArray(adsSammelRaeumen.daten.ergebnisse),

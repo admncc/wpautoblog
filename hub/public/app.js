@@ -2601,6 +2601,10 @@ async function renderAdsSite(view, siteId) {
   const eintraege = daten.zeilen.filter((z) => z.art === 'eintrag');
   const variablen = daten.zeilen.filter((z) => z.art === 'variable');
   const kaputt = daten.zeilen.filter((z) => z.art === 'fehler');
+  // Zwei verschiedene Widersprueche, zwei verschiedene Erklaerungen: Eine Konto-ID
+  // mit zwei Arten ist etwas anderes als eine Angabe mit zwei Werten.
+  const widerspruchEintrag = daten.pruefung.widerspruch.filter((d) => d.art !== 'variable');
+  const widerspruchVariable = daten.pruefung.widerspruch.filter((d) => d.art === 'variable');
 
   view.innerHTML = `
     <a class="back" href="#/ads">${ic('out', 'sm')}ads.txt</a>
@@ -2669,7 +2673,9 @@ async function renderAdsSite(view, siteId) {
       ${variablen.map((z) => `<div class="item is-idle"><span class="grow">
         <span class="ttl">${esc(z.name)}</span>
         <span class="kv"><span class="code">${esc(z.wert)}</span>
-          ${z.bekannt ? '' : '<span style="color:var(--warn)">unbekannte Angabe</span>'}</span></span></div>`).join('')}
+          ${z.bekannt ? '' : '<span style="color:var(--warn)">unbekannte Angabe</span>'}</span></span>
+        <button class="btn sm danger" data-adsweg="${esc(adsZeileText(z))}"
+          title="Diese Angabe entfernen">${ic('x', 'sm')}</button></div>`).join('')}
     </section>` : ''}
 
     ${kaputt.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
@@ -2679,18 +2685,27 @@ async function renderAdsSite(view, siteId) {
 
     ${daten.entfaellt.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
       <b>${daten.entfaellt.length} Zeile(n) stehen doppelt drin.</b>
-      Gleicher Vermarkter, gleiche Konto-ID, gleiche Art. Das schadet nicht, macht die Datei
-      aber unübersichtlich. Von zwei gleichen bleibt die vollständigere stehen, also die mit
+      Bei Einträgen heißt das: gleicher Vermarkter, gleiche Konto-ID, gleiche Art. Bei Angaben
+      zur Domain: derselbe Name, derselbe Wert. Das schadet nicht, macht die Datei aber
+      unübersichtlich. Von zwei gleichen bleibt die vollständigere stehen, also die mit
       Kennung und Kommentar. Diese hier würden verschwinden:
       <span class="code" style="display:block;margin-top:6px">${daten.entfaellt.slice(0, 8).map((z) =>
         `Zeile ${z.nummer}: ${esc(z.roh)}`).join('<br>')}${
         daten.entfaellt.length > 8 ? `<br>… und ${daten.entfaellt.length - 8} weitere` : ''}</span></span>
       <button class="btn sm" id="ads-entdoppeln">${ic('trash', 'sm')}Doppelte entfernen</button></div>` : ''}
 
-    ${daten.pruefung.widerspruch.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
+    ${widerspruchEintrag.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
       <b>Dieselbe Konto-ID steht einmal als DIRECT und einmal als RESELLER.</b>
       Das räumt der Hub nicht von selbst weg, denn nur eine der beiden Angaben stimmt.
-      <span class="code" style="display:block;margin-top:6px">${daten.pruefung.widerspruch.slice(0, 5).map((d) =>
+      <span class="code" style="display:block;margin-top:6px">${widerspruchEintrag.slice(0, 5).map((d) =>
+        `Zeile ${d.zeile.nummer}: ${esc(d.zeile.roh)} (Zeile ${d.zuerst} sagt ${esc(d.andere)})`).join('<br>')}</span>
+      </span></div>` : ''}
+
+    ${widerspruchVariable.length ? `<div class="notice warn">${ic('alert')}<span class="grow">
+      <b>Dieselbe Angabe steht mit zwei verschiedenen Werten da.</b>
+      Gelten kann nur einer, und welcher, entscheidet der Hub nicht. Unten bei „Angaben zur
+      Domain“ lässt sich die falsche Zeile entfernen.
+      <span class="code" style="display:block;margin-top:6px">${widerspruchVariable.slice(0, 5).map((d) =>
         `Zeile ${d.zeile.nummer}: ${esc(d.zeile.roh)} (Zeile ${d.zuerst} sagt ${esc(d.andere)})`).join('<br>')}</span>
       </span></div>` : ''}
 

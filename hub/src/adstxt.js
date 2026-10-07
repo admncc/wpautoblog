@@ -107,9 +107,16 @@ function schluessel(eintrag) {
  * Hier zaehlt die Art mit. Zwei Zeilen mit derselben Konto-ID, aber einmal DIRECT
  * und einmal RESELLER, sind kein Versehen zum Wegraeumen, sondern ein Widerspruch,
  * den ein Mensch ansehen muss.
+ *
+ * Fuer Variablen gilt dasselbe eine Zeile tiefer: Zweimal OWNERDOMAIN mit derselben
+ * Domain ist eine Zeile zu viel, zweimal mit verschiedenen Domains ist ein
+ * Widerspruch. Gross- und Kleinschreibung zaehlt dabei nicht - es geht um Domains
+ * und Adressen, nicht um Text.
  */
 function vollSchluessel(eintrag) {
-  if (!eintrag || eintrag.art !== 'eintrag') return '';
+  if (!eintrag) return '';
+  if (eintrag.art === 'variable') return `var|${eintrag.name}|${String(eintrag.wert || '').toLowerCase()}`;
+  if (eintrag.art !== 'eintrag') return '';
   return `${eintrag.domain}|${eintrag.konto}|${eintrag.beziehung}`;
 }
 
@@ -195,17 +202,29 @@ function ergaenze(text, neue) {
   return { text: schreibe(ergebnis), hinzugefuegt, uebersprungen };
 }
 
-/** Entfernt Eintraege. Kommentare und Variablen bleiben unangetastet. */
+/**
+ * Entfernt Zeilen. Kommentare bleiben unangetastet.
+ *
+ * Eintraege werden ueber Vermarkter und Konto-ID erkannt, Variablen ueber Name und
+ * Wert zusammen. Steht dieselbe Angabe zweimal mit verschiedenen Werten da, soll
+ * genau die genannte Zeile verschwinden und die andere bleiben - sonst loescht ein
+ * Klick mehr, als dasteht.
+ */
+function wegSchluessel(zeile) {
+  if (zeile && zeile.art === 'variable') return vollSchluessel(zeile);
+  return schluessel(zeile);
+}
+
 function entferne(text, weg) {
   const raus = new Set();
   for (const zeile of weg) {
-    const key = schluessel(zeile);
+    const key = wegSchluessel(zeile);
     if (key) raus.add(key);
   }
 
   const entfernt = [];
   const bleibt = parse(text).filter((zeile) => {
-    const key = schluessel(zeile);
+    const key = wegSchluessel(zeile);
     if (!key || !raus.has(key)) return true;
     entfernt.push(zeile);
     return false;
@@ -261,6 +280,7 @@ function pruefe(text) {
   const zeilen = parse(text);
   const gesehen = new Map();       // exakt dieselbe Zeile
   const nachKonto = new Map();     // dasselbe Konto, egal mit welcher Art
+  const nachName = new Map();      // dieselbe Variable, egal mit welchem Wert
   const doppelt = [];
   const widerspruch = [];
   const fehler = [];
@@ -277,11 +297,22 @@ function pruefe(text) {
       gesehen.set(voll, zeile.nummer);
     }
 
+    // Dieselbe Angabe mit zwei verschiedenen Werten: Nur eine davon kann gelten.
+    if (zeile.art === 'variable') {
+      const vorherName = nachName.get(zeile.name);
+      if (vorherName) {
+        widerspruch.push({ art: 'variable', zeile, zuerst: vorherName.nummer, andere: vorherName.wert });
+      } else {
+        nachName.set(zeile.name, { nummer: zeile.nummer, wert: zeile.wert });
+      }
+      continue;
+    }
+
     const key = schluessel(zeile);
     if (!key) continue;
     const vorher = nachKonto.get(key);
     if (vorher && vorher.beziehung !== zeile.beziehung) {
-      widerspruch.push({ zeile, zuerst: vorher.nummer, andere: vorher.beziehung });
+      widerspruch.push({ art: 'eintrag', zeile, zuerst: vorher.nummer, andere: vorher.beziehung });
     } else if (!vorher) {
       nachKonto.set(key, { nummer: zeile.nummer, beziehung: zeile.beziehung });
     }
@@ -350,5 +381,6 @@ function vermarkter(text) {
 module.exports = {
   parse, leseZeile, schluessel, vollSchluessel, alsText, schreibe, leseEingabe,
   ergaenze, entferne, entdoppele, pruefe, vermarkter, istDomain, variable, domainAusAdresse,
+  wegSchluessel,
   ARTEN, VARIABLEN,
 };

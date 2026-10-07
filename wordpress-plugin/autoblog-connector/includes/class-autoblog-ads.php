@@ -250,11 +250,18 @@ class Autoblog_Ads {
         return strtoupper($treffer[1]);
     }
 
-    /** Entfernt Zeilen. Kommentare und Variablen bleiben unangetastet. */
+    /**
+     * Entfernt Zeilen. Kommentare bleiben unangetastet.
+     *
+     * Eintraege werden ueber Vermarkter und Konto-ID erkannt, Variablen ueber Name und
+     * Wert zusammen. Steht dieselbe Angabe zweimal mit verschiedenen Werten da, soll
+     * genau die genannte Zeile verschwinden und die andere bleiben - sonst loescht ein
+     * Klick mehr, als dasteht.
+     */
     public static function entfernen(array $zeilen) {
         $raus = [];
         foreach ($zeilen as $zeile) {
-            $key = self::schluessel((string) $zeile);
+            $key = self::weg_schluessel((string) $zeile);
             if ($key !== '') {
                 $raus[$key] = true;
             }
@@ -266,13 +273,21 @@ class Autoblog_Ads {
         $status = self::status();
         $bleibt = [];
         foreach (preg_split('/\r\n|\r|\n/', $status['content']) as $zeile) {
-            $key = self::schluessel($zeile);
+            $key = self::weg_schluessel($zeile);
             if ($key !== '' && isset($raus[$key])) {
                 continue;
             }
             $bleibt[] = $zeile;
         }
         return self::schreiben(implode("\n", $bleibt));
+    }
+
+    /** Woran eine Zeile beim Entfernen erkannt wird. */
+    private static function weg_schluessel($zeile) {
+        if (self::variablen_name($zeile) !== '') {
+            return self::voll_schluessel($zeile);
+        }
+        return self::schluessel($zeile);
     }
 
     /**
@@ -354,13 +369,35 @@ class Autoblog_Ads {
         ];
     }
 
-    /** Schluessel fuer "das ist zweimal dasselbe": Vermarkter, Konto-ID und Art. */
+    /**
+     * Schluessel fuer "das ist zweimal dasselbe": Vermarkter, Konto-ID und Art.
+     *
+     * Bei Variablen zaehlt der Wert mit: Zweimal OWNERDOMAIN mit derselben Domain ist
+     * eine Zeile zu viel und darf weg; zweimal mit verschiedenen Domains ist ein
+     * Widerspruch, den ein Mensch ansehen muss. Gross- und Kleinschreibung zaehlt
+     * dabei nicht, es geht um Domains und Adressen.
+     */
     private static function voll_schluessel($zeile) {
+        $name = self::variablen_name($zeile);
+        if ($name !== '') {
+            return 'var|' . $name . '|' . strtolower(self::variablen_wert($zeile));
+        }
         $teile = self::teile($zeile);
         if ($teile['domain'] === '' || $teile['konto'] === '') {
             return '';
         }
         return $teile['domain'] . '|' . $teile['konto'] . '|' . $teile['art'];
+    }
+
+    /** Der Wert einer Variablenzeile, ohne Kommentar. */
+    private static function variablen_wert($zeile) {
+        $zeile   = (string) $zeile;
+        $trenner = strpos($zeile, '#');
+        if ($trenner !== false) {
+            $zeile = substr($zeile, 0, $trenner);
+        }
+        $stelle = strpos($zeile, '=');
+        return ($stelle === false) ? '' : trim(substr($zeile, $stelle + 1));
     }
 
     /**
