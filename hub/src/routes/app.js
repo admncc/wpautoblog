@@ -242,7 +242,7 @@ router.get(
       videos: db
         .prepare(
           `SELECT v.id, v.video_id, v.title, v.status, v.published_at, v.article_id, v.error, v.words,
-                  v.attempts, v.retry_at, c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
+                  v.attempts, v.retry_at, v.skip_reason, c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
            FROM videos v JOIN channels c ON c.id = v.channel_ref
            WHERE v.site_id = ?
              -- Uebersprungene Videos aelterer Durchlaeufe sind nur noch Gedaechtnis
@@ -486,7 +486,7 @@ router.post(
       videos: db
         .prepare(
           `SELECT v.id, v.video_id, v.title, v.status, v.published_at, v.article_id, v.error, v.words,
-                  v.attempts, v.retry_at, c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
+                  v.attempts, v.retry_at, v.skip_reason, c.title AS kanal, c.auto_article, c.active AS kanal_aktiv
            FROM videos v JOIN channels c ON c.id = v.channel_ref
            WHERE v.site_id = ?
              -- Uebersprungene Videos aelterer Durchlaeufe sind nur noch Gedaechtnis
@@ -828,12 +828,20 @@ router.post(
   })
 );
 
+/**
+ * Ein Video beiseitelegen: Es bleibt mit seinem Grund stehen, zaehlt aber nicht
+ * mehr als offen. Gedacht fuer zwei Faelle - ein Video, das man nicht will, und
+ * ein gescheiterter Versuch, an dem sich nichts mehr aendert.
+ */
 router.post(
   '/videos/:id/skip',
   wrap((req, res) => {
-    db.prepare("UPDATE videos SET status = 'uebersprungen', error = 'von Hand uebersprungen', skip_reason = 'manuell' WHERE id = ?")
-      .run(req.params.id);
-    res.json({ ok: true });
+    const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(req.params.id);
+    if (!video) return res.status(404).json({ error: 'Video nicht gefunden.' });
+    // Der Grund eines gescheiterten Versuchs bleibt stehen: Er erklaert, warum hier
+    // nichts mehr passiert. Nur wo keiner steht, traegt der Hub einen ein.
+    service.legeBeiseite(video, video.error || 'Von Hand beiseitegelegt', 'manuell');
+    return res.json({ ok: true });
   })
 );
 

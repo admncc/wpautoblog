@@ -595,7 +595,7 @@ function startFromVideo(video) {
     .catch(async (err) => {
       const meldung = String(err.message || err);
       touchArticle(id, { status: 'failed', error: meldung });
-      await nachFehlschlag(video, meldung);
+      await nachFehlschlag(video, meldung, { endgueltig: Boolean(err && err.endgueltig) });
       timer.fail(meldung, { siteId: site.id, articleId: id, context: { video_id: video.video_id } });
       return getArticle(id);
     });
@@ -610,12 +610,17 @@ function startFromVideo(video) {
  * bereit, und auch ein ueberlasteter Dienst ist kein Grund, das Video abzuschreiben.
  * Nach dem letzten Anlauf rueckt ein anderes Video des Kanals nach, damit der Blog
  * in diesem Zeitraum trotzdem seinen Artikel bekommt.
+ *
+ * Eine Ausnahme: Sagt das Modell, aus dem Transkript sei kein Artikel zu machen,
+ * ist das kein Fehlschlag, sondern ein Urteil. Ein 120-Woerter-Transkript wird in
+ * zwei Stunden nicht laenger. So ein Video wandert gleich beiseite - es taucht
+ * dann unter den zurueckgestellten auf, nicht als roter Fehler, der nie weggeht.
  */
 const WIEDERVORLAGE_MINUTEN = [30, 120];
 
-async function nachFehlschlag(video, meldung) {
+async function nachFehlschlag(video, meldung, { endgueltig = false } = {}) {
   const versuche = Number(video.attempts || 0) + 1;
-  const wartezeit = WIEDERVORLAGE_MINUTEN[versuche - 1];
+  const wartezeit = endgueltig ? null : WIEDERVORLAGE_MINUTEN[versuche - 1];
 
   if (wartezeit) {
     db.prepare(
@@ -628,9 +633,44 @@ async function nachFehlschlag(video, meldung) {
     return;
   }
 
-  db.prepare("UPDATE videos SET status = 'fehler', error = ?, attempts = ?, retry_at = NULL WHERE id = ?")
-    .run(meldung.slice(0, 500), versuche, video.id);
+  if (endgueltig) {
+    legeBeiseite(video, meldung, 'unbrauchbar', versuche);
+    logger.info('article', 'video.unbrauchbar', `Video zurueckgestellt: ${meldung.slice(0, 200)}`, {
+      siteId: video.site_id, context: { video_id: video.video_id, titel: video.title },
+    });
+  } else {
+    db.prepare("UPDATE videos SET status = 'fehler', error = ?, attempts = ?, retry_at = NULL WHERE id = ?")
+      .run(meldung.slice(0, 500), versuche, video.id);
+  }
   await ersatzVideo(video);
+}
+
+/**
+ * Legt ein Video beiseite: Es bleibt mit seinem Grund stehen, zaehlt aber nicht
+ * mehr als offener Fehler.
+ *
+ * Der leere Artikel, den der Fehlversuch hinterlassen hat, verschwindet dabei.
+ * Er enthaelt nichts und wuerde in der Artikelliste nur als zweiter roter Eintrag
+ * zu demselben Vorgang stehen.
+ */
+function legeBeiseite(video, meldung, grund, versuche = null) {
+  if (video.article_id) {
+    db.prepare("DELETE FROM articles WHERE id = ? AND status = 'failed' AND (content_html IS NULL OR content_html = '')")
+      .run(video.article_id);
+  }
+  const leer = !db.prepare('SELECT id FROM articles WHERE id = ?').get(video.article_id || '');
+
+  db.prepare(
+    `UPDATE videos SET status = 'uebersprungen', skip_reason = ?, error = ?, retry_at = NULL,
+       attempts = ?, article_id = CASE WHEN ? THEN NULL ELSE article_id END
+     WHERE id = ?`
+  ).run(
+    grund,
+    String(meldung || '').slice(0, 500),
+    versuche === null ? Number(video.attempts || 0) : versuche,
+    leer ? 1 : 0,
+    video.id
+  );
 }
 
 /**
@@ -1055,6 +1095,6 @@ async function runRecurring() {
 module.exports = {
   startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
   computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer, darfSenden,
-  startBacklink, ankerVarianten, setzeVerweis, nacheinander,
+  startBacklink, ankerVarianten, setzeVerweis, nacheinander, legeBeiseite, nachFehlschlag,
   raeumeHaengende, brichAb, sendeMehrere, themenKontext, automatischesThema,
 };

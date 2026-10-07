@@ -575,7 +575,12 @@ ${transcript}`;
   });
 
   if (data.verwertbar === false) {
-    throw new AiError(`Aus diesem Video laesst sich kein Artikel machen: ${data.begruendung || 'kein verwertbarer Inhalt'}`);
+    // Ein Urteil ueber das Video, kein Fehler im Betrieb: Das Transkript wird nicht
+    // laenger, ein zweiter Anlauf kaeme also zum selben Schluss. Der Aufrufer soll
+    // das unterscheiden koennen, statt zweimal umsonst nachzufragen.
+    const fehler = new AiError(`Aus diesem Video laesst sich kein Artikel machen: ${data.begruendung || 'kein verwertbarer Inhalt'}`);
+    fehler.endgueltig = true;
+    throw fehler;
   }
   return { ...aufbereiten(data, site, imageCount, video.title, kategorien), ...usage };
 }

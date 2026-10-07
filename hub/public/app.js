@@ -1348,7 +1348,9 @@ async function renderSite(view, siteId) {
       ['limit', 'Grenze je Durchlauf erreicht', 'Kommen dran, sobald wieder Platz ist oder ein Video ausfällt.'],
       ['altbestand', 'Altbestand beim Einrichten', 'Lagen schon da, als der Kanal aufgenommen wurde.'],
       ['dublette', 'Ähnliches schon verarbeitet', 'Ein anderer Kanal hatte dasselbe Thema zuerst.'],
-      ['manuell', 'Von Hand übersprungen', 'Deine Entscheidung. Rücken nie von selbst nach.'],
+      ['unbrauchbar', 'Kein Artikel daraus zu machen',
+        'Das Transkript gab zu wenig her. Daran ändert auch ein zweiter Anlauf nichts.'],
+      ['manuell', 'Von Hand beiseitegelegt', 'Deine Entscheidung. Rücken nie von selbst nach.'],
     ];
 
     const videoZeile = (v) => {
@@ -1361,7 +1363,8 @@ async function renderSite(view, siteId) {
             ? `<span class="meta">Neuer Anlauf am ${esc(fmtDate(v.retry_at))} (Versuch ${Number(v.attempts) + 1}).</span>`
             : ''}
           ${v.status === 'fehler' && !v.retry_at && Number(v.attempts) > 0
-            ? '<span class="meta">Aufgegeben nach mehreren Anläufen. Ein anderes Video ist nachgerückt.</span>'
+            ? '<span class="meta">Aufgegeben nach mehreren Anläufen. Ein anderes Video ist nachgerückt.'
+              + ' Mit „Beiseitelegen“ verschwindet die Meldung aus der offenen Liste.</span>'
             : ''}
           ${v.status === 'neu' ? `<span class="meta">${v.auto_article && v.kanal_aktiv
             ? 'Wird beim nächsten stündlichen Durchlauf von selbst zum Artikel.'
@@ -1375,6 +1378,8 @@ async function renderSite(view, siteId) {
           <a class="btn sm quiet icon" href="https://www.youtube.com/watch?v=${esc(v.video_id)}"
             target="_blank" rel="noopener" title="Auf YouTube ansehen">${ic('ext', 'sm')}</a>
           ${v.status === 'neu' ? `<button class="btn sm quiet" data-skip="${esc(v.id)}">Überspringen</button>` : ''}
+          ${v.status === 'fehler' ? `<button class="btn sm quiet" data-skip="${esc(v.id)}"
+            title="Aus der offenen Liste nehmen. Das Video bleibt mit seinem Grund stehen.">Beiseitelegen</button>` : ''}
         </span></td></tr>`;
     };
     const videoTabelle = (liste) => `<div class="tblwrap"><table>
@@ -1476,7 +1481,7 @@ async function renderSite(view, siteId) {
           ? `${offen.length ? videoTabelle(offen)
               : '<div class="empty">Aus dem letzten Durchlauf ist nichts offen.</div>'}
             ${beiseite.length ? disclose('skip',
-              `${beiseite.length} übersprungene Video${beiseite.length === 1 ? '' : 's'} aus dem letzten Durchlauf`,
+              `${beiseite.length} Video${beiseite.length === 1 ? '' : 's'} beiseite aus dem letzten Durchlauf`,
               `<div style="padding:12px 16px">
                 <div class="sub" style="margin-bottom:10px">Nichts davon ist verloren. Der Grund entscheidet,
                   ob ein Video später von selbst nachrückt.</div>

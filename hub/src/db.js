@@ -284,6 +284,26 @@ CREATE INDEX IF NOT EXISTS idx_ads_jobs_site ON ads_jobs(site_id, status);`);
  */
 db.prepare("UPDATE ads_jobs SET action = 'write', content = '' WHERE action = 'clear' AND status = 'wartet'").run();
 
+/*
+ * Videos, aus denen sich kein Artikel machen laesst, standen frueher als roter
+ * Fehler in der Liste - dauerhaft, denn an einem zu kurzen Transkript aendert sich
+ * nichts mehr. Inzwischen wandern sie gleich zu den zurueckgestellten. Die alten
+ * Eintraege ziehen hier nach, sonst bliebe die Meldung fuer immer stehen.
+ */
+db.prepare(
+  `UPDATE videos SET status = 'uebersprungen', skip_reason = 'unbrauchbar', retry_at = NULL
+    WHERE status = 'fehler' AND error LIKE 'Aus diesem Video%kein Artikel machen%'`
+).run();
+db.prepare(
+  `DELETE FROM articles WHERE status = 'failed' AND (content_html IS NULL OR content_html = '')
+    AND id IN (SELECT article_id FROM videos WHERE skip_reason = 'unbrauchbar' AND article_id IS NOT NULL)`
+).run();
+db.prepare(
+  `UPDATE videos SET article_id = NULL
+    WHERE skip_reason = 'unbrauchbar' AND article_id IS NOT NULL
+      AND article_id NOT IN (SELECT id FROM articles)`
+).run();
+
 const setSettingStmt = db.prepare(
   `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`

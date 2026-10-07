@@ -630,6 +630,44 @@ async function main() {
     const alteArtikel = db.prepare("SELECT COUNT(*) AS n FROM articles WHERE id = ?").get(videoArtikel.daten.id);
     pruefe(alteArtikel.n === 0, 'Leerer Fehlversuch wird beim naechsten Anlauf weggeraeumt');
 
+    /* Sagt das Modell, aus dem Transkript sei kein Artikel zu machen, ist das kein
+       Fehlschlag, sondern ein Urteil: Ein zweiter Anlauf kaeme zum selben Schluss.
+       So ein Video wandert gleich beiseite, statt als roter Fehler stehenzubleiben,
+       der nie weggeht. */
+    db.prepare(`INSERT INTO articles (id, site_id, keyword, title, status, origin)
+                VALUES ('art_unbrauchbar', ?, 'x', 'x', 'failed', 'youtube')`).run(siteId);
+    db.prepare(`INSERT INTO videos (id, channel_ref, site_id, video_id, title, status, article_id)
+                VALUES ('vid_kurz', ?, ?, 'kurzvideo1', 'Schnappsidee mit 113 Woertern', 'transkribiert', 'art_unbrauchbar')`)
+      .run(kanalId, siteId);
+    const dienst = require('../src/service');
+    const kurzVideo = db.prepare("SELECT * FROM videos WHERE id = 'vid_kurz'").get();
+    await dienst.nachFehlschlag(kurzVideo,
+      'Aus diesem Video laesst sich kein Artikel machen: Das Transkript besteht aus rund 120 Woertern.',
+      { endgueltig: true });
+
+    const beiseite = db.prepare("SELECT * FROM videos WHERE id = 'vid_kurz'").get();
+    pruefe(beiseite.status === 'uebersprungen' && beiseite.skip_reason === 'unbrauchbar' && !beiseite.retry_at,
+      'Ein unbrauchbares Video wird ohne zweiten Anlauf beiseitegelegt', JSON.stringify(beiseite.status));
+    pruefe(/kein Artikel machen/.test(beiseite.error || ''),
+      'Der Grund bleibt an der Zeile stehen', beiseite.error);
+    pruefe(!db.prepare("SELECT id FROM articles WHERE id = 'art_unbrauchbar'").get() && !beiseite.article_id,
+      'Der leere Fehlversuch verschwindet mit, statt als zweiter roter Eintrag zu bleiben');
+
+    const nichtMehrOffen = db.prepare("SELECT COUNT(*) AS n FROM videos WHERE status = 'fehler' AND video_id = 'kurzvideo1'").get();
+    pruefe(nichtMehrOffen.n === 0, 'Und es zaehlt nicht mehr als offener Fehler');
+
+    // Ein gescheiterter Versuch, der nicht von selbst beiseitegeht, laesst sich von
+    // Hand aus der offenen Liste nehmen - mit seinem Grund, nicht ohne.
+    db.prepare(`INSERT INTO videos (id, channel_ref, site_id, video_id, title, status, error, attempts)
+                VALUES ('vid_haken', ?, ?, 'hakenvideo1', 'Video mit Haken', 'fehler', 'Transkript-Dienst antwortete nicht', 3)`)
+      .run(kanalId, siteId);
+    const vonHand = await ruf('/api/app/videos/vid_haken/skip', { method: 'POST' });
+    const danachHaken = db.prepare("SELECT * FROM videos WHERE id = 'vid_haken'").get();
+    pruefe(vonHand.status === 200 && danachHaken.status === 'uebersprungen'
+      && danachHaken.skip_reason === 'manuell' && /Transkript-Dienst/.test(danachHaken.error || ''),
+      'Ein gescheitertes Video laesst sich beiseitelegen und behaelt seinen Grund',
+      JSON.stringify({ s: danachHaken.status, e: danachHaken.error }));
+
     // Grenze je Durchlauf: mehrere neue Videos, aber nur so viele wie erlaubt.
     db.prepare("UPDATE channels SET max_per_scan = 2, last_check_at = '2026-01-01T00:00:00Z' WHERE id = ?").run(kanalId);
     const kandidaten = [

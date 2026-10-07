@@ -193,11 +193,22 @@ Autor-ID.
   (Wie oft prüfen, Videos je Durchlauf, Blickwinkel, automatisch, Speichern).
 - Karte „Gefundene Videos": Tabelle mit Titel, Kanal, Link zu YouTube, Status-Abzeichen
   (wartet / übersprungen / Artikel / Fehler), Veröffentlichungsdatum, Knöpfen
-  („Artikel erzeugen", „Überspringen"). Unter dem Titel steht je nach Lage ein Hinweis:
-  „Wird beim nächsten stündlichen Durchlauf von selbst zum Artikel", „Neuer Anlauf am
-  …, (Versuch 2)" oder die Fehlermeldung. Übersprungene Videos stecken in einem
-  zugeklappten `<details>`-Block („38 übersprungene Videos aus dem letzten Durchlauf
-  anzeigen").
+  („Artikel erzeugen", „Überspringen" bei wartenden, „Beiseitelegen" bei gescheiterten).
+  Unter dem Titel steht je nach Lage ein Hinweis: „Wird beim nächsten stündlichen
+  Durchlauf von selbst zum Artikel", „Neuer Anlauf am …, (Versuch 2)" oder die
+  Fehlermeldung. Beiseitegelegte Videos stecken in einem zugeklappten
+  `<details>`-Block („38 Videos beiseite aus dem letzten Durchlauf"), gruppiert nach
+  dem Grund: Grenze je Durchlauf, Altbestand, Dublette, kein Artikel daraus zu machen,
+  von Hand beiseitegelegt. Der Grund entscheidet, ob ein Video je wieder nachrückt.
+
+  **Was ein Fehler ist und was nicht:** Sagt das Modell, aus dem Transkript sei kein
+  eigenständiger Artikel zu machen, ist das kein Fehlschlag, sondern ein Urteil über das
+  Video. Ein zweiter Anlauf käme zum selben Schluss, also gibt es keinen: Das Video geht
+  sofort beiseite, der leere Fehlversuch in der Artikelliste verschwindet mit, und ein
+  anderes Video des Kanals rückt nach. Nur technische Fehlschläge (Transkript noch nicht
+  da, Dienst überlastet) kommen auf Wiedervorlage und stehen so lange rot in der Liste.
+  Bleibt davon einer stehen, an dem sich nichts mehr ändert, nimmt „Beiseitelegen" ihn
+  aus der offenen Liste - mit seinem Grund, nicht ohne.
 
 *Schwäche:* Die Kanalzeile trägt 12 Bedienelemente. Die Einstellungsreihe steht immer
 offen, obwohl sie selten gebraucht wird.
