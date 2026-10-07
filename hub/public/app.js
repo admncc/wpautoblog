@@ -794,7 +794,9 @@ function siteTable(sites) {
     name: (s) => (s.name || '').toLowerCase(),
     status: (s) => (s.connected ? 1 : 0),
     beitraege: (s) => s.article_count || 0,
-    plugin: (s) => (s.plugin_version || '').padStart(12, '0'),
+    // Veraltete Websites bekommen den hoeheren Rang, damit der erste Klick sie nach
+    // oben holt. Danach sucht man in dieser Spalte, nicht nach der Zahl.
+    plugin: (s) => `${s.plugin_aktuell === false ? 1 : 0}${(s.plugin_version || '').padStart(12, '0')}`,
     gesehen: (s) => s.last_seen_at || '',
     angelegt: (s) => s.created_at || '',
   });
@@ -818,7 +820,9 @@ function siteTable(sites) {
       <td data-label="Beiträge" class="right">${site.article_count
         ? `<b>${site.article_count}</b><span class="meta">${site.published_count} veröffentlicht</span>`
         : '–'}</td>
-      <td data-label="Plugin">${esc(site.plugin_version || '–')}</td>
+      <td data-label="Plugin">${esc(site.plugin_version || '–')}
+        ${site.plugin_aktuell === false ? `<span class="meta" style="color:var(--warn)">${
+          site.plugin_version ? 'veraltet' : 'noch nicht gemeldet'}, ${esc(site.plugin_neueste)} liegt bereit</span>` : ''}</td>
       <td data-label="Zuletzt gesehen" class="nowrap">${esc(fmtDate(site.last_seen_at))}</td>
       <td data-label="Hinzugefügt" class="nowrap">${esc(fmtDate(site.created_at))}</td>
     </tr>`).join('')}</tbody>
@@ -828,10 +832,21 @@ function siteTable(sites) {
 async function renderSites(view) {
   const sites = await api('/api/app/sites');
 
+  /* Das Plugin aktualisiert sich einmal taeglich von selbst. Der Knopf ist fuer
+     den Fall, dass man nicht bis morgen warten will - etwa weil eine neue Fassung
+     gerade eine Funktion mitbringt, die man jetzt braucht. */
+  const verbunden = sites.filter((s) => s.connected);
+  const veraltet = verbunden.filter((s) => s.plugin_aktuell === false);
+  const archiv = sites.find((s) => s.plugin_neueste);
+
   view.innerHTML = `
     <div class="page-head">
       <div><h1>Websites</h1><p class="sub">Jede Website braucht einmalig das Begleit-Plugin und einen Token.</p></div>
-      <div class="acts"><button class="btn primary" id="open-new-site">${ic('plus', 'sm')}Website anlegen</button></div>
+      <div class="acts">
+        ${verbunden.length && archiv ? `<button class="btn" id="plugins-alle">${ic('refresh', 'sm')}${veraltet.length
+          ? `Plugin auf ${mehrzahl(veraltet.length, 'Website', 'Websites')} aktualisieren`
+          : 'Plugins aktualisieren'}</button>` : ''}
+        <button class="btn primary" id="open-new-site">${ic('plus', 'sm')}Website anlegen</button></div>
     </div>
 
     ${sites.length ? `<section class="card flat">
@@ -886,6 +901,25 @@ async function renderSites(view) {
       });
     });
   };
+
+  on('#plugins-alle', 'click', (event) => guard(event.currentTarget, async () => {
+    const stand = await api('/api/app/sites/update-plugins', { method: 'POST', body: {} });
+    const schief = (stand.ergebnisse || []).filter((e) => !e.ok);
+
+    if (schief.length) {
+      // Was geklappt hat zuerst, dann der erste Grund. Die uebrigen Gruende stehen
+      // im Protokoll, einer je Website.
+      toast((stand.aktualisiert ? `${mehrzahl(stand.aktualisiert, 'Website', 'Websites')} auf `
+        + `${stand.version} gebracht. ` : '')
+        + `${schief[0].name}: ${schief[0].message}`
+        + (schief.length > 1 ? ` (und ${schief.length - 1} weitere)` : ''), 'err');
+    } else if (stand.aktualisiert) {
+      toast(`${mehrzahl(stand.aktualisiert, 'Website', 'Websites')} auf Version ${stand.version} gebracht.`);
+    } else {
+      toast(`Alle Websites fahren schon Version ${stand.version || 'die aktuelle'}.`);
+    }
+    await render();
+  }));
 
   on('#open-new-site', 'click', dialog);
   on('#open-new-site-2', 'click', dialog);

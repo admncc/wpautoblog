@@ -128,9 +128,25 @@ stehen gleichrangig neben Erfolgsmeldungen.
 
 ### 4.3 Websites (`#/sites`)
 
-Karte „Neue Website anlegen" (Name, Adresse) und darunter die Liste der Websites mit
-Status-Abzeichen. Bei fünf Einträgen unspektakulär, aber der Einstieg in die
-wichtigste Detailseite.
+Eine Tabelle mit sechs Spalten, nach denen sich jeweils sortieren lässt: Website (Name
+und Adresse), Status, Beiträge (Zahl, darunter wie viele veröffentlicht sind), Plugin,
+zuletzt gesehen und hinzugefügt. Voreingestellt ist der Name von A nach Z, denn meistens
+sucht man eine bestimmte Seite; alles andere beantwortet eine seltenere Frage und ist
+einen Klick entfernt. Zeile anklicken führt zur Detailseite.
+
+Die Spalte **Plugin** zeigt die Version, die die Website zuletzt gemeldet hat, und darunter
+„veraltet, X liegt bereit", sobald der Hub eine neuere Fassung im Archiv hat. Ein Klick auf
+die Spaltenüberschrift holt die veralteten nach oben.
+
+Oben rechts **„Plugin auf N Websites aktualisieren"** (steht nichts an: „Plugins
+aktualisieren") und „Website anlegen". Der erste Knopf stößt das Update auf allen Websites
+an, die hinterherhinken, höchstens drei gleichzeitig. Eine Website, die nicht antwortet,
+beendet den Durchlauf nicht: Sie steht hinterher in der Meldung, mit dem Grund daneben, und
+ein Eintrag je Website steht im Protokoll. Nötig ist der Knopf nicht, das Update läuft
+einmal täglich von selbst; er ist für den Fall, dass man nicht bis morgen warten will.
+
+„Website anlegen" öffnet einen Dialog (Name, Adresse), danach gibt es Adresse und Token
+für das Connector-Plugin.
 
 ### 4.4 Website-Detail (`#/site/<id>`) — die dichteste Seite
 

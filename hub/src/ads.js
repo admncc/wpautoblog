@@ -1,7 +1,7 @@
 'use strict';
 const { db } = require('./db');
 const { logger } = require('./logger');
-const { randomId } = require('./util');
+const { randomId, nacheinander } = require('./util');
 const wp = require('./wp');
 const adstxt = require('./adstxt');
 const { VERSION } = require('./config');
@@ -29,27 +29,6 @@ const LIVE_TIMEOUT_MS = 12000;
    zweites Mal anzuhaengen. Ohne das wuerde jeder Durchlauf eine weitere
    OWNERDOMAIN-Zeile in die Datei schreiben. */
 const OWNERDOMAIN_PLUGIN = '1.6.2';
-
-/** Hoechstens `grenze` Aufrufe gleichzeitig. Zwanzig Websites auf einmal sind zu viel. */
-function nacheinander(grenze) {
-  let laufend = 0;
-  const warteschlange = [];
-
-  const weiter = () => {
-    if (laufend >= grenze || !warteschlange.length) return;
-    laufend += 1;
-    const { aufgabe, ok, fehler } = warteschlange.shift();
-    Promise.resolve().then(aufgabe).then(ok, fehler).finally(() => {
-      laufend -= 1;
-      weiter();
-    });
-  };
-
-  return (aufgabe) => new Promise((ok, fehler) => {
-    warteschlange.push({ aufgabe, ok, fehler });
-    weiter();
-  });
-}
 
 /**
  * Reicht die Plugin-Version auf dieser Website?

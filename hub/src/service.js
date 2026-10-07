@@ -5,7 +5,7 @@ const ai = require('./ai');
 const wp = require('./wp');
 const images = require('./images');
 const youtube = require('./youtube');
-const { randomId } = require('./util');
+const { randomId, nacheinander } = require('./util');
 const { PUBLIC_URL } = require('./config');
 const textvergleich = require('./textvergleich');
 const { pruefeUebernahme } = textvergleich;
@@ -317,33 +317,6 @@ function setzeVerweis(html, anchor, url, rel) {
 
 const BACKLINK_PARALLEL = 3;
 const SENDE_PARALLEL = 3;
-
-/**
- * Laesst hoechstens `grenze` Aufgaben gleichzeitig laufen.
- *
- * Ein Auftrag ueber zwanzig Websites wuerde sonst zwanzig Modellanfragen auf
- * einmal ausloesen. Das laeuft ins Rate-Limit, und die spaeteren Artikel
- * scheitern reihenweise.
- */
-function nacheinander(grenze) {
-  let laufend = 0;
-  const warteschlange = [];
-
-  const weiter = () => {
-    if (laufend >= grenze || !warteschlange.length) return;
-    laufend += 1;
-    const { aufgabe, ok, fehler } = warteschlange.shift();
-    Promise.resolve().then(aufgabe).then(ok, fehler).finally(() => {
-      laufend -= 1;
-      weiter();
-    });
-  };
-
-  return (aufgabe) => new Promise((ok, fehler) => {
-    warteschlange.push({ aufgabe, ok, fehler });
-    weiter();
-  });
-}
 
 /**
  * Ein Backlink-Auftrag: ein Ziel, ein Keyword, mehrere Websites.

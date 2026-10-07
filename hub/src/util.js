@@ -46,6 +46,34 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+/**
+ * Laesst hoechstens `grenze` Aufgaben gleichzeitig laufen.
+ *
+ * Ein Auftrag ueber zwanzig Websites wuerde sonst zwanzig Anfragen auf einmal
+ * ausloesen: beim Modell laeuft das ins Rate-Limit, bei zwanzig fremden Servern
+ * dauert die langsamste Antwort dann genauso lange, blockiert aber alle anderen
+ * mit. Drei gleichzeitig sind schnell genug und fallen nirgends auf.
+ */
+function nacheinander(grenze) {
+  let laufend = 0;
+  const warteschlange = [];
+
+  const weiter = () => {
+    if (laufend >= grenze || !warteschlange.length) return;
+    laufend += 1;
+    const { aufgabe, ok, fehler } = warteschlange.shift();
+    Promise.resolve().then(aufgabe).then(ok, fehler).finally(() => {
+      laufend -= 1;
+      weiter();
+    });
+  };
+
+  return (aufgabe) => new Promise((ok, fehler) => {
+    warteschlange.push({ aufgabe, ok, fehler });
+    weiter();
+  });
+}
+
 function slugify(text) {
   return String(text || '')
     .toLowerCase()
@@ -72,4 +100,7 @@ function normalizeUrl(url) {
   return value.replace(/\/+$/, '');
 }
 
-module.exports = { randomId, siteToken, encrypt, decrypt, sign, safeEqual, slugify, stripHtml, countWords, normalizeUrl };
+module.exports = {
+  randomId, siteToken, encrypt, decrypt, sign, safeEqual, slugify, stripHtml, countWords,
+  normalizeUrl, nacheinander,
+};

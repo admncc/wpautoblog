@@ -12,6 +12,7 @@ const { PUBLIC_URL, VERSION } = require('./../config');
 const diagnostics = require('./../diagnostics');
 const images = require('./../images');
 const pack = require('./../pluginpack');
+const plugins = require('./../plugins');
 const update = require('./../update');
 const youtube = require('./../youtube');
 const ads = require('./../ads');
@@ -199,12 +200,21 @@ router.get(
        FROM articles GROUP BY site_id`
     ).all().map((z) => [z.site_id, z]));
 
+    // Die Fassung, die der Hub bereithaelt, gehoert in jede Zeile: Erst im Vergleich
+    // sagt eine Versionsnummer etwas aus.
+    const neueste = pack.verfuegbar() ? pack.version() : null;
+
     res.json(db.prepare('SELECT * FROM sites ORDER BY name COLLATE NOCASE').all()
       .map(publicSite)
       .map(({ token, ...rest }) => ({
         ...rest,
         article_count: (zahlen.get(rest.id) || {}).gesamt || 0,
         published_count: (zahlen.get(rest.id) || {}).veroeffentlicht || 0,
+        plugin_neueste: neueste,
+        // Nur bei verbundenen Websites ist das eine Aussage. Eine verbundene Seite
+        // ohne gemeldete Version zaehlt als veraltet - genau so behandelt sie auch
+        // der Durchlauf, der die Updates verteilt.
+        plugin_aktuell: neueste && rest.connected ? !plugins.aelter(rest.plugin_version, neueste) : null,
       })));
   })
 );
@@ -334,6 +344,27 @@ router.post(
     if (!result.changes) return res.status(404).json({ error: 'Website nicht gefunden.' });
     logger.warn('site', 'token', 'Website-Token neu erzeugt - alte Verbindung ist ungueltig', { siteId: req.params.id, requestId: req.requestId });
     res.json({ token, hub_url: PUBLIC_URL });
+  })
+);
+
+/**
+ * Stoesst das Plugin-Update auf allen Websites an, die hinterherhinken.
+ *
+ * Ohne site_ids gilt der Aufruf fuer alle verbundenen Websites. Das darf hier
+ * grosszuegig sein: Es wird nichts geloescht und nichts ueberschrieben, sondern
+ * jede Seite auf den Stand gebracht, den der Hub ohnehin erwartet.
+ */
+router.post(
+  '/sites/update-plugins',
+  wrap(async (req, res) => {
+    if (!pack.verfuegbar()) return res.status(400).json({ error: 'Der Hub hält kein Plugin-Archiv bereit.' });
+    const siteIds = Array.isArray(req.body.site_ids) ? req.body.site_ids.map(String).slice(0, 100) : null;
+    const ergebnis = await plugins.updateAlle(siteIds);
+    logger.info('site', 'plugin-update',
+      `Sammelupdate: ${ergebnis.aktualisiert} von ${ergebnis.geprueft} Website(s) auf ${ergebnis.version} gebracht`
+      + `${ergebnis.fehler ? `, ${ergebnis.fehler} fehlgeschlagen` : ''}`,
+      { requestId: req.requestId, context: ergebnis });
+    return res.json({ ok: true, ...ergebnis });
   })
 );
 

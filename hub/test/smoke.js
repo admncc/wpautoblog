@@ -979,6 +979,28 @@ async function main() {
     const nochmalPruefen = await plugins.updateAlle();
     pruefe(nochmalPruefen.aktualisiert === 0, 'Aktuelle Website wird nicht erneut angefasst', JSON.stringify(nochmalPruefen));
 
+    // Derselbe Weg ueber den Knopf in der Oberflaeche.
+    db.prepare("UPDATE sites SET plugin_version = '1.3.1' WHERE id = ?").run(siteId);
+    const seitenVeraltet = await ruf('/api/app/sites');
+    const zeileVeraltet = seitenVeraltet.daten.find((x) => x.id === siteId);
+    pruefe(zeileVeraltet.plugin_aktuell === false && Boolean(zeileVeraltet.plugin_neueste),
+      'Die Websiteliste sagt, dass eine neuere Fassung bereitliegt',
+      JSON.stringify({ a: zeileVeraltet.plugin_aktuell, n: zeileVeraltet.plugin_neueste }));
+
+    const sammelUpdate = await ruf('/api/app/sites/update-plugins', { method: 'POST', body: {} });
+    pruefe(sammelUpdate.status === 200 && sammelUpdate.daten.aktualisiert === 1
+      && sammelUpdate.daten.ergebnisse[0].ok && sammelUpdate.daten.ergebnisse[0].von === '1.3.1',
+      'Der Knopf bringt alle zurueckliegenden Websites auf Stand',
+      JSON.stringify(sammelUpdate.daten.ergebnisse));
+
+    const seitenAktuell = await ruf('/api/app/sites');
+    pruefe(seitenAktuell.daten.find((x) => x.id === siteId).plugin_aktuell === true,
+      'Danach steht die Website nicht mehr als veraltet in der Liste');
+
+    const sammelNochmal = await ruf('/api/app/sites/update-plugins', { method: 'POST', body: {} });
+    pruefe(sammelNochmal.daten.aktualisiert === 0 && !sammelNochmal.daten.ergebnisse.length,
+      'Ein zweiter Klick fasst keine Website an', JSON.stringify(sammelNochmal.daten));
+
     // Wortlaut-Pruefung: Der Artikel soll aus dem Transkript entstehen, nicht daraus
     // abgeschrieben sein.
     console.log('\nWortlaut-Pruefung');

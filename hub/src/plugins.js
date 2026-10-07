@@ -3,6 +3,9 @@ const { db } = require('./db');
 const { logger } = require('./logger');
 const wp = require('./wp');
 const pack = require('./pluginpack');
+const { nacheinander } = require('./util');
+
+const PARALLEL = 3;
 
 /**
  * Plugin-Updates fuer alle verbundenen Websites.
@@ -27,33 +30,55 @@ function aelter(vorhanden, neueste) {
   return false;
 }
 
-async function updateAlle() {
-  if (!pack.verfuegbar()) return { geprueft: 0, aktualisiert: 0, fehler: 0 };
+/**
+ * Bringt alle verbundenen Websites auf den Stand des Hubs.
+ *
+ * Angefasst wird nur, wer hinterherhinkt. Mehrere Websites laufen gleichzeitig,
+ * aber nicht alle: Jede einzelne laedt dabei das Archiv beim Hub, und wenn zwanzig
+ * Seiten das auf einmal tun, wartet am Ende jede auf jede.
+ *
+ * Eine Website, die nicht antwortet, beendet den Durchlauf nicht. Sie steht
+ * hinterher in der Liste, mit dem Grund daneben.
+ */
+async function updateAlle(siteIds = null) {
+  if (!pack.verfuegbar()) {
+    return { geprueft: 0, aktualisiert: 0, fehler: 0, version: null, ergebnisse: [] };
+  }
 
   const neueste = pack.version();
-  const websites = db.prepare("SELECT * FROM sites WHERE status = 'connected'").all();
+  const websites = db.prepare("SELECT * FROM sites WHERE status = 'connected'").all()
+    .filter((site) => !siteIds || siteIds.includes(site.id));
   const rueckstaendig = websites.filter((site) => aelter(site.plugin_version, neueste));
-  if (!rueckstaendig.length) return { geprueft: websites.length, aktualisiert: 0, fehler: 0, version: neueste };
+  if (!rueckstaendig.length) {
+    return { geprueft: websites.length, aktualisiert: 0, fehler: 0, version: neueste, ergebnisse: [] };
+  }
 
-  let aktualisiert = 0;
-  let fehler = 0;
-  for (const site of rueckstaendig) {
+  const reihe = nacheinander(PARALLEL);
+  const ergebnisse = await Promise.all(rueckstaendig.map((site) => reihe(async () => {
     const vorher = site.plugin_version || 'unbekannt';
     try {
       const ergebnis = await wp.updatePlugin(site);
-      db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run(String(ergebnis.version || ''), site.id);
-      aktualisiert += 1;
-      logger.info('site', 'plugin-update', `Plugin von ${vorher} auf ${ergebnis.version || neueste} aktualisiert`, {
-        siteId: site.id, context: { von: vorher, auf: ergebnis.version || neueste },
+      const auf = String(ergebnis.version || neueste);
+      db.prepare('UPDATE sites SET plugin_version = ? WHERE id = ?').run(auf, site.id);
+      logger.info('site', 'plugin-update', `Plugin von ${vorher} auf ${auf} aktualisiert`, {
+        siteId: site.id, context: { von: vorher, auf },
       });
+      return { site_id: site.id, name: site.name, ok: true, von: vorher, auf };
     } catch (err) {
-      fehler += 1;
       logger.warn('site', 'plugin-update', `Plugin-Update fehlgeschlagen: ${err.message || err}`, {
         siteId: site.id, context: { von: vorher, auf: neueste },
       });
+      return { site_id: site.id, name: site.name, ok: false, von: vorher, message: err.message || String(err) };
     }
-  }
-  return { geprueft: websites.length, aktualisiert, fehler, version: neueste };
+  })));
+
+  return {
+    geprueft: websites.length,
+    aktualisiert: ergebnisse.filter((e) => e.ok).length,
+    fehler: ergebnisse.filter((e) => !e.ok).length,
+    version: neueste,
+    ergebnisse,
+  };
 }
 
 module.exports = { aelter, updateAlle };
