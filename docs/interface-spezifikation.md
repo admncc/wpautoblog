@@ -163,6 +163,13 @@ Kopf: Name, darunter URL und Verbindungsstatus, rechts „Verbindung testen" und
   Beitragszahl (`Spiritualität · 409`). Jeder Chip hat rechts ein kleines ×; ein Klick
   schließt die Kategorie von der KI-Auswahl aus, der Chip wird rot und das × zu einem ↺.
   **Bei maikikii.de sind das 38 Chips in fünf Zeilen** — der Stresstest für jeden Entwurf.
+
+  Mit einer Kategorie sind auch ihre Unterkategorien gesperrt, denn die Adresse des
+  Beitrags trägt den Oberbegriff mit (`/weitere-buecher/gesundheit-wohlfuehlen/…`).
+  Solche Chips sind ebenfalls rot, tragen statt des × den Hinweis „über Weitere Bücher"
+  und lassen sich nicht einzeln wieder zulassen: Dafür gibt man die obere wieder frei.
+  Die Verschachtelung kommt mit der Kategorienmeldung der Website (`parent`); fehlt sie,
+  wäre die Sperre nur halb so viel wert.
 - Karte „Übertragungsweg": Hub sendet an WordPress (Standard) oder WordPress holt ab.
 
 **b) Inhalt & Stil**

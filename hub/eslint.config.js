@@ -28,6 +28,11 @@ module.exports = [
       'no-undef': 'error',
       'no-unused-vars': ['warn', { args: 'none', varsIgnorePattern: '^_' }],
       'no-dupe-keys': 'error',
+      // Zwei Funktionen mit demselben Namen: Die zweite ersetzt die erste lautlos,
+      // und der Aufrufer der ersten bekommt etwas voellig anderes zurueck.
+      'no-redeclare': 'error',
+      'no-dupe-args': 'error',
+      'no-func-assign': 'error',
       'no-unreachable': 'error',
       'no-const-assign': 'error',
     },

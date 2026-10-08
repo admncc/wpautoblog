@@ -808,6 +808,49 @@ async function main() {
     pruefe(erlaubt.join(',') === 'Geldanlage,Ratgeber',
       'Gesperrte Kategorie faellt samt Unterkategorie weg', erlaubt.join(','));
 
+    /* Und jetzt derselbe Stand auf dem Weg, den er im Betrieb nimmt: Die Website
+       meldet ihre Kategorien beim Lebenszeichen. Faellt dabei die Elternangabe weg,
+       weiss der Hub nichts mehr von der Verschachtelung - und sperrt die
+       Unterkategorie nicht mehr mit, obwohl die Adresse des Beitrags den
+       Oberbegriff weiter mittraegt. */
+    await alsPlugin('/api/plugin/heartbeat', siteId, token, {
+      categories: [
+        { id: 1, name: 'Ratgeber', slug: 'ratgeber', count: 12, parent: 0 },
+        { id: 2, name: 'weitere Bücher', slug: 'weitere-buecher', count: 3, parent: 0 },
+        { id: 3, name: 'Ernährung', slug: 'ernaehrung', count: 5, parent: 2 },
+        { id: 4, name: 'Geldanlage', slug: 'geldanlage', count: 8, parent: 0 },
+      ],
+    });
+    const katGemeldet = JSON.parse(db.prepare('SELECT categories FROM sites WHERE id = ?').get(siteId).categories);
+    pruefe((katGemeldet.find((k) => k.name === 'Ernährung') || {}).parent === 2,
+      'Die Elternangabe ueberlebt das Lebenszeichen',
+      JSON.stringify(katGemeldet.find((k) => k.name === 'Ernährung')));
+
+    const erlaubtNachPuls = service.kategorienFuer(db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId))
+      .map((k) => k.name).sort();
+    pruefe(erlaubtNachPuls.join(',') === 'Geldanlage,Ratgeber',
+      'Auch nach einem Lebenszeichen faellt die Unterkategorie weg', erlaubtNachPuls.join(','));
+
+    /* Zwischen Schreiben und Senden koennen Wochen liegen. Wird die Kategorie in der
+       Zeit gesperrt, darf der Beitrag nicht trotzdem dort landen. */
+    db.prepare(`INSERT INTO articles (id, site_id, keyword, title, status, category, content_html)
+                VALUES ('art_kat', ?, 'Journaling anfangen', 'Journaling anfangen', 'draft', 'Ernährung', '<p>x</p>')`)
+      .run(siteId);
+    const katSite = db.prepare('SELECT * FROM sites WHERE id = ?').get(siteId);
+    const katHinweis = await service.sichereKategorie(
+      db.prepare("SELECT * FROM articles WHERE id = 'art_kat'").get(), katSite);
+    const katDanach = db.prepare("SELECT category FROM articles WHERE id = 'art_kat'").get();
+    pruefe(katDanach.category === '' && /Ernährung/.test(katHinweis),
+      'Eine gesperrte Kategorie wird vor dem Senden ersetzt, nicht mitgeschickt',
+      JSON.stringify({ k: katDanach.category, h: katHinweis }));
+
+    db.prepare("UPDATE articles SET category = 'Ratgeber' WHERE id = 'art_kat'").run();
+    const katOk = await service.sichereKategorie(
+      db.prepare("SELECT * FROM articles WHERE id = 'art_kat'").get(), katSite);
+    pruefe(katOk === '' && db.prepare("SELECT category FROM articles WHERE id = 'art_kat'").get().category === 'Ratgeber',
+      'Eine erlaubte Kategorie bleibt unangetastet');
+    db.prepare("DELETE FROM articles WHERE id = 'art_kat'").run();
+
     // Gezielte Posts: eigener Weg, eigenes Regelwerk, Recherche im Gepaeck.
     console.log('\nGezielte Posts');
     const gezielt = await ruf('/api/app/articles', {

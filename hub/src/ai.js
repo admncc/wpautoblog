@@ -585,6 +585,55 @@ ${transcript}`;
   return { ...aufbereiten(data, site, imageCount, video.title, kategorien), ...usage };
 }
 
+// ------------------------------------------------- Kategorie nachtraeglich waehlen
+
+const KATEGORIE_SCHEMA = {
+  type: 'object',
+  properties: {
+    kategorie: {
+      type: 'string',
+      description: 'Der Name genau einer Kategorie aus der Liste, Wort fuer Wort uebernommen.'
+        + ' Passt keine wirklich, ein leerer Text.',
+    },
+    grund: { type: 'string', description: 'Ein halber Satz: Warum diese?' },
+  },
+  required: ['kategorie', 'grund'],
+  additionalProperties: false,
+};
+
+/**
+ * Sucht zu einem fertigen Artikel die passendste aus einer vorgegebenen Liste.
+ *
+ * Gebraucht, wenn sich die Regeln nach dem Schreiben geaendert haben: Der Artikel
+ * steht, aber seine Kategorie ist inzwischen gesperrt. Neu schreiben waere unnoetig,
+ * die Zuordnung reicht.
+ */
+async function ordneKategorieZu({ site, titel, keyword = '', auszug = '', kategorien = [] }) {
+  const namen = kategorien.map((k) => (typeof k === 'string' ? k : k && k.name)).filter(Boolean);
+  if (!namen.length) return '';
+
+  const { data } = await runJson({
+    system: 'Du ordnest Blogbeiträge in vorhandene Kategorien ein. Du legst nie eine neue an'
+      + ' und erfindest keinen Namen: Es zählt nur, was in der Liste steht.',
+    prompt: [
+      `TITEL: ${titel}`,
+      keyword ? `THEMA: ${keyword}` : '',
+      auszug ? `ANRISS: ${auszug}` : '',
+      `\nDIESE KATEGORIEN STEHEN ZUR WAHL:\n- ${namen.join('\n- ')}`,
+      '\nAufgabe: Nenne die passendste. Passt wirklich keine, gib einen leeren Text zurück.',
+    ].filter(Boolean).join('\n'),
+    schema: KATEGORIE_SCHEMA,
+    maxTokens: 1000,
+    kind: 'kategorie',
+    meta: { siteId: site && site.id, context: { titel, auswahl: namen.length } },
+  });
+
+  // Das Modell darf nur aus der Liste waehlen. Alles andere waere eine neue
+  // Kategorie, und die legt der Hub nicht an.
+  const gewaehlt = String(data.kategorie || '').trim().toLowerCase();
+  return namen.find((n) => n.toLowerCase() === gewaehlt) || '';
+}
+
 // ------------------------------------------------- Thema aus dem Bestand ableiten
 
 const NAECHSTES_SCHEMA = {
@@ -862,6 +911,7 @@ const schemata = () => ({
 });
 
 module.exports = {
+  ordneKategorieZu,
   MODELS, AiError, generateArticle, generateFromVideo, generateTargeted, generateBacklink,
   suggestTopics, naechstesThema, generateSiteProfile, aufbereiten, keywordDichte, schemaFuerBacklink,
   PROFIL_SCHEMA, schemata,

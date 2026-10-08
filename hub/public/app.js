@@ -968,11 +968,28 @@ async function renderSite(view, siteId) {
   if (tab === 'connect') {
     const kategorien = site.categories || [];
     const gesperrt = site.excluded_categories || [];
+
+    /* Mit einer Kategorie sind auch ihre Unterkategorien gesperrt. Das muss man
+       sehen koennen: Sonst sieht "Gesundheit & Wohlfuehlen" erlaubt aus, obwohl die
+       Adresse des Beitrags weiter weitere-buecher/ mittraegt. */
+    const nachId = new Map(kategorien.filter((k) => k && k.id).map((k) => [k.id, k]));
+    const ueberEltern = (k) => {
+      let aktuell = k && k.parent ? nachId.get(k.parent) : null;
+      for (let tiefe = 0; aktuell && tiefe < 10; tiefe += 1) {
+        if (gesperrt.includes(aktuell.name)) return aktuell.name;
+        aktuell = aktuell.parent ? nachId.get(aktuell.parent) : null;
+      }
+      return '';
+    };
+    const sperre = new Map(kategorien.map((k) => [k.name,
+      gesperrt.includes(k.name) ? 'direkt' : ueberEltern(k)]));
+    const istRaus = (k) => Boolean(sperre.get(k.name));
+
     const suche = (state.data.catQuery || '').trim().toLowerCase();
     const filter = state.data.catFilter || 'alle';
     let sichtbar = kategorien.filter((k) => !suche || k.name.toLowerCase().includes(suche));
-    if (filter === 'an') sichtbar = sichtbar.filter((k) => !gesperrt.includes(k.name));
-    if (filter === 'aus') sichtbar = sichtbar.filter((k) => gesperrt.includes(k.name));
+    if (filter === 'an') sichtbar = sichtbar.filter((k) => !istRaus(k));
+    if (filter === 'aus') sichtbar = sichtbar.filter((k) => istRaus(k));
     const vieleChips = sichtbar.length > 12 && !state.data.catOpen;
 
     body.innerHTML = `
@@ -1023,7 +1040,8 @@ async function renderSite(view, siteId) {
 
       <section class="card flat">
         <div class="card-head"><h2>Kategorien</h2>
-          <span class="count">${kategorien.length} aus WordPress · ${gesperrt.length} ausgeschlossen</span></div>
+          <span class="count">${kategorien.length} aus WordPress · ${
+            kategorien.filter(istRaus).length} ausgeschlossen</span></div>
         ${kategorien.length ? `
           <div class="toolbar">
             <span class="search">${ic('search')}
@@ -1040,12 +1058,16 @@ async function renderSite(view, siteId) {
           ${sichtbar.length ? `
             <div class="chipfield ${vieleChips ? 'clipped' : ''}">
               ${sichtbar.map((k) => {
-                const raus = gesperrt.includes(k.name);
-                return `<span class="chip ${raus ? 'off' : ''}">
+                const grund = sperre.get(k.name) || '';
+                const direkt = grund === 'direkt';
+                // Eine mittelbar gesperrte Kategorie hat keinen Knopf: Einzeln
+                // zulassen laesst sie sich nicht, solange die obere gesperrt ist.
+                return `<span class="chip ${grund ? 'off' : ''}">
                   <span class="nm">${esc(k.name)}</span>${k.count ? `<span class="n">${k.count}</span>` : ''}
-                  <button class="chip-x" data-exclude="${esc(k.name)}"
-                    title="${raus ? 'Wieder zulassen' : 'Von der KI-Auswahl ausschließen'}">
-                    ${ic(raus ? 'undo' : 'x', 'sm')}</button></span>`;
+                  ${grund && !direkt ? `<span class="n" title="Unterkategorie von ${esc(grund)}">über ${esc(grund)}</span>`
+                    : `<button class="chip-x" data-exclude="${esc(k.name)}"
+                        title="${direkt ? 'Wieder zulassen' : 'Von der KI-Auswahl ausschließen'}">
+                        ${ic(direkt ? 'undo' : 'x', 'sm')}</button>`}</span>`;
               }).join('')}
             </div>
             <div class="chipfoot">

@@ -777,6 +777,58 @@ async function runVideoQueue(limit = 3) {
 }
 
 /** Schiebt einen fertigen Artikel ueber das Plugin nach WordPress. */
+/**
+ * Letzte Gegenprobe vor dem Senden: Liegt der Artikel in einer Kategorie, die es
+ * noch gibt und die erlaubt ist?
+ *
+ * Beim Schreiben wurde das schon geprueft - aber zwischen Schreiben und Senden
+ * koennen Wochen liegen, und in der Zeit kann die Kategorie gesperrt worden oder in
+ * WordPress verschwunden sein. Dann wird sie hier ersetzt, nicht stillschweigend
+ * mitgeschickt: Wer eine Kategorie sperrt, will dort keine neuen Beitraege sehen,
+ * auch keine alten.
+ *
+ * Gewaehlt wird aus den erlaubten, wie beim Schreiben auch. Geht das nicht, faellt
+ * die Angabe weg - dann landet der Beitrag in der Standardkategorie von WordPress,
+ * und der Hinweis am Artikel sagt, warum.
+ *
+ * @returns {Promise<string>} Hinweis fuer den Artikel, oder leer, wenn alles passt.
+ */
+async function sichereKategorie(article, site) {
+  const gewuenscht = String(article.category || '').trim();
+  if (!gewuenscht) return '';
+
+  const erlaubt = kategorienFuer(site);
+  const namen = erlaubt.map((k) => (typeof k === 'string' ? k : (k && k.name) || '')).filter(Boolean);
+  if (namen.some((n) => n.toLowerCase() === gewuenscht.toLowerCase())) return '';
+
+  logger.warn('article', 'category', `Kategorie "${gewuenscht}" ist für ${site.name} nicht mehr erlaubt`, {
+    siteId: site.id, articleId: article.id, context: { auswahl: namen.length },
+  });
+
+  let ersatz = '';
+  if (namen.length) {
+    try {
+      ersatz = await ai.ordneKategorieZu({
+        site,
+        titel: article.title,
+        keyword: article.keyword,
+        auszug: article.excerpt,
+        kategorien: erlaubt,
+      });
+    } catch (err) {
+      logger.warn('article', 'category', `Ersatzkategorie konnte nicht gewählt werden: ${err.message || err}`, {
+        siteId: site.id, articleId: article.id,
+      });
+    }
+  }
+
+  touchArticle(article.id, { category: ersatz });
+  return ersatz
+    ? `Die Kategorie „${gewuenscht}" ist für diese Website gesperrt. Der Beitrag liegt jetzt in „${ersatz}".`
+    : `Die Kategorie „${gewuenscht}" ist für diese Website gesperrt, und es blieb keine passende übrig.`
+      + ' Der Beitrag liegt in der Standardkategorie von WordPress.';
+}
+
 async function publish(articleId) {
   const article = getArticle(articleId);
   if (!article) throw new Error('Artikel nicht gefunden.');
@@ -786,8 +838,12 @@ async function publish(articleId) {
   const site = getSite(article.site_id);
   touchArticle(articleId, { status: 'publishing', error: null, notice: null });
 
+  // Vor beiden Wegen: Die Kategorie muss heute noch erlaubt sein, nicht nur damals.
+  const kategorieHinweis = await sichereKategorie(article, site);
+
   // Abhol-Modus: Der Artikel bleibt in der Warteschlange, bis das Plugin ihn holt.
   if (site.delivery === 'pull') {
+    if (kategorieHinweis) touchArticle(articleId, { notice: kategorieHinweis });
     logger.info('article', 'queue', `Artikel in Warteschlange fuer ${site.name} (Abhol-Modus)`, {
       siteId: site.id,
       articleId,
@@ -797,10 +853,11 @@ async function publish(articleId) {
   }
 
   try {
-    const result = await wp.publishArticle(site, article);
+    const result = await wp.publishArticle(site, getArticle(articleId));
     // Erfolgreich uebergeben: Der Artikel bleibt vollstaendig hier gespeichert,
     // verschwindet aber aus der Arbeitsliste.
     const hinweise = [];
+    if (kategorieHinweis) hinweise.push(kategorieHinweis);
     if (result.category_note) hinweise.push(String(result.category_note));
 
     // Bilder sind nicht kritisch: Der Beitrag steht, aber der Hinweis muss sichtbar sein.
@@ -1096,5 +1153,6 @@ module.exports = {
   startGeneration, startFromVideo, runVideoQueue, publish, runRecurring, runPlan,
   computeNextRun, scheduleNextRun, getSite, getArticle, touchArticle, kategorienFuer, darfSenden,
   startBacklink, ankerVarianten, setzeVerweis, nacheinander, legeBeiseite, nachFehlschlag,
+  sichereKategorie,
   raeumeHaengende, brichAb, sendeMehrere, themenKontext, automatischesThema,
 };

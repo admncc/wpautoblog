@@ -29,7 +29,14 @@ function speichereServer(siteId, body) {
     .run(ip || null, software || null, siteId);
 }
 
-/** Uebernimmt die von WordPress gemeldeten Kategorien. */
+/**
+ * Uebernimmt die von WordPress gemeldeten Kategorien.
+ *
+ * Die Elternangabe gehoert mit in die Datenbank: Ohne sie weiss der Hub nicht, dass
+ * "Gesundheit & Wohlfuehlen" unter "Weitere Buecher" haengt - und wer "Weitere
+ * Buecher" sperrt, bekommt trotzdem Beitraege unter weitere-buecher/..., weil die
+ * Adresse des Beitrags den Oberbegriff mittraegt.
+ */
 function speichereKategorien(siteId, kategorien) {
   if (!Array.isArray(kategorien)) return;
   const sauber = kategorien
@@ -39,6 +46,7 @@ function speichereKategorien(siteId, kategorien) {
       name: String(k.name).slice(0, 120),
       slug: String(k.slug || '').slice(0, 140),
       count: Number(k.count) || 0,
+      parent: Number(k.parent) || 0,
     }))
     .slice(0, 200);
   db.prepare("UPDATE sites SET categories = ?, categories_at = datetime('now') WHERE id = ?")
