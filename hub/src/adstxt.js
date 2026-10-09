@@ -245,8 +245,10 @@ function entferne(text, weg) {
  * ein Widerspruch, kein Versehen, und den entscheidet ein Mensch.
  */
 function entdoppele(text) {
-  const zeilen = parse(text);
+  return entdoppeleZeilen(parse(text));
+}
 
+function entdoppeleZeilen(zeilen) {
   // Erst festlegen, welche Zeile je Schluessel bleibt.
   const behalten = new Map();
   zeilen.forEach((zeile, i) => {
@@ -277,7 +279,17 @@ function entdoppele(text) {
  * Nichts davon ist ein Weltuntergang, kostet aber Einnahmen, wenn es niemand sieht.
  */
 function pruefe(text) {
-  const zeilen = parse(text);
+  return pruefeZeilen(parse(text));
+}
+
+/**
+ * Dasselbe, wenn die Datei schon zerlegt vorliegt.
+ *
+ * Eine ads.txt mit sechshundert Zeilen zu zerlegen kostet Zeit, und die Uebersicht
+ * brauchte frueher drei Durchgaenge je Website: einen zum Zaehlen, einen fuer die
+ * Vermarkter, einen fuer OWNERDOMAIN. Einmal reicht.
+ */
+function pruefeZeilen(zeilen) {
   const gesehen = new Map();       // exakt dieselbe Zeile
   const nachKonto = new Map();     // dasselbe Konto, egal mit welcher Art
   const nachName = new Map();      // dieselbe Variable, egal mit welchem Wert
@@ -337,8 +349,12 @@ function pruefe(text) {
  * Vermarkter auch. `null` heisst: Die Angabe fehlt ganz.
  */
 function variable(text, name) {
+  return variableAus(parse(text), name);
+}
+
+function variableAus(zeilen, name) {
   const gesucht = String(name || '').toUpperCase();
-  for (const zeile of parse(text)) {
+  for (const zeile of zeilen) {
     if (zeile.art === 'variable' && zeile.name === gesucht) return zeile.wert;
   }
   return null;
@@ -371,8 +387,12 @@ function domainAusAdresse(adresse) {
 
 /** Die Vermarkter einer Datei, damit sich Seiten vergleichen lassen. */
 function vermarkter(text) {
+  return vermarkterAus(parse(text));
+}
+
+function vermarkterAus(zeilen) {
   const namen = new Set();
-  for (const zeile of parse(text)) {
+  for (const zeile of zeilen) {
     if (zeile.art === 'eintrag') namen.add(zeile.domain);
   }
   return [...namen].sort();
@@ -381,6 +401,6 @@ function vermarkter(text) {
 module.exports = {
   parse, leseZeile, schluessel, vollSchluessel, alsText, schreibe, leseEingabe,
   ergaenze, entferne, entdoppele, pruefe, vermarkter, istDomain, variable, domainAusAdresse,
-  wegSchluessel,
+  wegSchluessel, pruefeZeilen, entdoppeleZeilen, variableAus, vermarkterAus,
   ARTEN, VARIABLEN,
 };

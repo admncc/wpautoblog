@@ -2,6 +2,7 @@
 const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 
 const config = require('./config');
 const { pruneLogs } = require('./db');
@@ -23,6 +24,19 @@ const BOOT_ID = require('crypto').randomBytes(8).toString('hex');
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+
+/*
+ * Antworten komprimieren, bevor sie den Server verlassen.
+ *
+ * Die Oberflaeche ist eine einzige Datei von knapp 200 kB, dazu kommen Antworten
+ * wie die ads.txt-Liste, die ueber mehrere Websites schnell sechsstellig wird.
+ * Das ist alles Text und schrumpft auf ein Zehntel. Ohne das zahlt jeder
+ * Seitenaufruf die volle Groesse, auch im Mobilfunknetz.
+ *
+ * Bilder, das Plugin-Archiv und alles andere schon Gepackte laesst die
+ * Voreinstellung in Ruhe - dort waere Packen nur verlorene Rechenzeit.
+ */
+app.use(compression());
 
 // rawBody wird fuer die Signaturpruefung der Plugin-Aufrufe benoetigt.
 app.use(

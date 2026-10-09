@@ -148,7 +148,9 @@ router.get(
       // Ohne Token: Die Uebersicht braucht ihn nicht, und was nicht ausgeliefert wird,
       // kann auch nicht abgegriffen werden.
       sites: db.prepare('SELECT * FROM sites ORDER BY created_at DESC').all()
-        .map(publicSite).map(({ token, ...rest }) => rest),
+        // Ohne die Kategorienliste: Die steht nur auf der Detailseite zur Wahl und
+        // waere hier bei zwanzig Websites der groesste Teil der Antwort.
+        .map(publicSite).map(({ token, categories, ...rest }) => rest),
       recentArticles: db
         .prepare(
           `SELECT a.*, s.name AS site_name FROM articles a
@@ -206,7 +208,8 @@ router.get(
 
     res.json(db.prepare('SELECT * FROM sites ORDER BY name COLLATE NOCASE').all()
       .map(publicSite)
-      .map(({ token, ...rest }) => ({
+      // Die Kategorienliste bleibt der Detailseite vorbehalten, siehe oben.
+      .map(({ token, categories, ...rest }) => ({
         ...rest,
         article_count: (zahlen.get(rest.id) || {}).gesamt || 0,
         published_count: (zahlen.get(rest.id) || {}).veroeffentlicht || 0,
@@ -1135,11 +1138,25 @@ router.post(
 
 // ------------------------------------------------------------------- ads.txt
 
-/** Uebersicht ueber alle Websites. */
+/**
+ * Uebersicht ueber alle Websites.
+ *
+ * Ohne die Vergleichstabelle: Die ist bei einem Dutzend Websites mehrere hundert
+ * Kilobyte gross und wird nur auf ihrem eigenen Reiter gebraucht. Mitgeschickt
+ * wird nur ihre Zeilenzahl, die faellt beim Zaehlen ohnehin ab.
+ */
 router.get(
   '/ads',
   wrap((req, res) => {
-    res.json({ sites: ads.uebersicht(), vergleich: ads.vergleich() });
+    res.json(ads.liste());
+  })
+);
+
+/** Die Vergleichstabelle, erst wenn ihr Reiter geoeffnet wird. */
+router.get(
+  '/ads/vergleich',
+  wrap((req, res) => {
+    res.json(ads.vergleich());
   })
 );
 

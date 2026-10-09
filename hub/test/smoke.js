@@ -1855,8 +1855,20 @@ async function main() {
     const adsReihe = adsListe.daten.sites.find((s) => s.id === siteId);
     pruefe(adsReihe && /^ok:/.test(adsReihe.live || ''),
       'Der oeffentliche Abruf bestaetigt den Stand', adsReihe && adsReihe.live);
-    pruefe(adsListe.daten.vergleich.zeilen.some((z) => z.domain === 'google.com'),
+    /* Die Vergleichstabelle hat ihren eigenen Aufruf: Auf der Uebersicht kommt nur
+       ihre Zeilenzahl mit, die Tabelle selbst waere dort ein Vielfaches der ganzen
+       uebrigen Antwort. */
+    pruefe(typeof adsListe.daten.vergleich_zeilen === 'number' && !('vergleich' in adsListe.daten),
+      'Die Uebersicht nennt die Zahl der Vergleichszeilen, schickt sie aber nicht mit',
+      JSON.stringify(adsListe.daten.vergleich_zeilen));
+    const adsVergleich = await ruf('/api/app/ads/vergleich');
+    pruefe(adsVergleich.status === 200 && adsVergleich.daten.zeilen.some((z) => z.domain === 'google.com'),
       'Der Vergleich zeigt, welcher Vermarkter wo steht');
+    pruefe(adsVergleich.daten.zeilen.length === adsListe.daten.vergleich_zeilen,
+      'Und die Zahl auf dem Reiter stimmt mit der Tabelle ueberein',
+      `${adsListe.daten.vergleich_zeilen} / ${adsVergleich.daten.zeilen.length}`);
+    pruefe(!('vermarkter' in (adsListe.daten.sites[0] || {})),
+      'Die Vermarkterliste je Website faellt weg, sie wurde nirgends gebraucht');
 
     // Im Abhol-Modus wartet der Auftrag auf das Plugin.
     await ruf(`/api/app/sites/${siteId}`, { method: 'PATCH', body: { delivery: 'pull' } });
@@ -2008,6 +2020,24 @@ async function main() {
     } else {
       console.log('  (kein PHP vorhanden, Plugin-Pruefung uebersprungen)');
     }
+
+    /* Ausgeliefert wird gepackt. Die Oberflaeche ist eine einzige Datei von knapp
+       200 kB, und eine ads.txt-Antwort wird schnell sechsstellig - ungepackt zahlt
+       das jeder Seitenaufruf. Geprueft wird hier die Reihenfolge der Middleware:
+       Steht das Packen hinter den Routen, passiert gar nichts mehr. */
+    console.log('\nAuslieferung');
+    const gepackt = await fetch(`${BASIS}/api/app/logs`, {
+      headers: { Cookie: cookie, 'Accept-Encoding': 'gzip' },
+    });
+    const ungepackt = await fetch(`${BASIS}/api/app/logs`, {
+      headers: { Cookie: cookie, 'Accept-Encoding': 'identity' },
+    });
+    const gross = (await ungepackt.text()).length;
+    pruefe(gross > 1024 && gepackt.headers.get('content-encoding') === 'gzip',
+      'Groessere Antworten gehen gepackt ueber die Leitung',
+      `${gross} Bytes, encoding=${gepackt.headers.get('content-encoding')}`);
+    pruefe((gepackt.headers.get('vary') || '').includes('Accept-Encoding'),
+      'Und der Zwischenspeicher erfaehrt davon (Vary)', gepackt.headers.get('vary'));
 
     console.log('\nHaerteprüfungen');
     const { safeLink, sanitizeHtml } = require('../src/sanitize');

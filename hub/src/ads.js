@@ -443,9 +443,9 @@ async function zuruecknehmen(siteId) {
  *   ungelesen  - noch nie gelesen, es gibt also nichts zu beurteilen
  *   unbekannt  - keine Adresse hinterlegt, aus der sich eine Domain ergibt
  */
-function ownerdomain(s) {
+function ownerdomain(s, zeilen = null) {
   const soll = adstxt.domainAusAdresse(s.url);
-  const ist = adstxt.variable(s.ads_txt || '', 'OWNERDOMAIN');
+  const ist = adstxt.variableAus(zeilen || adstxt.parse(s.ads_txt || ''), 'OWNERDOMAIN');
   // "www.maikikii.de" statt "maikikii.de" ist kein Fehler, den man jemandem
   // melden muss - gemeint ist dieselbe Domain.
   const wie = (wert) => String(wert || '').trim().toLowerCase().replace(/^www\./, '');
@@ -559,55 +559,90 @@ async function pflegeOwnerdomain() {
 
 // ------------------------------------------------------------- Fuer die Oberflaeche
 
-/** Kurzfassung je Website fuer die Uebersicht. */
+/**
+ * Kurzfassung einer Website fuer die Uebersicht.
+ *
+ * Die Datei wird genau einmal zerlegt und danach nur noch ausgewertet. Vorher
+ * geschah das dreimal je Website - zum Zaehlen, fuer die Vermarkterliste und fuer
+ * OWNERDOMAIN - und bei zwanzig Websites mit je sechshundert Zeilen ist das keine
+ * Kleinigkeit mehr.
+ */
+function kopf(s, zeilen = adstxt.parse(s.ads_txt || '')) {
+  const zahlen = adstxt.pruefeZeilen(zeilen);
+  const auftrag = wartet(s.id);
+  return {
+    id: s.id,
+    name: s.name,
+    url: s.url,
+    connected: s.status === 'connected',
+    delivery: s.delivery,
+    mode: s.ads_mode || '',
+    path: s.ads_path || '',
+    ads_url: s.ads_url || '',
+    writable: Boolean(s.ads_writable),
+    root: s.ads_root == null ? null : Boolean(s.ads_root),
+    backup: Boolean(s.ads_backup),
+    gelesen_am: s.ads_at || null,
+    fehler: s.ads_error || null,
+    live: s.ads_live || null,
+    live_am: s.ads_live_at || null,
+    eintraege: zahlen.eintraege,
+    direkt: zahlen.direkt,
+    reseller: zahlen.reseller,
+    variablen: zahlen.variablen,
+    kaputt: zahlen.fehler.length,
+    doppelt: zahlen.doppelt.length,
+    widerspruch: zahlen.widerspruch.length,
+    ownerdomain: ownerdomain(s, zeilen),
+    wartet: auftrag ? { action: auftrag.action, seit: auftrag.created_at } : null,
+  };
+}
+
+function alleSites() {
+  return db.prepare('SELECT * FROM sites ORDER BY name COLLATE NOCASE').all();
+}
+
+/** Kurzfassung je Website. */
 function uebersicht() {
-  return db.prepare('SELECT * FROM sites ORDER BY name COLLATE NOCASE').all().map((s) => {
-    const zahlen = adstxt.pruefe(s.ads_txt || '');
-    const auftrag = wartet(s.id);
-    return {
-      id: s.id,
-      name: s.name,
-      url: s.url,
-      connected: s.status === 'connected',
-      delivery: s.delivery,
-      mode: s.ads_mode || '',
-      path: s.ads_path || '',
-      ads_url: s.ads_url || '',
-      writable: Boolean(s.ads_writable),
-      root: s.ads_root == null ? null : Boolean(s.ads_root),
-      backup: Boolean(s.ads_backup),
-      gelesen_am: s.ads_at || null,
-      fehler: s.ads_error || null,
-      live: s.ads_live || null,
-      live_am: s.ads_live_at || null,
-      eintraege: zahlen.eintraege,
-      direkt: zahlen.direkt,
-      reseller: zahlen.reseller,
-      variablen: zahlen.variablen,
-      kaputt: zahlen.fehler.length,
-      doppelt: zahlen.doppelt.length,
-      widerspruch: zahlen.widerspruch.length,
-      vermarkter: adstxt.vermarkter(s.ads_txt || ''),
-      ownerdomain: ownerdomain(s),
-      wartet: auftrag ? { action: auftrag.action, seit: auftrag.created_at } : null,
-    };
+  return alleSites().map((s) => kopf(s));
+}
+
+/**
+ * Was die Uebersichtsseite braucht, in einem Durchgang.
+ *
+ * Die Zahl am Reiter "Vergleich" faellt dabei ab: Die Dateien sind ohnehin schon
+ * zerlegt, und die ganze Vergleichstabelle dafuer mitzuschicken waere die
+ * hundertfache Datenmenge fuer eine einzige Zahl.
+ */
+function liste() {
+  const schluessel = new Set();
+  const sites = alleSites().map((s) => {
+    const zeilen = adstxt.parse(s.ads_txt || '');
+    if (s.status === 'connected') {
+      for (const zeile of zeilen) {
+        const key = adstxt.schluessel(zeile);
+        if (key) schluessel.add(key);
+      }
+    }
+    return kopf(s, zeilen);
   });
+  return { sites, vergleich_zeilen: schluessel.size };
 }
 
 /** Eine einzelne Website mit allen Zeilen. */
 function einzeln(siteId) {
   const s = site(siteId);
   if (!s) return null;
-  const kopf = uebersicht().find((e) => e.id === siteId);
+  const zeilen = adstxt.parse(s.ads_txt || '');
   return {
-    ...kopf,
+    ...kopf(s, zeilen),
     content: s.ads_txt || '',
     digest: s.ads_digest || '',
-    zeilen: adstxt.parse(s.ads_txt || ''),
-    pruefung: adstxt.pruefe(s.ads_txt || ''),
+    zeilen,
+    pruefung: adstxt.pruefeZeilen(zeilen),
     // Genau die Zeilen, die beim Aufraeumen verschwinden wuerden. Welche von zwei
     // gleichen bleibt, entscheidet die Vollstaendigkeit - das soll man vorher sehen.
-    entfaellt: adstxt.entdoppele(s.ads_txt || '').entfernt,
+    entfaellt: adstxt.entdoppeleZeilen(zeilen).entfernt,
   };
 }
 
@@ -617,11 +652,11 @@ function einzeln(siteId) {
  * fehlt ein Eintrag, und niemand sieht es, weil man acht Dateien vergleichen muesste.
  */
 function vergleich() {
-  const sites = uebersicht().filter((s) => s.connected);
+  const sites = alleSites().filter((s) => s.status === 'connected');
   const alle = new Map();
 
   for (const s of sites) {
-    for (const zeile of adstxt.parse(db.prepare('SELECT ads_txt FROM sites WHERE id = ?').get(s.id).ads_txt || '')) {
+    for (const zeile of adstxt.parse(s.ads_txt || '')) {
       if (zeile.art !== 'eintrag') continue;
       const key = adstxt.schluessel(zeile);
       if (!alle.has(key)) {
@@ -642,6 +677,6 @@ function vergleich() {
 module.exports = {
   lese, leseAlle, ersetze, aufSeiten, entdoppele, entdoppeleAlle, leere, zuruecknehmen, pruefeOeffentlich,
   ownerdomain, setzeOwnerdomain, setzeOwnerdomainAlle, pflegeOwnerdomain, OWNERDOMAIN_PLUGIN,
-  uebersicht, einzeln, vergleich,
+  uebersicht, liste, einzeln, vergleich,
   offenerAuftrag, auftragFertig, wartet, nacheinander, versionReicht,
 };

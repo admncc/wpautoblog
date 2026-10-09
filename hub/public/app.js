@@ -17,7 +17,20 @@ async function api(path, options = {}) {
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
-  const data = await response.json().catch(() => ({}));
+  /* Eine abgeschnittene Antwort ist ein Fehler und kein leeres Objekt. Frueher
+     wurde daraus still {}, und die Ansicht scheiterte eine Zeile spaeter an einer
+     Eigenschaft, die niemand erklaeren konnte. */
+  const roh = await response.text();
+  let data = {};
+  if (roh) {
+    try {
+      data = JSON.parse(roh);
+    } catch {
+      if (response.ok) {
+        throw new Error('Die Antwort des Servers kam unvollständig an. Bitte noch einmal laden.');
+      }
+    }
+  }
   if (!response.ok) {
     const fehler = new Error(data.error || data.message || `Fehler ${response.status}`);
     fehler.data = data;     // Zusatzangaben des Servers, etwa die Prüfschritte
@@ -2201,7 +2214,7 @@ async function renderAds(view, siteId) {
   const tabs = [
     ['uebersicht', 'Je Website', verbunden.length],
     ['eintraege', 'Auf mehreren Seiten ändern'],
-    ['vergleich', 'Vergleich', daten.vergleich.zeilen.length],
+    ['vergleich', 'Vergleich', daten.vergleich_zeilen],
   ];
 
   view.innerHTML = `
@@ -2234,7 +2247,10 @@ async function renderAds(view, siteId) {
   } else if (tab === 'eintraege') {
     adsSammelform(body, verbunden);
   } else {
-    adsVergleich(body, daten.vergleich);
+    // Die Vergleichstabelle kommt erst jetzt: Sie ist um ein Vielfaches groesser
+    // als alles andere auf dieser Seite und wird nur hier gebraucht.
+    body.innerHTML = skelett();
+    adsVergleich(body, await api('/api/app/ads/vergleich'));
   }
 
   on('[data-adstab]', 'click', (event) => {
@@ -2579,15 +2595,31 @@ function adsVergleich(body, vergleich) {
     return;
   }
 
+  /* Diese Tabelle beantwortet eine Frage: Wo fehlt etwas? Deshalb steht das auch
+     vorn. Bei zwanzig Websites und tausend Vermarktern sind es sonst Zehntausende
+     Zellen, und der Browser baut sekundenlang eine Tabelle, in der fast alles
+     gleich aussieht. */
+  const mitIndex = zeilen.map((z, i) => ({ z, i }));
+  const luecken = mitIndex.filter(({ z }) => z.fehlt.length);
+  const nurLuecken = state.data.vglAlle !== true && luecken.length > 0;
+  const gewaehlt = nurLuecken ? luecken : mitIndex;
+  const GRENZE = 150;
+  const sichtbar = state.data.vglMehr ? gewaehlt : gewaehlt.slice(0, GRENZE);
+
   body.innerHTML = `
     <section class="card flat">
       <div class="card-head"><h2>Welcher Vermarkter steht wo?</h2>
-        <span class="count">${zeilen.length}</span></div>
-      <div class="tblwrap"><table>
+        <span class="count">${sichtbar.length} von ${gewaehlt.length}</span>
+        <span class="tools"><span class="seg">
+          <button data-vgl="luecken" aria-pressed="${nurLuecken}">Nur Lücken${
+            luecken.length ? `<span class="n">${luecken.length}</span>` : ''}</button>
+          <button data-vgl="alle" aria-pressed="${!nurLuecken}">Alle<span class="n">${zeilen.length}</span></button>
+        </span></span></div>
+      ${sichtbar.length ? `<div class="tblwrap"><table>
         <thead><tr><th>Vermarkter</th><th>Konto-ID</th>
           ${sites.map((s) => `<th class="right">${esc(s.name)}</th>`).join('')}
           <th></th></tr></thead>
-        <tbody>${zeilen.map((z, i) => `<tr class="${z.fehlt.length ? 'is-idle' : 'is-ok'}">
+        <tbody>${sichtbar.map(({ z, i }) => `<tr class="${z.fehlt.length ? 'is-idle' : 'is-ok'}">
           <td><span class="ttl">${esc(z.domain)}</span>
             <span class="meta">${esc(z.beziehung)}${z.kennung ? ` · ${esc(z.kennung)}` : ''}</span></td>
           <td data-label="Konto"><span class="code">${esc(z.konto)}</span></td>
@@ -2599,7 +2631,22 @@ function adsVergleich(body, vergleich) {
             : ''}</td>
         </tr>`).join('')}</tbody>
       </table></div>
+      ${gewaehlt.length > sichtbar.length ? `<div class="chipfoot">
+        <button class="btn sm" id="vgl-mehr">${ic('chev', 'sm')}Alle ${gewaehlt.length} Zeilen anzeigen</button>
+        <span class="count" style="color:var(--ink-3);font-size:12.5px">Die ersten ${GRENZE} stehen oben.
+          Mehr auf einmal baut der Browser spürbar langsam auf.</span></div>` : ''}`
+      : `<div class="empty"><span class="ring">${ic('check', 'lg')}</span>
+          <b>Keine Lücke</b>
+          <p>Jeder Vermarkter, der irgendwo steht, steht überall. Über „Alle“ siehst du trotzdem
+            die ganze Tabelle.</p></div>`}
     </section>`;
+
+  on('[data-vgl]', 'click', (event) => {
+    state.data.vglAlle = event.currentTarget.dataset.vgl === 'alle';
+    state.data.vglMehr = false;
+    render();
+  });
+  on('#vgl-mehr', 'click', () => { state.data.vglMehr = true; render(); });
 
   on('[data-adsfehlt]', 'click', (event) => guard(event.currentTarget, async () => {
     const z = zeilen[Number(event.currentTarget.dataset.adsfehlt)];

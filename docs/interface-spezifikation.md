@@ -63,6 +63,7 @@ Diese Punkte sind hart, ein Entwurf muss sie einhalten:
 | **Neuzeichnen statt Aktualisieren.** Fast jede Aktion baut die ganze Ansicht neu auf (`render()`). | Zustände wie „Reiter offen", „Filter gesetzt" leben in einem `state`-Objekt. Aufgeklappte Details gehen beim Neuzeichnen verloren, das ist heute ein spürbarer Mangel. |
 | **Dunkelmodus** folgt dem Betriebssystem (`prefers-color-scheme`), keine Umschaltmöglichkeit. | Jede neue Farbe braucht beide Fassungen. Ein Umschalter wäre eine sinnvolle Ergänzung. |
 | **Serverseitig gerendertes HTML gibt es nicht.** Alle Daten kommen als JSON über `/api/app/...`. | Jede Ansicht hat einen Ladezustand, einen Leerzustand und einen Fehlerzustand. Heute sind die oft nur ein grauer Satz. |
+| **Alles geht gepackt über die Leitung** (gzip), und jede Antwort trägt nur, was die Ansicht wirklich zeigt. | Große Listen gehören hinter den Klick, der sie braucht: Die Vergleichstabelle der ads.txt ist bei einem Dutzend Websites mehrere hundert Kilobyte und wird erst geladen, wenn ihr Reiter geöffnet wird. |
 
 ---
 
