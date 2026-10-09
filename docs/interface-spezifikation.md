@@ -139,6 +139,13 @@ Die Spalte **Plugin** zeigt die Version, die die Website zuletzt gemeldet hat, u
 „veraltet, X liegt bereit", sobald der Hub eine neuere Fassung im Archiv hat. Ein Klick auf
 die Spaltenüberschrift holt die veralteten nach oben.
 
+Die Spalte **Posting** beantwortet die Frage, wegen der man diese Liste meistens öffnet:
+Läuft hier schon etwas von selbst? `ja` mit der Zahl der Beiträge pro Woche, sobald ein
+aktiver Redaktionsplan existiert, sonst `nein` mit einem kleinen „Plan anlegen" daneben.
+Der Knopf führt zu Beiträge → Wiederkehrend, mit geöffnetem Formular und dieser Website
+schon ausgewählt. Sortiert wird nach „ohne Plan zuerst": Das ist die Zeile, bei der es
+etwas zu tun gibt.
+
 Oben rechts **„Plugin auf N Websites aktualisieren"** (steht nichts an: „Plugins
 aktualisieren") und „Website anlegen". Der erste Knopf stößt das Update auf allen Websites
 an, die hinterherhinken, höchstens drei gleichzeitig. Eine Website, die nicht antwortet,
@@ -257,9 +264,12 @@ Drei Reiter:
 **Post erzeugen** — Website, Thema, Blickwinkel, ein Knopf. Der direkteste Weg im
 ganzen Werkzeug.
 
-**Wiederkehrende Posts** — Formular „Neuen Plan anlegen" (Website, Name, Themenbereiche
-als mehrzeiliges Feld, Posts pro Woche, Uhrzeit UTC, Kästchen „automatisch senden")
-und darunter „Laufende Pläne (5)". Jede Plankarte zeigt Name, Abzeichen (aktiv, sendet
+**Wiederkehrende Posts** — zuoberst der aufklappbare Block „Neuen Plan anlegen"
+(Website, Name, Themenbereiche als mehrzeiliges Feld, Posts pro Woche, Uhrzeit UTC,
+Kästchen „automatisch senden"), darunter „Laufende Pläne (5)". Das Formular steht
+bewusst über der Liste: Aufgeklappt wäre es sonst unter allen Plänen versteckt. Kommt man
+über „Plan anlegen" aus der Websiteliste, ist es schon offen und die Website gewählt;
+nach dem Anlegen klappt es wieder zu, damit der neue Plan in der Liste sichtbar wird. Jede Plankarte zeigt Name, Abzeichen (aktiv, sendet
 automatisch), eine Hinweiszeile („speedxtc.com · 2× pro Woche · 0 Posts erzeugt ·
 nächster Lauf: 13.09.26, 11:00"), rechts drei Knöpfe (Pausieren, Jetzt ausführen,
 Löschen) und darunter das Themenbereiche-Feld mit „pro Woche", „Uhrzeit" und

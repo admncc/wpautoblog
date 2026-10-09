@@ -433,6 +433,11 @@ async function main() {
       && 'created_at' in x && 'last_seen_at' in x),
       'Sie bringt die Werte mit, nach denen sich sortieren laesst',
       JSON.stringify(Object.keys(seitenListe.daten[0]).filter((k) => /count|_at$/.test(k))));
+    /* "Postet diese Website von selbst?" beantwortet ein aktiver Plan. Die Liste
+       bringt die Antwort mit, damit die Spalte keine Abfrage je Website braucht. */
+    pruefe(seitenListe.daten.every((x) => 'plan_count' in x && 'plan_pro_woche' in x),
+      'Die Websiteliste sagt, ob ein Redaktionsplan laeuft');
+
     pruefe(seitenListe.daten.every((x) => !('token' in x) && !('secret' in x)),
       'Der Token bleibt dabei weiterhin draussen');
     await ruf(`/api/app/sites/${zweite.daten.id}`, { method: 'DELETE' });

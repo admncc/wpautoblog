@@ -206,6 +206,13 @@ router.get(
     // sagt eine Versionsnummer etwas aus.
     const neueste = pack.verfuegbar() ? pack.version() : null;
 
+    // Laeuft hier schon etwas von selbst? Die Frage beantwortet ein aktiver
+    // Redaktionsplan. Auch die wieder in einem Zug statt einer Abfrage je Website.
+    const plaene = new Map(db.prepare(
+      `SELECT site_id, COUNT(*) AS anzahl, SUM(per_week) AS pro_woche
+       FROM plans WHERE active = 1 GROUP BY site_id`
+    ).all().map((p) => [p.site_id, p]));
+
     res.json(db.prepare('SELECT * FROM sites ORDER BY name COLLATE NOCASE').all()
       .map(publicSite)
       // Die Kategorienliste bleibt der Detailseite vorbehalten, siehe oben.
@@ -213,6 +220,8 @@ router.get(
         ...rest,
         article_count: (zahlen.get(rest.id) || {}).gesamt || 0,
         published_count: (zahlen.get(rest.id) || {}).veroeffentlicht || 0,
+        plan_count: (plaene.get(rest.id) || {}).anzahl || 0,
+        plan_pro_woche: (plaene.get(rest.id) || {}).pro_woche || 0,
         plugin_neueste: neueste,
         // Nur bei verbundenen Websites ist das eine Aussage. Eine verbundene Seite
         // ohne gemeldete Version zaehlt als veraltet - genau so behandelt sie auch

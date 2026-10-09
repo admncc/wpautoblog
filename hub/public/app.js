@@ -148,6 +148,22 @@ function on(selector, event, handler) {
   root.querySelectorAll(selector).forEach((el) => el.addEventListener(event, handler));
 }
 
+/**
+ * Eine anklickbare Zeile reagiert nicht auf Klicks, die einem Bedienelement in ihr
+ * gelten - einem Haekchen, einem Link, einem kleinen Knopf (Klasse "stop").
+ *
+ * Frueher stand dafuer ein Zuhoerer am Wurzelelement, der solche Klicks in der
+ * Einfangphase anhielt. Das wirkte bei Haekchen und Links, weil deren eigene
+ * Wirkung nicht am Klickereignis haengt. Ein Knopf mit eigenem Zuhoerer bekam den
+ * Klick damit aber nie zu sehen: Angehalten wird auf dem Weg nach unten, und der
+ * Knopf liegt weiter unten. Deshalb entscheidet jetzt die Zeile, und das
+ * Bedienelement bekommt seinen Klick.
+ */
+const zeilenKlick = (handler) => (event) => {
+  if (event.target.closest('.stop')) return;
+  handler(event);
+};
+
 async function guard(button, action) {
   const label = button ? button.textContent : '';
   if (button) { button.disabled = true; button.textContent = 'Bitte warten …'; }
@@ -793,8 +809,8 @@ async function renderDashboard(view) {
       </div>
     </section>`;
 
-  on('[data-site]', 'click', (e) => navigate('site', e.currentTarget.dataset.site));
-  on('[data-article]', 'click', (e) => navigate('article', e.currentTarget.dataset.article));
+  on('[data-site]', 'click', zeilenKlick((e) => navigate('site', e.currentTarget.dataset.site)));
+  on('[data-article]', 'click', zeilenKlick((e) => navigate('article', e.currentTarget.dataset.article)));
 }
 
 // ---------------------------------------------------------------- Websites
@@ -807,6 +823,8 @@ function siteTable(sites) {
     name: (s) => (s.name || '').toLowerCase(),
     status: (s) => (s.connected ? 1 : 0),
     beitraege: (s) => s.article_count || 0,
+    // Ohne Plan zuerst: Das ist die Zeile, bei der man etwas tun kann.
+    posting: (s) => (s.plan_count ? 0 : 1),
     // Veraltete Websites bekommen den hoeheren Rang, damit der erste Klick sie nach
     // oben holt. Danach sucht man in dieser Spalte, nicht nach der Zahl.
     plugin: (s) => `${s.plugin_aktuell === false ? 1 : 0}${(s.plugin_version || '').padStart(12, '0')}`,
@@ -819,6 +837,7 @@ function siteTable(sites) {
       ${sortKopf('sortS', 'name', 'Website')}
       ${sortKopf('sortS', 'status', 'Status')}
       ${sortKopf('sortS', 'beitraege', 'Beiträge', 'right')}
+      ${sortKopf('sortS', 'posting', 'Posting')}
       ${sortKopf('sortS', 'plugin', 'Plugin')}
       ${sortKopf('sortS', 'gesehen', 'Zuletzt gesehen', 'nowrap')}
       ${sortKopf('sortS', 'angelegt', 'Hinzugefügt', 'nowrap')}
@@ -833,6 +852,12 @@ function siteTable(sites) {
       <td data-label="Beiträge" class="right">${site.article_count
         ? `<b>${site.article_count}</b><span class="meta">${site.published_count} veröffentlicht</span>`
         : '–'}</td>
+      <td data-label="Posting">${site.plan_count
+        ? `<span class="badge ok">${ic('check', 'sm')}ja</span>
+           <span class="meta">${mehrzahl(site.plan_pro_woche, 'Beitrag', 'Beiträge')} pro Woche</span>`
+        : `<span class="badge warn">nein</span>
+           <button class="btn sm quiet stop" data-plan-fuer="${esc(site.id)}"
+             title="Einen Redaktionsplan für diese Website anlegen">Plan anlegen</button>`}</td>
       <td data-label="Plugin">${esc(site.plugin_version || '–')}
         ${site.plugin_aktuell === false ? `<span class="meta" style="color:var(--warn)">${
           site.plugin_version ? 'veraltet' : 'noch nicht gemeldet'}, ${esc(site.plugin_neueste)} liegt bereit</span>` : ''}</td>
@@ -934,9 +959,19 @@ async function renderSites(view) {
     await render();
   }));
 
+  /* Von hier aus direkt zum Plan: Website schon gewaehlt, Formular schon offen.
+     Wer in der Liste sieht, dass eine Seite nichts postet, will sie einrichten -
+     nicht erst zwei Ansichten weiter die Website noch einmal suchen. */
+  on('[data-plan-fuer]', 'click', (event) => {
+    state.data.planSite = event.currentTarget.dataset.planFuer;
+    state.data.artTab = 'plaene';
+    state.offen.neuerplan = true;
+    navigate('articles');
+  });
+
   on('#open-new-site', 'click', dialog);
   on('#open-new-site-2', 'click', dialog);
-  on('[data-site]', 'click', (e) => navigate('site', e.currentTarget.dataset.site));
+  on('[data-site]', 'click', zeilenKlick((e) => navigate('site', e.currentTarget.dataset.site)));
 }
 
 async function renderSite(view, siteId) {
@@ -1622,7 +1657,7 @@ async function renderSite(view, siteId) {
         navigate('article', article.id);
       });
     });
-    on('[data-article]', 'click', (event) => navigate('article', event.currentTarget.dataset.article));
+    on('[data-article]', 'click', zeilenKlick((event) => navigate('article', event.currentTarget.dataset.article)));
   }
 
   on('.tabs button', 'click', (event) => {
@@ -1765,7 +1800,49 @@ async function renderErzeugung(body, tab, sites, plans) {
       });
     });
   } else if (tab === 'plaene') {
+    /* Das Formular steht ueber der Liste: Aufgeklappt waere es sonst unter allen
+       Plaenen versteckt, und man scrollt an allem vorbei, was man gerade nicht
+       sucht. */
     body.innerHTML = `
+      ${disclose('neuerplan', 'Neuen Plan anlegen', `
+        <form id="plan-form" style="padding:16px 18px">
+          <div class="fields-2">
+            <div class="field">
+              <label for="plan-site">Website</label>
+              <select id="plan-site">${sites.map((site) => `<option value="${esc(site.id)}"
+                ${state.data.planSite === site.id ? 'selected' : ''}>${esc(site.name)}</option>`).join('')}</select>
+            </div>
+            <div class="field"><label for="plan-name">Name des Plans</label>
+              <input id="plan-name" placeholder="z. B. Ratgeber Kaffee" /></div>
+          </div>
+          <label class="check" style="margin:8px 0 14px">
+            <input type="checkbox" id="plan-auto-topics" ${state.data.planAutoThemen ? 'checked' : ''} />
+            <span><b>Automatische Themen</b>
+              <i>Die KI sucht vor jedem Beitrag selbst ein Thema: Sie sieht sich die vorhandenen
+                Beiträge und Kategorien der Website an und nimmt das, was fehlt. Bereits
+                behandelte Themen werden dabei ausgeschlossen, auch wenn sie anders heißen.</i></span></label>
+
+          <div class="field">
+            <label for="plan-areas">Themenbereiche, eine Zeile je Bereich</label>
+            <textarea id="plan-areas" rows="6"
+              placeholder="Kaffeezubereitung zu Hause&#10;Kaffeemaschinen pflegen&#10;Bohnensorten und Röstung"></textarea>
+            <div class="hint" id="plan-areas-hint">${state.data.planAutoThemen
+              ? 'Grenzt die Suche ein. Leer lassen heißt: Die KI darf alles nehmen, was zur Website passt.'
+              : 'Nur die Reserve: Solange die Themenliste der Website gefüllt ist, arbeitet der Plan die ab.'}</div>
+          </div>
+          <div class="fields-2">
+            <div class="field"><label for="plan-per-week">Posts pro Woche</label>
+              <input id="plan-per-week" type="number" min="1" max="14" value="2" /></div>
+            <div class="field"><label for="plan-hour">Bevorzugte Uhrzeit (UTC)</label>
+              <input id="plan-hour" type="number" min="0" max="23" value="9" /></div>
+          </div>
+          <label class="check" style="margin:8px 0 14px">
+            <input type="checkbox" id="plan-auto-publish" />
+            <span><b>Fertige Posts automatisch an WordPress senden</b>
+              <i>Ohne Haken bleiben sie als Entwurf im Hub und warten auf deine Freigabe.</i></span></label>
+          <div class="formfoot"><button class="btn primary" type="submit">Plan anlegen</button></div>
+        </form>`, 'margin-bottom:16px')}
+
       <section class="card flat">
         <div class="card-head"><h2>Laufende Pläne</h2><span class="count">${plans.length}</span>
           <span class="tools"><button class="btn sm primary" data-disc="neuerplan">${ic('plus', 'sm')}Plan anlegen</button></span></div>
@@ -1820,45 +1897,7 @@ async function renderErzeugung(body, tab, sites, plans) {
             <p>Ein Plan arbeitet die Themenliste einer Website ab, zweimal pro Woche etwa.
               Danach läuft der Blog ohne dich.</p>
             <button class="btn primary" data-disc="neuerplan">${ic('plus', 'sm')}Plan anlegen</button></div>`}
-      </section>
-
-      ${disclose('neuerplan', 'Neuen Plan anlegen', `
-        <form id="plan-form" style="padding:16px 18px">
-          <div class="fields-2">
-            <div class="field">
-              <label for="plan-site">Website</label>
-              <select id="plan-site">${sites.map((site) => `<option value="${esc(site.id)}">${esc(site.name)}</option>`).join('')}</select>
-            </div>
-            <div class="field"><label for="plan-name">Name des Plans</label>
-              <input id="plan-name" placeholder="z. B. Ratgeber Kaffee" /></div>
-          </div>
-          <label class="check" style="margin:8px 0 14px">
-            <input type="checkbox" id="plan-auto-topics" ${state.data.planAutoThemen ? 'checked' : ''} />
-            <span><b>Automatische Themen</b>
-              <i>Die KI sucht vor jedem Beitrag selbst ein Thema: Sie sieht sich die vorhandenen
-                Beiträge und Kategorien der Website an und nimmt das, was fehlt. Bereits
-                behandelte Themen werden dabei ausgeschlossen, auch wenn sie anders heißen.</i></span></label>
-
-          <div class="field">
-            <label for="plan-areas">Themenbereiche, eine Zeile je Bereich</label>
-            <textarea id="plan-areas" rows="6"
-              placeholder="Kaffeezubereitung zu Hause&#10;Kaffeemaschinen pflegen&#10;Bohnensorten und Röstung"></textarea>
-            <div class="hint" id="plan-areas-hint">${state.data.planAutoThemen
-              ? 'Grenzt die Suche ein. Leer lassen heißt: Die KI darf alles nehmen, was zur Website passt.'
-              : 'Nur die Reserve: Solange die Themenliste der Website gefüllt ist, arbeitet der Plan die ab.'}</div>
-          </div>
-          <div class="fields-2">
-            <div class="field"><label for="plan-per-week">Posts pro Woche</label>
-              <input id="plan-per-week" type="number" min="1" max="14" value="2" /></div>
-            <div class="field"><label for="plan-hour">Bevorzugte Uhrzeit (UTC)</label>
-              <input id="plan-hour" type="number" min="0" max="23" value="9" /></div>
-          </div>
-          <label class="check" style="margin:8px 0 14px">
-            <input type="checkbox" id="plan-auto-publish" />
-            <span><b>Fertige Posts automatisch an WordPress senden</b>
-              <i>Ohne Haken bleiben sie als Entwurf im Hub und warten auf deine Freigabe.</i></span></label>
-          <div class="formfoot"><button class="btn primary" type="submit">Plan anlegen</button></div>
-        </form>`, 'margin-top:16px')}`;
+      </section>`;
 
     /* Der Hinweis unter den Themenbereichen stimmt nur, wenn er sich mitdreht:
        Mit automatischen Themen sind sie ein Rahmen, ohne sie eine Reserve. */
@@ -1887,6 +1926,10 @@ async function renderErzeugung(body, tab, sites, plans) {
             auto_topics: root.querySelector('#plan-auto-topics').checked,
           },
         });
+        // Der neue Plan steht jetzt in der Liste darunter. Das Formular hat seine
+        // Aufgabe erfuellt und macht wieder Platz.
+        state.offen.neuerplan = false;
+        state.data.planSite = null;
         toast('Plan angelegt.');
         await render();
       });
@@ -2369,7 +2412,7 @@ function adsUebersicht(body, sites) {
       </table></div>
     </section>`;
 
-  on('[data-adssite]', 'click', (event) => navigate('ads', event.currentTarget.dataset.adssite));
+  on('[data-adssite]', 'click', zeilenKlick((event) => navigate('ads', event.currentTarget.dataset.adssite)));
 
   on('[data-adsaus]', 'change', (event) => {
     const id = event.currentTarget.dataset.adsaus;
@@ -3010,7 +3053,7 @@ async function renderArticles(view) {
       render();
     });
     on('#filter-site', 'change', (event) => { state.data.filterSite = event.target.value; render(); });
-    on('[data-article]', 'click', (event) => navigate('article', event.currentTarget.dataset.article));
+    on('[data-article]', 'click', zeilenKlick((event) => navigate('article', event.currentTarget.dataset.article)));
 
     /* Auswahl. Das Haekchen sitzt in einer anklickbaren Zeile, darf sie aber nicht
        oeffnen - dafuer sorgt die Klasse "stop" zusammen mit dem Zuhoerer am Wurzelelement. */
@@ -3062,13 +3105,6 @@ async function renderArticles(view) {
     render();
   });
 }
-
-/* Ein Link oder ein Haekchen in einer anklickbaren Zeile soll nur sich selbst
-   bedienen, nicht auch die Zeile oeffnen. Als eigener Zuhoerer, weil die
-   Sicherheitsrichtlinie kein onclick im Seitentext erlaubt. */
-root.addEventListener('click', (event) => {
-  if (event.target.closest('.stop')) event.stopPropagation();
-}, true);
 
 async function renderArticle(view, articleId) {
   const article = await api(`/api/app/articles/${articleId}`);
