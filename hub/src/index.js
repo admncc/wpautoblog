@@ -2,7 +2,21 @@
 const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
-const compression = require('compression');
+
+/*
+ * Komprimieren ist eine Verbesserung, keine Bedingung.
+ *
+ * Ein Update bringt neue Abhaengigkeiten mit, und wenn "npm install" auf dem Server
+ * nicht durchlief, fehlt das Paket. Ein require am Dateianfang liesse den ganzen Hub
+ * am Start scheitern - wegen einer Beschleunigung. Dann lieber ungepackt ausliefern
+ * und es deutlich ins Protokoll schreiben.
+ */
+let compression = null;
+try {
+  compression = require('compression');
+} catch {
+  compression = null;
+}
 
 const config = require('./config');
 const { pruneLogs } = require('./db');
@@ -36,7 +50,7 @@ app.set('trust proxy', 1);
  * Bilder, das Plugin-Archiv und alles andere schon Gepackte laesst die
  * Voreinstellung in Ruhe - dort waere Packen nur verlorene Rechenzeit.
  */
-app.use(compression());
+if (compression) app.use(compression());
 
 // rawBody wird fuer die Signaturpruefung der Plugin-Aufrufe benoetigt.
 app.use(
@@ -164,6 +178,11 @@ const server = app.listen(config.PORT, config.HOST, () => {
   logger.info('system', 'start', `Autoblog Hub laeuft auf http://localhost:${config.PORT}`, {
     context: { node: process.version, public_url: config.PUBLIC_URL || null, data_dir: config.DATA_DIR },
   });
+  if (!compression) {
+    logger.warn('system', 'start',
+      'Das Paket "compression" fehlt, die Oberflaeche geht ungepackt ueber die Leitung und laedt'
+      + ' deutlich langsamer. Auf dem Server im Ordner hub einmal "npm install --omit=dev" ausfuehren.');
+  }
   if (!config.PUBLIC_URL) {
     console.log('Hinweis: PUBLIC_URL ist nicht gesetzt. Sie wird im WordPress-Plugin als Hub-Adresse benoetigt.');
   }

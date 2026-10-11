@@ -21,6 +21,10 @@ After=network-online.target docker.service
 
 [Service]
 Type=simple
+# Ein Dienst startet mit einem kargen PATH. Steckt Node in /usr/local oder /opt,
+# faende der Helfer sonst kein npm - und ein Update zoege neue Abhaengigkeiten
+# nicht nach.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/node/bin
 Environment=REPO=$REPO
 ExecStart=$REPO/ops/autoblog-update-runner.sh
 Restart=always

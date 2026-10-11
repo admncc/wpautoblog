@@ -68,23 +68,74 @@ JSON
   mv "$CONTROL/version.json.tmp" "$CONTROL/version.json"
 }
 
+# Wo npm liegt. Ein Dienst startet mit einem kargen PATH: Steckt Node in nvm oder
+# unter /opt, findet "npm" sich dort nicht - und ein Update, das die
+# Abhaengigkeiten nicht nachzieht, startet den Hub ohne sie.
+finde_npm() {
+  local kandidat
+  if command -v npm >/dev/null 2>&1; then command -v npm; return 0; fi
+  for kandidat in /usr/local/bin/npm /usr/bin/npm /opt/node*/bin/npm \
+                  "$HOME"/.nvm/versions/node/*/bin/npm /root/.nvm/versions/node/*/bin/npm; do
+    [ -x "$kandidat" ] && { echo "$kandidat"; return 0; }
+  done
+  return 1
+}
+
+# Die Adresse, unter der der Hub lokal antwortet. Port aus hub/.env, sonst 4000.
+hub_port() {
+  local port
+  port="$(sed -n 's/^[[:space:]]*PORT[[:space:]]*=[[:space:]]*\([0-9]\{1,\}\).*/\1/p' "$REPO/hub/.env" 2>/dev/null | tail -n 1)"
+  echo "${port:-4000}"
+}
+
+# Wartet, bis der Hub wieder antwortet. Ohne diese Probe gilt ein Update als
+# gelungen, sobald der Befehl zum Neustart abgesetzt ist - auch wenn der Dienst
+# danach sofort wieder stirbt, etwa weil ein neues Paket fehlt.
+antwortet_wieder() {
+  local port ende
+  port="$(hub_port)"
+  ende=$(( $(date +%s) + ${HEALTH_TIMEOUT:-90} ))
+  while [ "$(date +%s)" -lt "$ende" ]; do
+    if curl -fsS --max-time 5 "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 3
+  done
+  protokoll "Der Hub antwortet auf http://127.0.0.1:${port}/health nicht."
+  return 1
+}
+
 # Startet den Hub neu: bevorzugt ueber Docker, sonst ueber systemd.
 # Die Ausgabe landet im Protokoll, damit ein fehlgeschlagener Build sichtbar wird.
 # Das Zeitlimit verhindert, dass ein haengender Build den Helfer blockiert.
 neu_starten() {
-  local limit="${BUILD_TIMEOUT:-900}"
+  local limit="${BUILD_TIMEOUT:-900}" npm_bin
   if [ -f "$REPO/docker-compose.yml" ] && command -v docker >/dev/null 2>&1; then
     protokoll "Docker-Image bauen und Container ersetzen (Zeitlimit ${limit}s)"
     timeout "$limit" docker compose -f "$REPO/docker-compose.yml" up -d --build 2>&1 | tee -a "$LOGFILE"
-    return "${PIPESTATUS[0]}"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || return 1
   elif systemctl list-unit-files 2>/dev/null | grep -q '^autoblog\.service'; then
-    protokoll "Abhaengigkeiten aktualisieren und Dienst neu starten"
-    ( cd "$REPO/hub" && timeout "$limit" npm install --omit=dev ) 2>&1 | tee -a "$LOGFILE"
-    systemctl restart autoblog 2>&1 | tee -a "$LOGFILE"
-    return 0
+    if ! npm_bin="$(finde_npm)"; then
+      protokoll "npm nicht gefunden. Neue Abhaengigkeiten liessen sich nicht nachziehen."
+      return 1
+    fi
+    protokoll "Abhaengigkeiten aktualisieren ($npm_bin) und Dienst neu starten"
+    ( cd "$REPO/hub" && timeout "$limit" "$npm_bin" install --omit=dev ) 2>&1 | tee -a "$LOGFILE"
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+      protokoll "npm install ist fehlgeschlagen. Der Hub wuerde ohne die neuen Pakete starten."
+      return 1
+    fi
+    if ! systemctl restart autoblog 2>&1 | tee -a "$LOGFILE"; then
+      protokoll "systemctl restart autoblog ist fehlgeschlagen."
+      return 1
+    fi
+  else
+    protokoll "Kein bekannter Startmechanismus gefunden (weder docker-compose.yml noch autoblog.service)"
+    return 1
   fi
-  protokoll "Kein bekannter Startmechanismus gefunden (weder docker-compose.yml noch autoblog.service)"
-  return 1
+
+  # Erst wenn der Hub wieder antwortet, gilt der Neustart als gelungen.
+  antwortet_wieder
 }
 
 # Merkt Ergebnis und Zeitpunkt und schreibt den Stand fuer den Hub.
@@ -126,8 +177,11 @@ fuehre_update_aus() {
   if ! neu_starten; then
     protokoll "Neustart fehlgeschlagen, alter Stand wird wiederhergestellt"
     git reset --hard "$vorher" 2>&1 | tee -a "$LOGFILE"
-    neu_starten
-    abschluss "failed" "Der Neustart ist fehlgeschlagen. Der vorherige Stand laeuft weiter, Einzelheiten im Protokoll."
+    if neu_starten; then
+      abschluss "failed" "Der Neustart ist fehlgeschlagen. Der vorherige Stand laeuft wieder, Einzelheiten im Protokoll."
+    else
+      abschluss "failed" "Der Neustart ist fehlgeschlagen, und auch der vorherige Stand kam nicht hoch. Bitte auf dem Server nachsehen: systemctl status autoblog"
+    fi
     return 1
   fi
 

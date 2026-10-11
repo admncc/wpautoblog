@@ -3650,6 +3650,15 @@ async function renderLogs(view) {
     dauer: (l) => l.duration_ms || 0,
   });
 
+  /* "Es laedt langsam" hat zwei moegliche Ursachen, und sie fuehren zu ganz
+     verschiedenen Massnahmen: Entweder rechnet der Hub lange, oder die Antwort ist
+     lange unterwegs. Hier steht, was der Hub selbst gebraucht hat - der Rest ist
+     Leitung, Proxy oder Browser. */
+  const anfragen = logs.filter((l) => l.category === 'http' && l.duration_ms != null);
+  const dauern = anfragen.map((l) => Number(l.duration_ms)).sort((a, b) => a - b);
+  const mitte = dauern.length ? dauern[Math.floor(dauern.length / 2)] : 0;
+  const langsamste = [...anfragen].sort((a, b) => b.duration_ms - a.duration_ms).slice(0, 3);
+
   view.innerHTML = `
     <div class="page-head">
       <div><h1>Protokoll</h1><p class="sub">Jede Zeile ist ein Vorgang. Zeiten in UTC.
@@ -3658,6 +3667,20 @@ async function renderLogs(view) {
         <button class="btn" id="reload">${ic('refresh', 'sm')}Aktualisieren</button>
       </div>
     </div>
+
+    ${anfragen.length ? `<section class="card flat">
+      <div class="card-head"><h2>Wie schnell antwortet der Hub?</h2>
+        <span class="count">${anfragen.length} Anfragen im Protokoll</span></div>
+      <div class="item is-idle"><span class="grow">
+        <span class="ttl">Mittelwert ${mitte} ms, langsamste ${langsamste[0].duration_ms} ms</span>
+        <span class="meta">Gemessen vom Eintreffen der Anfrage bis zur fertigen Antwort. Braucht der Hub
+          hier Millisekunden, die Seite im Browser aber Sekunden, liegt es nicht am Server, sondern an
+          der Leitung dazwischen.</span></span></div>
+      ${langsamste.map((l) => `<div class="item ${l.duration_ms > 2000 ? 'is-warn' : 'is-idle'}">
+        <span class="grow"><span class="ttl">${esc(l.message)}</span>
+          <span class="meta">${esc(fmtDate(l.ts || l.created_at))}</span></span>
+        <span class="side"><b>${esc(l.duration_ms)} ms</b></span></div>`).join('')}
+    </section>` : ''}
 
     <section class="card flat">
       <div class="toolbar">

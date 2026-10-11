@@ -421,9 +421,15 @@ besser als eine Zahl, die vielleicht stimmt.
 
 ### 4.10 Protokoll (`#/logs`)
 
-Kopf mit drei Auswahllisten (Stufe, Bereich, Anzahl) und „Aktualisieren". Tabelle:
-Zeit, Stufe (Abzeichen), Bereich (`article/generate`), Dauer in ms, Meldung. Jede Zeile
-kann einen aufklappbaren Details-Block mit formatiertem JSON haben.
+Kopf mit drei Auswahllisten (Stufe, Bereich, Anzahl) und „Aktualisieren". Darüber die
+Karte **„Wie schnell antwortet der Hub?"**: Mittelwert und langsamste der protokollierten
+Anfragen, dazu die drei langsamsten mit Pfad und Zeit. Sie beantwortet die Frage, die bei
+„die Seite lädt langsam" als erstes zu klären ist: Rechnet der Hub lange, oder ist die
+Antwort lange unterwegs? Braucht er Millisekunden und der Browser Sekunden, liegt es an
+der Leitung, nicht am Server.
+
+Tabelle: Zeit, Stufe (Abzeichen), Bereich (`article/generate`), Dauer in ms, Meldung.
+Jede Zeile kann einen aufklappbaren Details-Block mit formatiertem JSON haben.
 
 *Schwäche:* 200 Zeilen ohne Suche, ohne Gruppierung nach Vorgang. Das Aufklappen geht
 beim nächsten Neuzeichnen verloren.
