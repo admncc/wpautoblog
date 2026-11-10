@@ -341,7 +341,9 @@ Sechs Karten untereinander, jede mit eigenem Speichern-Knopf:
    Modellliste (kostenlos, anders als ein Testbild) und zeigt die, die nach Bildmodellen
    aussehen, als anklickbare Namen: ein Klick setzt den Namen ins Feld, dann speichern.
    Scheitert ein Bild an einem unbekannten Modell, nennt die Fehlermeldung am Artikel
-   genau diesen Weg.
+   genau diesen Weg. Die Qualitätsstufen reichen von „niedrig" bis „höchste":
+   Die neueren Bildmodelle kennen mehr Stufen als die erste Generation, und die Stufe
+   entscheidet über den Preis je Bild.
 4. **YouTube-Kanäle und Transkripte** — Schalter, Schlüssel des Transkript-Dienstes,
    Abrufadresse, Header-Name, Videoquelle (Automatisch / Supadata / RSS / Google /
    Kanalseite), Google-Schlüssel, zwei große Prompt-Felder

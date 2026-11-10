@@ -3428,7 +3428,8 @@ async function renderSettings(view) {
         <div class="field">
           <label for="image_quality">Bildqualität</label>
           <select id="image_quality">
-            ${['high:hoch', 'medium:mittel', 'low:niedrig (günstig)', 'auto:automatisch'].map((entry) => {
+            ${['low:niedrig (günstig)', 'medium:mittel', 'high:hoch', 'xhigh:sehr hoch',
+              'max:höchste (teuer)', 'auto:automatisch'].map((entry) => {
               const [value, label] = entry.split(':');
               return `<option value="${value}" ${data.image_quality === value ? 'selected' : ''}>${label}</option>`;
             }).join('')}
