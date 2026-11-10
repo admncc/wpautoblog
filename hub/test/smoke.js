@@ -348,14 +348,33 @@ function starteFakeTranskript(zustand) {
   return server;
 }
 
+/* Der gespielte Bilddienst kennt eine feste Liste von Modellen - so wie ein echter,
+   bei dem Namen kommen und gehen. Nach einem Modell, das er nicht kennt, antwortet
+   er wie OpenAI: "The model ... does not exist". */
+const BILDMODELLE = ['gpt-4o', 'dall-e-3', 'gpt-image-7', 'text-embedding-3-large'];
+
 function starteFakeBilddienst() {
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
-      res.writeHead(req.headers.authorization ? 200 : 401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(req.headers.authorization ? { data: [{ b64_json: PNG }] } : { error: { message: 'kein Schluessel' } }));
+      res.setHeader('Content-Type', 'application/json');
+      if (!req.headers.authorization) {
+        res.writeHead(401);
+        return res.end(JSON.stringify({ error: { message: 'kein Schluessel' } }));
+      }
+      if (req.url.endsWith('/models')) {
+        res.writeHead(200);
+        return res.end(JSON.stringify({ data: BILDMODELLE.map((id) => ({ id, object: 'model' })) }));
+      }
+      const gewuenscht = (JSON.parse(body || '{}') || {}).model;
+      if (gewuenscht && !BILDMODELLE.includes(gewuenscht)) {
+        res.writeHead(404);
+        return res.end(JSON.stringify({ error: { message: `The model '${gewuenscht}' does not exist` } }));
+      }
+      res.writeHead(200);
+      return res.end(JSON.stringify({ data: [{ b64_json: PNG }] }));
     });
   });
   server.listen(IMG_PORT);
@@ -534,7 +553,8 @@ async function main() {
     fakeBild = starteFakeBilddienst();
     const { db } = require('../src/db');
     const settings = require('../src/settings');
-    settings.save({ image_provider: 'openai', image_base_url: `http://127.0.0.1:${IMG_PORT}/v1`, images_per_article: '2' });
+    settings.save({ image_provider: 'openai', image_base_url: `http://127.0.0.1:${IMG_PORT}/v1`,
+      images_per_article: '2', image_model: 'dall-e-3' });
     settings.setImageKey('sk-test');
     db.prepare(`INSERT INTO articles (id, site_id, title, slug, content_html, keyword, status, category)
                 VALUES ('art_test', ?, 'Testartikel', 'testartikel', '<p>A</p><p>[[BILD:2]]</p>', 'test', 'draft', 'Ratgeber')`).run(siteId);
@@ -545,6 +565,32 @@ async function main() {
     ]);
     const bilder = images.forArticle('art_test');
     pruefe(bilder.length === 2 && bilder.every((b) => b.status === 'ready'), 'Zwei Bilder erzeugt und gespeichert');
+
+    /* Modellnamen aendern sich beim Anbieter, und der Hub kann sie nicht erraten.
+       Steht im Feld einer, den es dort nicht gibt, soll die Meldung nicht nur den
+       Wortlaut des Dienstes durchreichen, sondern sagen, wo man nachsieht. */
+    settings.save({ image_model: 'gpt-image-1' });
+    db.prepare(`INSERT INTO articles (id, site_id, title, keyword, status)
+                VALUES ('art_bildfehler', ?, 'Mit falschem Modell', 'test', 'draft')`).run(siteId);
+    await images.generateForArticle({ id: 'art_bildfehler', site_id: siteId },
+      [{ slot: 1, motif: 'ein Hof im Morgenlicht', alt: 'Hof', caption: '' }]);
+    const gescheitert = images.forArticle('art_bildfehler')[0];
+    pruefe(gescheitert.status === 'failed' && /does not exist/.test(gescheitert.error || '')
+      && /Bilddienst pr/.test(gescheitert.error || ''),
+      'Ein unbekanntes Bildmodell wird benannt, samt dem Weg zur Loesung', gescheitert.error);
+
+    const dienstPruefung = await ruf('/api/app/settings/bilddienst-pruefen', { method: 'POST' });
+    pruefe(dienstPruefung.status === 200 && dienstPruefung.daten.ok === false
+      && dienstPruefung.daten.bildmodelle.join(',') === 'dall-e-3,gpt-image-7',
+      'Die Pruefung fragt den Dienst und nennt seine Bildmodelle',
+      JSON.stringify(dienstPruefung.daten.bildmodelle));
+    pruefe(!JSON.stringify(dienstPruefung.daten).includes('sk-test'),
+      'Der Schluessel taucht in der Antwort nicht auf');
+
+    settings.save({ image_model: 'dall-e-3' });
+    const dienstOk = await ruf('/api/app/settings/bilddienst-pruefen', { method: 'POST' });
+    pruefe(dienstOk.daten.ok === true && /dall-e-3/.test(dienstOk.daten.text),
+      'Mit einem Modell, das es gibt, meldet die Pruefung Entwarnung', dienstOk.daten.text);
 
     const medien = await fetch(`${BASIS}/media/${bilder[0].token}`);
     pruefe(medien.status === 200 && (medien.headers.get('content-type') || '').startsWith('image/'), 'Bild wird ausgeliefert');

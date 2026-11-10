@@ -1050,6 +1050,20 @@ router.put(
   })
 );
 
+/**
+ * Fragt den eingestellten Bilddienst, welche Modelle er anbietet.
+ *
+ * Steht im Feld ein Name, den es dort nicht (mehr) gibt, scheitert jedes Bild mit
+ * einer Meldung, die niemand einordnen kann. Die Antwort darauf steht nicht im
+ * Hub und auch nicht im Netz, sondern beim Dienst des Nutzers selbst.
+ */
+router.post(
+  '/settings/bilddienst-pruefen',
+  wrap(async (req, res) => {
+    res.json(await images.pruefeDienst());
+  })
+);
+
 router.post(
   '/settings/reset-prompts',
   wrap((req, res) => {

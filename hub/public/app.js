@@ -3413,7 +3413,9 @@ async function renderSettings(view) {
           <input id="image_base_url" value="${esc(data.image_base_url)}" placeholder="https://api.openai.com/v1" />
           <div class="hint">Jeder Dienst mit dem Endpunkt /images/generations funktioniert.</div></div>
         <div class="field"><label for="image_model">Bildmodell</label>
-          <input id="image_model" value="${esc(data.image_model)}" placeholder="gpt-image-1" /></div>
+          <input id="image_model" value="${esc(data.image_model)}" placeholder="gpt-image-1" />
+          <div class="hint">Modellnamen ändern sich. „Bilddienst prüfen" unten fragt den Dienst,
+            welche es dort gerade gibt.</div></div>
         <div class="field">
           <label for="image_size">Bildformat</label>
           <select id="image_size">
@@ -3438,7 +3440,12 @@ async function renderSettings(view) {
         <textarea id="image_style" style="min-height:70px">${esc(data.image_style)}</textarea>
         <div class="hint">Wird an jede Bildbeschreibung angehängt, auf Englisch. Hält den Look über alle Artikel gleich.</div>
       </div>
-      <button class="btn primary" id="save-settings-3">Speichern</button>
+      <div class="btnrow">
+        <button class="btn primary" id="save-settings-3">Speichern</button>
+        <button class="btn" id="bild-pruefen">${ic('check', 'sm')}Bilddienst prüfen</button>
+        <span class="state" id="bild-ergebnis"></span>
+      </div>
+      <div id="bild-modelle"></div>
     </section>
 
     <section class="card" id="s4">
@@ -3582,6 +3589,36 @@ async function renderSettings(view) {
   on('#save-settings-5', 'click', saveSettings);
   on('#save-settings-2', 'click', saveSettings);
   on('#save-settings-3', 'click', saveSettings);
+
+  /* Welche Bildmodelle es gibt, weiss nur der Dienst des Nutzers. Also fragen wir
+     ihn - die Modellliste kostet nichts, ein Testbild wuerde jeder Klick bezahlen.
+     Die gefundenen Namen sind Knoepfe: Ein Klick setzt den Namen ins Feld. */
+  on('#bild-pruefen', 'click', (event) => guard(event.currentTarget, async () => {
+    const ergebnis = root.querySelector('#bild-ergebnis');
+    const kasten = root.querySelector('#bild-modelle');
+    const stand = await api('/api/app/settings/bilddienst-pruefen', { method: 'POST' });
+
+    if (ergebnis) ergebnis.textContent = stand.text;
+    if (ergebnis) ergebnis.style.color = stand.ok ? 'var(--ok)' : 'var(--warn)';
+    if (!kasten) return;
+
+    kasten.innerHTML = stand.bildmodelle && stand.bildmodelle.length && !stand.ok
+      ? `<div class="chipfield" style="margin-top:10px">${stand.bildmodelle.map((id) =>
+          `<span class="chip"><span class="nm">${esc(id)}</span>
+            <button class="chip-x" data-bildmodell="${esc(id)}" title="In das Feld Bildmodell übernehmen">
+              ${ic('check', 'sm')}</button></span>`).join('')}</div>
+        <div class="hint">Name anklicken, dann speichern. Danach „Bilder neu erzeugen" am Artikel.</div>`
+      : '';
+
+    kasten.querySelectorAll('[data-bildmodell]').forEach((el) => el.addEventListener('click', () => {
+      const feld = root.querySelector('#image_model');
+      if (feld) { feld.value = el.dataset.bildmodell; feld.focus(); }
+      if (ergebnis) {
+        ergebnis.textContent = `„${el.dataset.bildmodell}" steht im Feld. Jetzt speichern.`;
+        ergebnis.style.color = '';
+      }
+    }));
+  }));
   on('#save-settings-4', 'click', saveSettings);
   const renderDiagnostics = async () => {
     const box = root.querySelector('#diagnostics-box');

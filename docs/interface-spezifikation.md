@@ -335,7 +335,13 @@ Sechs Karten untereinander, jede mit eigenem Speichern-Knopf:
 1. **Anthropic API-Key** — Passwortfeld, Modellwahl, Aufwandsstufe (niedrig bis sehr hoch)
 2. **Marke & Standardvorgaben** — Hub-Name, Markenname, Markenbeschreibung,
    Standardsprache, Standardlänge, Standard-Tonalität, globale Vorgaben
-3. **Bilder** — Anbieter, Basisadresse, Modell, Größe, Qualität, Bildstil, Anzahl je Artikel
+3. **Bilder** — Anbieter, Basisadresse, Modell, Größe, Qualität, Bildstil, Anzahl je Artikel,
+   dazu der Knopf **„Bilddienst prüfen"**. Modellnamen ändern sich beim Anbieter, und der Hub
+   kann sie nicht erraten; der Knopf fragt deshalb den eingestellten Dienst nach seiner
+   Modellliste (kostenlos, anders als ein Testbild) und zeigt die, die nach Bildmodellen
+   aussehen, als anklickbare Namen: ein Klick setzt den Namen ins Feld, dann speichern.
+   Scheitert ein Bild an einem unbekannten Modell, nennt die Fehlermeldung am Artikel
+   genau diesen Weg.
 4. **YouTube-Kanäle und Transkripte** — Schalter, Schlüssel des Transkript-Dienstes,
    Abrufadresse, Header-Name, Videoquelle (Automatisch / Supadata / RSS / Google /
    Kanalseite), Google-Schlüssel, zwei große Prompt-Felder

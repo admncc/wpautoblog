@@ -62,7 +62,13 @@ async function requestImage(prompt) {
   }
   if (!response.ok) {
     const message = (data.error && data.error.message) || `HTTP ${response.status}`;
-    throw new ImageError(`Bilddienst meldet einen Fehler: ${message}`);
+    // Bei einem unbekannten Modell sagt die Meldung des Dienstes nicht, wo man
+    // nachsieht. Also steht es hier dabei.
+    const hinweis = unbekanntesModell(message)
+      ? ` Der Dienst unter ${baseUrl} kennt das eingestellte Bildmodell „${model}" nicht.`
+        + ' Modellnamen ändern sich: Unter Einstellungen zeigt „Bilddienst prüfen", welche es dort gerade gibt.'
+      : '';
+    throw new ImageError(`Bilddienst meldet einen Fehler: ${message.replace(/[.\s]+$/, '')}.${hinweis}`);
   }
 
   const entry = data.data && data.data[0];
@@ -81,6 +87,86 @@ async function requestImage(prompt) {
     };
   }
   throw new ImageError('Die Antwort des Bilddienstes enthielt weder Bilddaten noch eine URL.');
+}
+
+/**
+ * Sagt die Meldung des Dienstes, dass er dieses Modell nicht kennt?
+ *
+ * Die Dienste formulieren das verschieden ("does not exist", "model_not_found",
+ * "unknown model"), meinen aber dasselbe: Der Name im Feld stimmt nicht mehr, oder
+ * der Schluessel darf dieses Modell nicht. Beides fuehrt zur selben Stelle.
+ */
+function unbekanntesModell(meldung) {
+  return /does not exist|model_not_found|unknown model|no access to|not found/i.test(String(meldung || ''));
+}
+
+/** Sieht dieser Modellname nach einem Bildmodell aus? */
+const istBildmodell = (id) => /image|dall-?e|flux|imagen|stable|sdxl|sd3|midjourney|photo|kandinsky/i.test(id);
+
+/**
+ * Fragt den eingestellten Dienst, welche Modelle er anbietet.
+ *
+ * Modellnamen aendern sich, und der Hub kann sie nicht erraten. Statt im Netz zu
+ * suchen, was gerade gilt, fragt er die Stelle, die es sicher weiss: den Dienst
+ * selbst, mit dem Schluessel des Nutzers. Die Liste kostet nichts - anders als ein
+ * Testbild, das jeder Klick bezahlen wuerde.
+ */
+async function pruefeDienst() {
+  const baseUrl = String(settings.get('image_base_url') || '').replace(/\/+$/, '');
+  const model = settings.get('image_model') || '';
+  const apiKey = settings.getImageKey();
+
+  if (!baseUrl || !apiKey) {
+    return { ok: false, dienst: baseUrl, modell: model,
+      text: 'Es fehlt die Adresse der Bild-API oder der Schlüssel. Beides steht in dieser Karte.' };
+  }
+
+  let antwort;
+  try {
+    antwort = await fetch(`${baseUrl}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (err) {
+    return { ok: false, dienst: baseUrl, modell: model,
+      text: `Der Dienst ist nicht erreichbar: ${err.message}` };
+  }
+
+  const roh = await antwort.text();
+  let daten = null;
+  try {
+    daten = JSON.parse(roh);
+  } catch { /* kein JSON - dann bleibt nur der Status */ }
+
+  if (!antwort.ok) {
+    const meldung = (daten && daten.error && daten.error.message) || `HTTP ${antwort.status}`;
+    return { ok: false, dienst: baseUrl, modell: model,
+      text: antwort.status === 401 || antwort.status === 403
+        ? `Der Schlüssel wird nicht akzeptiert: ${meldung}`
+        : `Der Dienst beantwortet die Modellliste nicht: ${meldung}` };
+  }
+
+  const ids = ((daten && daten.data) || []).map((m) => m && m.id).filter(Boolean);
+  if (!ids.length) {
+    return { ok: false, dienst: baseUrl, modell: model,
+      text: 'Der Dienst hat keine Modellliste geliefert. Dann sagt nur ein Testbild, ob der Name stimmt.' };
+  }
+
+  const bildmodelle = ids.filter(istBildmodell).sort();
+  const gefunden = ids.includes(model);
+  logger.info('image', 'pruefen', `Bilddienst geprueft: ${ids.length} Modelle, "${model}" ${gefunden ? 'vorhanden' : 'nicht vorhanden'}`,
+    { context: { dienst: baseUrl, bildmodelle } });
+
+  return {
+    ok: gefunden,
+    dienst: baseUrl,
+    modell: model,
+    anzahl: ids.length,
+    bildmodelle,
+    text: gefunden
+      ? `Der Dienst kennt „${model}". Von hier aus steht dem Bild nichts im Weg.`
+      : `Der Dienst kennt „${model}" nicht. Er bietet ${ids.length} Modelle an, darunter diese, die nach Bildmodellen aussehen:`,
+  };
 }
 
 /** Baut aus dem Bildkonzept den endgueltigen Prompt fuer den Bilddienst. */
@@ -229,4 +315,4 @@ function pruneOrphans() {
   return removed;
 }
 
-module.exports = { ImageError, enabled, plannedCount, generateForArticle, forArticle, forDelivery, publicUrl, filePath, pruneOrphans, pruneVeroeffentlichte, AUFBEWAHRUNG_TAGE, IMAGE_DIR };
+module.exports = { ImageError, enabled, plannedCount, generateForArticle, pruefeDienst, unbekanntesModell, forArticle, forDelivery, publicUrl, filePath, pruneOrphans, pruneVeroeffentlichte, AUFBEWAHRUNG_TAGE, IMAGE_DIR };
