@@ -601,6 +601,46 @@ async function main() {
     pruefe(senden.status === 200 && senden.daten.status === 'published', 'Artikel an WordPress uebergeben', senden.daten && senden.daten.error);
     pruefe(senden.daten && senden.daten.archived === 1, 'Artikel nach Uebergabe archiviert');
 
+    /* Sammellöschen: Was weg soll, soll ganz weg - samt Bildern. Was gerade laeuft,
+       bleibt stehen, sonst griffe der laufende Vorgang ins Leere. */
+    db.prepare(`INSERT INTO articles (id, site_id, title, keyword, status)
+                VALUES ('art_weg1', ?, 'Weg eins', 'k1', 'failed'),
+                       ('art_weg2', ?, 'Weg zwei', 'k2', 'draft'),
+                       ('art_laeuft', ?, 'Laeuft noch', 'k3', 'generating')`).run(siteId, siteId, siteId);
+    db.prepare("INSERT INTO channels (id, site_id, channel_id, title) VALUES ('ch_weg', ?, 'UCweg', 'Kanal')").run(siteId);
+    db.prepare(`INSERT INTO videos (id, channel_ref, site_id, video_id, title, status, article_id)
+                VALUES ('vid_weg', 'ch_weg', ?, 'wegvideo1', 'Video zum geloeschten Artikel', 'transkribiert', 'art_weg1')`)
+      .run(siteId);
+    const bilderVorher = images.forArticle('art_test').length;
+
+    const geloescht = await ruf('/api/app/articles/loeschen', {
+      method: 'POST', body: { ids: ['art_weg1', 'art_weg2', 'art_laeuft'] },
+    });
+    pruefe(geloescht.status === 200 && geloescht.daten.geloescht === 2
+      && geloescht.daten.laufend.length === 1 && geloescht.daten.laufend[0].id === 'art_laeuft',
+      'Sammellöschen entfernt die gewaehlten und laesst den laufenden stehen',
+      JSON.stringify({ weg: geloescht.daten.geloescht, laufend: geloescht.daten.laufend.length }));
+    pruefe(!db.prepare("SELECT id FROM articles WHERE id = 'art_weg1'").get()
+      && Boolean(db.prepare("SELECT id FROM articles WHERE id = 'art_laeuft'").get()),
+      'Der laufende Artikel ist noch da');
+
+    const videoDanach = db.prepare("SELECT status, article_id, skip_reason FROM videos WHERE id = 'vid_weg'").get();
+    pruefe(videoDanach.article_id === null && videoDanach.status === 'uebersprungen'
+      && videoDanach.skip_reason === 'manuell',
+      'Das Video zeigt nicht mehr auf den geloeschten Artikel und ist wieder erreichbar',
+      JSON.stringify(videoDanach));
+
+    const nurLaufend = await ruf('/api/app/articles/loeschen', { method: 'POST', body: { ids: ['art_laeuft'] } });
+    pruefe(nurLaufend.status === 400 && /in Arbeit/.test(JSON.stringify(nurLaufend.daten)),
+      'Nur Laufendes zu loeschen wird abgelehnt, mit Begruendung', JSON.stringify(nurLaufend.daten));
+    pruefe(await ruf('/api/app/articles/loeschen', { method: 'POST', body: { ids: [] } })
+      .then((a) => a.status === 400), 'Ohne Auswahl wird nichts geloescht');
+
+    // Die Bilder des noch vorhandenen Artikels bleiben unangetastet.
+    pruefe(images.forArticle('art_test').length === bilderVorher,
+      'Fremde Bilder bleiben, wo sie sind', `${images.forArticle('art_test').length}/${bilderVorher}`);
+    db.prepare("DELETE FROM articles WHERE id = 'art_laeuft'").run();
+
     const gesendet = fakeWp.empfangen.find((e) => e.url.endsWith('/publish'));
     pruefe(gesendet && gesendet.daten.images.length === 2, 'Bilder wurden mitgeschickt');
     pruefe(gesendet && gesendet.daten.images.every((b) => /^https?:\/\//.test(b.url)), 'Bildadressen sind vollstaendig');

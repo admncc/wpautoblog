@@ -1658,6 +1658,7 @@ async function renderSite(view, siteId) {
       });
     });
     on('[data-article]', 'click', zeilenKlick((event) => navigate('article', event.currentTarget.dataset.article)));
+    artikelAuswahl(articles);
   }
 
   on('.tabs button', 'click', (event) => {
@@ -2936,6 +2937,7 @@ function articleTable(articles) {
       <span class="spacer"></span>
       <button class="btn sm" id="art-sel-keine">Auswahl aufheben</button>
       <button class="btn sm primary" id="art-senden">${ic('send', 'sm')}An WordPress senden</button>
+      <button class="btn sm danger" id="art-loeschen">${ic('trash', 'sm')}Löschen</button>
     </div>` : ''}
     <div class="tblwrap"><table>
     <thead><tr>
@@ -2972,6 +2974,99 @@ function articleTable(articles) {
  * auf denen ein Beitrag entsteht. Frueher waren das zwei Bereiche, und man musste
  * wissen, dass "Posts" das Entstehen meint und "Artikel" das Ergebnis.
  */
+/**
+ * Haekchen, Sammelversand und Loeschen fuer eine Artikelliste.
+ *
+ * Die Liste steht an zwei Stellen: unter "Beiträge" und im Reiter "Artikel" einer
+ * Website. Die Haekchen zeichnete articleTable an beiden, die Zuhoerer dazu gab es
+ * aber nur an einer - auf der Websiteseite liess sich auswaehlen, ohne dass etwas
+ * passierte. Jetzt haengt beides zusammen an derselben Stelle.
+ */
+function artikelAuswahl(articles) {
+  const sendbar = articles.filter((a) => SENDBAR.includes(a.status));
+
+  on('[data-artsel]', 'change', (event) => {
+    const id = event.currentTarget.dataset.artsel;
+    const jetzt = state.data.artSel || [];
+    state.data.artSel = jetzt.includes(id) ? jetzt.filter((x) => x !== id) : [...jetzt, id];
+    zeichneMitEingaben();
+  });
+  on('#art-sel-alle', 'change', (event) => {
+    state.data.artSel = event.currentTarget.checked ? sendbar.map((a) => a.id) : [];
+    zeichneMitEingaben();
+  });
+  on('#art-sel-keine', 'click', () => { state.data.artSel = []; zeichneMitEingaben(); });
+
+  on('#art-senden', 'click', (event) => guard(event.currentTarget, async () => {
+    const ids = state.data.artSel || [];
+    if (!ids.length) throw new Error('Bitte mindestens einen Beitrag auswählen.');
+
+    const { ergebnisse } = await api('/api/app/articles/senden', { method: 'POST', body: { ids } });
+    const gut = ergebnisse.filter((e) => e.ok).length;
+    const schief = ergebnisse.filter((e) => !e.ok);
+
+    // Das Ergebnis bleibt stehen, bis man es wegklickt. Bei zwanzig Sendungen
+    // waere eine Meldung, die nach drei Sekunden verschwindet, wertlos.
+    state.data.artSel = [];
+    state.data.sendeBericht = ergebnisse;
+    toast(schief.length
+      ? `${gut} von ${ergebnisse.length} gesendet, ${schief.length} fehlgeschlagen.`
+      : `${gut} Beitrag/Beiträge gesendet.`, schief.length ? 'err' : 'ok');
+    await render();
+  }));
+
+  /* Loeschen ist endgueltig, also fragt es nach - und zwar mit dem, was man zum
+     Entscheiden braucht: wie viele, welche davon schon veroeffentlicht sind, und
+     was mit denen in WordPress passiert (naemlich nichts). */
+  on('#art-loeschen', 'click', () => {
+    const ids = state.data.artSel || [];
+    const betroffen = ids.map((id) => articles.find((a) => a.id === id)).filter(Boolean);
+    if (!betroffen.length) return;
+    const veroeffentlicht = betroffen.filter((a) => a.status === 'published').length;
+
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-backdrop" id="art-del-overlay">
+        <div class="modal" role="dialog" aria-modal="true">
+          <header>${ic('alert', 'lg')}<h2>${mehrzahl(betroffen.length, 'Beitrag', 'Beiträge')} löschen?</h2>
+            <button class="btn quiet icon" data-zu="1">${ic('x', 'sm')}</button></header>
+          <div class="body">
+            <p>Text, Bilder und die Vorgeschichte verschwinden aus dem Hub. Das lässt sich
+              nicht zurückholen.</p>
+            ${veroeffentlicht ? `<div class="notice info">${ic('alert')}<div class="grow">
+              <b>${mehrzahl(veroeffentlicht, 'Beitrag steht', 'Beiträge stehen')} schon in WordPress.</b>
+              Dort bleibt alles, wie es ist. Der Hub vergisst nur seine eigene Kopie.</div></div>` : ''}
+            <div style="max-height:280px;overflow:auto;margin-top:12px">
+              ${betroffen.slice(0, 40).map((a) => `<div class="item ${spur(a.status)}">
+                <span class="grow"><span class="ttl">${esc(a.title || a.keyword)}</span>
+                  <span class="kv"><span>${esc(a.site_name || '')}</span>
+                    <span>${esc(STATUS[a.status] ? STATUS[a.status][2] : a.status)}</span></span></span>
+              </div>`).join('')}
+              ${betroffen.length > 40 ? `<div class="hint" style="padding:8px 0">… und
+                ${mehrzahl(betroffen.length - 40, 'weiterer Beitrag', 'weitere Beiträge')}</div>` : ''}
+            </div>
+          </div>
+          <footer><button type="button" class="btn quiet" data-zu="1">Abbrechen</button>
+            <button type="button" class="btn danger" id="art-del-ja">${ic('trash', 'sm')}Ja, löschen</button></footer>
+        </div>
+      </div>`);
+
+    const zu = () => { const el = document.getElementById('art-del-overlay'); if (el) el.remove(); };
+    document.querySelectorAll('#art-del-overlay [data-zu]').forEach((el) => el.addEventListener('click', zu));
+    document.getElementById('art-del-ja').addEventListener('click', (event) =>
+      guard(event.currentTarget, async () => {
+        const antwort = await api('/api/app/articles/loeschen', { method: 'POST', body: { ids } });
+        zu();
+        state.data.artSel = [];
+        toast(`${mehrzahl(antwort.geloescht, 'Beitrag', 'Beiträge')} gelöscht`
+          + `${antwort.bilder ? `, ${mehrzahl(antwort.bilder, 'Bilddatei', 'Bilddateien')} mit weggeräumt` : ''}.`
+          + (antwort.laufend.length
+            ? ` ${mehrzahl(antwort.laufend.length, 'Beitrag ist', 'Beiträge sind')} gerade in Arbeit und blieb${
+              antwort.laufend.length === 1 ? '' : 'en'} stehen.` : ''));
+        await render();
+      }));
+  });
+}
+
 async function renderArticles(view) {
   const tab = state.data.artTab || 'liste';
   const archiv = state.data.showArchive ? '1' : '0';
@@ -3055,38 +3150,7 @@ async function renderArticles(view) {
     on('#filter-site', 'change', (event) => { state.data.filterSite = event.target.value; render(); });
     on('[data-article]', 'click', zeilenKlick((event) => navigate('article', event.currentTarget.dataset.article)));
 
-    /* Auswahl. Das Haekchen sitzt in einer anklickbaren Zeile, darf sie aber nicht
-       oeffnen - dafuer sorgt die Klasse "stop" zusammen mit dem Zuhoerer am Wurzelelement. */
-    const sendbar = articles.filter((a) => SENDBAR.includes(a.status));
-    on('[data-artsel]', 'change', (event) => {
-      const id = event.currentTarget.dataset.artsel;
-      const jetzt = state.data.artSel || [];
-      state.data.artSel = jetzt.includes(id) ? jetzt.filter((x) => x !== id) : [...jetzt, id];
-      zeichneMitEingaben();
-    });
-    on('#art-sel-alle', 'change', (event) => {
-      state.data.artSel = event.currentTarget.checked ? sendbar.map((a) => a.id) : [];
-      zeichneMitEingaben();
-    });
-    on('#art-sel-keine', 'click', () => { state.data.artSel = []; zeichneMitEingaben(); });
-
-    on('#art-senden', 'click', (event) => guard(event.currentTarget, async () => {
-      const ids = state.data.artSel || [];
-      if (!ids.length) throw new Error('Bitte mindestens einen Beitrag auswählen.');
-
-      const { ergebnisse } = await api('/api/app/articles/senden', { method: 'POST', body: { ids } });
-      const gut = ergebnisse.filter((e) => e.ok).length;
-      const schief = ergebnisse.filter((e) => !e.ok);
-
-      // Das Ergebnis bleibt stehen, bis man es wegklickt. Bei zwanzig Sendungen
-      // waere eine Meldung, die nach drei Sekunden verschwindet, wertlos.
-      state.data.artSel = [];
-      state.data.sendeBericht = ergebnisse;
-      toast(schief.length
-        ? `${gut} von ${ergebnisse.length} gesendet, ${schief.length} fehlgeschlagen.`
-        : `${gut} Beitrag/Beiträge gesendet.`, schief.length ? 'err' : 'ok');
-      await render();
-    }));
+    artikelAuswahl(articles);
   } else if (tab === 'backlinks') {
     if (!sites.length) {
       body.innerHTML = `<div class="card"><div class="empty"><span class="ring">${ic('globe', 'lg')}</span>

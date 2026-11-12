@@ -229,7 +229,8 @@ Autor-ID.
 offen, obwohl sie selten gebraucht wird.
 
 **e) Artikel**
-Karte „Artikel schreiben" (Thema, Blickwinkel) und die Artikeltabelle dieser Website.
+Karte „Artikel schreiben" (Thema, Blickwinkel) und die Artikeltabelle dieser Website,
+mit derselben Mehrfachauswahl wie unter „Beiträge".
 
 Im Reiter „Verbindung" steht unten der **Übertragungsweg**: wie der Artikel zu WordPress
 kommt (Hub sendet / WordPress holt ab) und in welchem Zustand er dort landet. Neue
@@ -303,6 +304,20 @@ der Grund des Fehlschlags. Der Bericht bleibt stehen, bis man ihn schließt – 
 Sendungen wäre eine Meldung, die nach drei Sekunden verschwindet, wertlos.
 
 ---
+
+**Mehrfachauswahl.** Jede Zeile, die sich senden lässt (Entwurf, freigegeben, Fehler,
+veröffentlicht), hat vorn ein Häkchen; das Häkchen im Kopf wählt alle davon. Sobald etwas
+gewählt ist, erscheint darüber eine Leiste mit „An WordPress senden" und, in Rot,
+„Löschen". Was gerade geschrieben oder gesendet wird, ist nicht wählbar: Dort greift
+„Abbrechen", nicht „Löschen".
+
+Löschen fragt nach und zeigt dabei, was man zum Entscheiden braucht: wie viele, welche
+(Titel, Website, Status), und ob welche davon schon in WordPress stehen. Die bleiben dort
+unangetastet; der Hub vergisst nur seine eigene Kopie. Bilddateien verschwinden mit,
+Videos verlieren ihren Verweis auf den gelöschten Artikel und rücken wieder in die Liste
+der zurückgestellten, von wo sich ein neuer Anlauf starten lässt.
+
+Dieselbe Auswahl steht im Reiter „Artikel" einer Website.
 
 ### 4.7 Artikel-Detail (`#/article/<id>`)
 

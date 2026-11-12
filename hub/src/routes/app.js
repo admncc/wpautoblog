@@ -696,6 +696,77 @@ router.post(
   })
 );
 
+/**
+ * Mehrere Beitraege aus dem Hub loeschen.
+ *
+ * Endgueltig, und das steht auch in der Rueckfrage: Text, Bilder und die ganze
+ * Vorgeschichte sind danach weg. Was schon in WordPress steht, bleibt dort - der
+ * Hub hat dann nur seine Kopie vergessen.
+ *
+ * Nicht angefasst wird, was gerade laeuft. Ein Artikel mitten im Schreiben oder
+ * Senden wuerde sonst ins Leere greifen; dafuer gibt es "Abbrechen".
+ */
+router.post(
+  '/articles/loeschen',
+  wrap((req, res) => {
+    const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(String).slice(0, 200);
+    if (!ids.length) return res.status(400).json({ error: 'Bitte mindestens einen Beitrag auswählen.' });
+
+    const platzhalter = ids.map(() => '?').join(',');
+    const gefunden = db.prepare(`SELECT id, title, keyword, status FROM articles WHERE id IN (${platzhalter})`).all(...ids);
+    const laufend = gefunden.filter((a) => ['generating', 'publishing'].includes(a.status));
+    const loeschbar = gefunden.filter((a) => !['generating', 'publishing'].includes(a.status));
+
+    if (!loeschbar.length) {
+      return res.status(400).json({
+        error: laufend.length
+          ? 'Diese Beiträge sind gerade in Arbeit. Erst abbrechen, dann löschen.'
+          : 'Diese Beiträge gibt es nicht mehr.',
+      });
+    }
+
+    const weg = loeschbar.map((a) => a.id);
+    const wegPlatzhalter = weg.map(() => '?').join(',');
+
+    // Videos verweisen auf ihren Artikel. Welche das sind, muss vor dem Loeschen
+    // feststehen - danach ist der Verweis nicht mehr zuzuordnen.
+    const videos = db.prepare(`SELECT * FROM videos WHERE article_id IN (${wegPlatzhalter})`).all(...weg);
+
+    // Die Bildzeilen haengen am Artikel und verschwinden mit ihm; die Dateien
+    // raeumt der Durchgang fuer verwaiste Bilder gleich mit weg.
+    const ergebnis = db.prepare(`DELETE FROM articles WHERE id IN (${wegPlatzhalter})`).run(...weg);
+    const bilder = images.pruneOrphans();
+
+    // Bliebe der Verweis stehen, zeigte die Kanalansicht einen Knopf zu einem
+    // Artikel, den es nicht mehr gibt. Und ein Video, das auf genau diesen Artikel
+    // gewartet hat, waere danach in keiner Liste mehr erreichbar - also geht es
+    // zurueck zu den zurueckgestellten, von wo es sich neu erzeugen laesst.
+    for (const video of videos) {
+      if (video.status === 'transkribiert') {
+        service.legeBeiseite(video, 'Der Artikel dazu wurde gelöscht.', 'manuell');
+      } else {
+        db.prepare('UPDATE videos SET article_id = NULL WHERE id = ?').run(video.id);
+      }
+    }
+
+    logger.warn('article', 'loeschen', `${ergebnis.changes} Beitrag/Beitraege gelöscht`, {
+      requestId: req.requestId,
+      context: {
+        titel: loeschbar.map((a) => a.title || a.keyword).slice(0, 50),
+        bilddateien: bilder,
+        uebersprungen: laufend.map((a) => `${a.title || a.keyword} (${a.status})`),
+      },
+    });
+
+    return res.json({
+      ok: true,
+      geloescht: ergebnis.changes,
+      bilder,
+      laufend: laufend.map((a) => ({ id: a.id, titel: a.title || a.keyword, status: a.status })),
+    });
+  })
+);
+
 /** Einen haengenden Artikel abbrechen. */
 router.post(
   '/articles/:id/abbrechen',
